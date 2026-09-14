@@ -1,3 +1,8 @@
+// Fixed left-hand columns, then the status columns in sheet order. Used to
+// map a paste that starts mid-sheet, where the header row (row 1, frozen) is
+// nowhere in the selection.
+const LEADING_COLUMNS = ['Date', 'Truck', 'Dealer', 'Tag Name']
+
 export const STATUS_COLUMNS = [
   'Mods', 'V4T', 'Vin. Fix', 'Vin. Trap', 'Alum. Fix', 'Alum. Trap', 'XX',
   'H2/4', 'PVC', 'I-A', 'Doors', 'Roof Panels', 'Roof Extr.', 'Track',
@@ -9,6 +14,63 @@ export const STATUS_COLUMNS = [
 // column. Anchored so it never matches a real dealer name (e.g. 'Pickens
 // Siding & Windows' correctly fails — no date immediately follows 'pick').
 const PICKUP_BANNER = /^\s*pick\s*up\D{0,20}(\d{1,2})\/(\d{1,2})/i
+
+// Tag names look like 'THOMPSON_164904' or 'F-26072-CAMPEAU-CHANTAL_158037'
+// — an underscore followed by the order number. Used to confirm a positional
+// column guess actually landed on the Tag Name column.
+const TAG_SHAPED = /_\d{4,}\s*$/
+
+function normalizeHeader(v) {
+  if (v == null) return ''
+  return String(v).replace(/ /g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+/**
+ * Locates the header row and maps each expected column name to its index.
+ *
+ * The header is searched for rather than assumed to be row 0, because a paste
+ * usually starts partway down the sheet. Failing that, columns are mapped by
+ * position from the sheet's fixed layout — but only when the column that
+ * lands on 'Tag Name' actually holds tag-shaped values, so a selection that
+ * starts on the wrong column fails loudly instead of filing every status
+ * under the wrong department.
+ */
+function findHeader(rows) {
+  const wanted = new Map([...LEADING_COLUMNS, ...STATUS_COLUMNS].map((c) => [normalizeHeader(c), c]))
+
+  for (let r = 0; r < rows.length; r++) {
+    const norm = (rows[r] ?? []).map(normalizeHeader)
+    // 'Tag Name' is the anchor: the section banner rows re-print the status
+    // headers ('Mods', 'V4T', …) but never carry a Tag Name cell, so keying
+    // on it keeps those from being mistaken for the real header.
+    if (!norm.includes('tag name')) continue
+
+    const colIndex = {}
+    norm.forEach((h, i) => {
+      const canonical = wanted.get(h)
+      if (canonical && colIndex[canonical] == null) colIndex[canonical] = i
+    })
+    return { colIndex, headerIndex: r, inferred: false }
+  }
+
+  // No header in the selection — fall back to the sheet's fixed layout.
+  const layout = [...LEADING_COLUMNS, ...STATUS_COLUMNS]
+  const colIndex = {}
+  layout.forEach((name, i) => {
+    colIndex[name] = i
+  })
+
+  const tagCells = rows.map((row) => cleanCell(row?.[colIndex['Tag Name']])).filter((v) => v != null)
+  const tagLike = tagCells.filter((v) => TAG_SHAPED.test(v)).length
+
+  if (tagCells.length === 0 || tagLike / tagCells.length < 0.6) {
+    throw new Error(
+      "Couldn't tell which column is which. Either include the sheet's header row in what you copy, or start your selection at column A (Date) so the columns line up."
+    )
+  }
+
+  return { colIndex, headerIndex: -1, inferred: true }
+}
 
 function cleanCell(v) {
   if (v == null) return null
@@ -44,25 +106,13 @@ function toIsoDate(month, day) {
 export function parseRows(rows) {
   if (!rows || rows.length === 0) throw new Error('Nothing to read — no rows found.')
 
-  const header = rows[0].map((h) => (typeof h === 'string' ? h.trim() : h))
-  const colIndex = {}
-  header.forEach((h, i) => {
-    if (h != null) colIndex[h] = i
-  })
-
-  // Without a header row there's no way to know which column is which, and
-  // guessing would silently file statuses under the wrong department.
-  if (colIndex['Tag Name'] == null) {
-    throw new Error(
-      "No 'Tag Name' column found in the header row. Make sure the first row you copied is the header row from the sheet."
-    )
-  }
+  const { colIndex, headerIndex, inferred } = findHeader(rows)
 
   const ordersByTag = new Map()
   const sectionsByDate = new Map() // isoDate -> { label, isoDate, ambiguous, count }
   let currentSection = null // { label, isoDate, ambiguous }
 
-  for (let r = 1; r < rows.length; r++) {
+  for (let r = headerIndex + 1; r < rows.length; r++) {
     const row = rows[r]
     const dealerRaw = cleanCell(row[colIndex['Dealer']])
     const tagName = cleanCell(row[colIndex['Tag Name']])
@@ -117,7 +167,7 @@ export function parseRows(rows) {
 
   const sections = Array.from(sectionsByDate.values()).sort((a, b) => a.isoDate.localeCompare(b.isoDate))
 
-  return { orders: Array.from(ordersByTag.values()), sections }
+  return { orders: Array.from(ordersByTag.values()), sections, inferredColumns: inferred }
 }
 
 /**

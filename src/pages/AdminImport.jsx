@@ -260,8 +260,9 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
           <kbd className="px-1 border border-paperDim bg-paper">V</kbd> to paste rows copied from Excel.
         </p>
         <p className="text-xs text-steelLight">
-          Pasting copied cells is exact — Excel puts the real values on the clipboard. A screenshot has to be read by
-          OCR, which guesses, so use it only when the file isn't available.
+          Pasting copied cells is exact — Excel puts the real values on the clipboard. You can select rows from partway
+          down the sheet without the header row; just start the selection at column A so the columns line up. A
+          screenshot has to be read by OCR, which guesses, so use it only when the file isn't available.
         </p>
         <input type="file" accept=".xlsx,.xls,image/*" onChange={handleFile} className="text-sm" />
       </div>
@@ -307,9 +308,16 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
               </p>
             </div>
           )}
-          {source === 'paste' && (
+          {source === 'paste' && !parsed.inferredColumns && (
             <p className="text-sm text-andonGreen">
               Pasted {parsed.orders.length} orders from the clipboard — exact values, no OCR.
+            </p>
+          )}
+          {parsed.inferredColumns && (
+            <p className="bg-safety/10 border border-safety p-3 text-sm text-charcoal">
+              No header row in this selection, so columns were matched by position against the sheet's normal layout
+              (Date, Truck, Dealer, Tag Name, then the status columns). The values themselves are exact — but glance
+              down the table below to confirm the statuses line up under the right departments.
             </p>
           )}
           {staleOrders.length > 0 && (

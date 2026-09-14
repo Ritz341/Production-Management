@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
-import { parseTruesdaleSheet, STATUS_COLUMNS } from '../lib/parseSheet'
+import { parseTruesdaleSheet, parseClipboardText, STATUS_COLUMNS } from '../lib/parseSheet'
+import { parseScreenshot } from '../lib/parseScreenshot'
 
 export default function AdminImport({ buildWeeks, onCommitted }) {
   const [parsed, setParsed] = useState(null) // { orders, sections }
@@ -13,6 +14,16 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState(null)
+  const [source, setSource] = useState(null) // 'file' | 'paste' | 'ocr'
+  const [dragging, setDragging] = useState(false)
+  const [ocrProgress, setOcrProgress] = useState(0)
+
+  // Paste is bound to the document so admin can just hit Ctrl+V on arrival
+  // without hunting for a box to focus first.
+  useEffect(() => {
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  })
 
   const presentColumns = useMemo(() => {
     if (!parsed) return []
@@ -21,14 +32,13 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
     return STATUS_COLUMNS.filter((c) => seen.has(c))
   }, [parsed])
 
-  async function handleFile(e) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setError('')
-    setResult(null)
+  // Every import route — uploaded file, pasted cells, OCR'd screenshot —
+  // lands here, so all three get the same review-and-confirm step before
+  // anything touches the database.
+  async function applyParsed(data, source) {
     try {
-      const data = await parseTruesdaleSheet(file)
       setParsed(data)
+      setSource(source)
 
       const currentTags = new Set(data.orders.map((o) => o.tagName))
       const { data: existing } = await supabase.from('bt_orders').select('id, tag_name')
@@ -57,6 +67,66 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
     } catch (err) {
       setError(err.message)
       setParsed(null)
+    }
+  }
+
+  async function runImport(fn, source) {
+    setError('')
+    setResult(null)
+    setBusy(true)
+    try {
+      const data = await fn()
+      await applyParsed(data, source)
+    } catch (err) {
+      setError(err.message)
+      setParsed(null)
+    }
+    setBusy(false)
+  }
+
+  function handleFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.type.startsWith('image/')) {
+      runImport(() => parseScreenshot(file, setOcrProgress), 'ocr')
+    } else {
+      runImport(() => parseTruesdaleSheet(file), 'file')
+    }
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    setDragging(false)
+    const file = e.dataTransfer.files?.[0]
+    if (!file) return
+    if (/\.xlsx?$/i.test(file.name)) {
+      runImport(() => parseTruesdaleSheet(file), 'file')
+    } else if (file.type.startsWith('image/')) {
+      runImport(() => parseScreenshot(file, setOcrProgress), 'ocr')
+    } else {
+      setError(`Can't read "${file.name}" — drop an .xlsx sheet or a screenshot image.`)
+    }
+  }
+
+  // Excel puts real cell text on the clipboard, so a paste is exact data —
+  // same speed as screenshotting, none of the OCR guesswork. An image on the
+  // clipboard falls through to OCR instead.
+  function handlePaste(e) {
+    // Don't hijack a paste meant for a field the admin is actually typing in
+    // (the build-week date inputs, say).
+    const t = e.target
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+
+    const imageItem = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith('image/'))
+    const text = e.clipboardData?.getData('text/plain')
+
+    if (text && text.includes('\t')) {
+      e.preventDefault()
+      runImport(() => parseClipboardText(text), 'paste')
+    } else if (imageItem) {
+      e.preventDefault()
+      const file = imageItem.getAsFile()
+      if (file) runImport(() => parseScreenshot(file, setOcrProgress), 'ocr')
     }
   }
 
@@ -176,10 +246,29 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
     <div className="bg-white p-5 space-y-5 max-w-5xl">
       <h2 className="font-display text-2xl font-bold text-charcoal">Weekly Import</h2>
 
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-steel">Upload Truesdale sheet (.xlsx)</label>
-        <input type="file" accept=".xlsx,.xls" onChange={handleFile} className="text-sm" />
+      <div
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragging(true)
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        className={`border-2 border-dashed p-5 space-y-3 ${dragging ? 'border-safety bg-safety/10' : 'border-paperDim'}`}
+      >
+        <p className="text-sm font-medium text-steel">
+          Drop the Truesdale sheet here, or press <kbd className="px-1 border border-paperDim bg-paper">Ctrl</kbd>+
+          <kbd className="px-1 border border-paperDim bg-paper">V</kbd> to paste rows copied from Excel.
+        </p>
+        <p className="text-xs text-steelLight">
+          Pasting copied cells is exact — Excel puts the real values on the clipboard. A screenshot has to be read by
+          OCR, which guesses, so use it only when the file isn't available.
+        </p>
+        <input type="file" accept=".xlsx,.xls,image/*" onChange={handleFile} className="text-sm" />
       </div>
+
+      {busy && ocrProgress > 0 && (
+        <p className="text-sm text-steel">Reading screenshot… {ocrProgress}%</p>
+      )}
 
       {error && <p className="text-andonRed text-sm">{error}</p>}
       {result && (
@@ -191,6 +280,38 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
 
       {parsed && (
         <div className="space-y-5">
+          {source === 'ocr' && (
+            <div className="bg-safety/10 border border-safety p-3 text-sm space-y-2">
+              <p className="text-charcoal">
+                ⚠ <strong>Read from a screenshot by OCR — check this before loading.</strong> Values were guessed from
+                pixels and can land in the wrong column. Overall confidence {parsed.ocr.confidence}%,{' '}
+                {parsed.ocr.columnsFound} columns detected.
+              </p>
+              {parsed.ocr.lowConfidence.length > 0 && (
+                <div>
+                  <p className="text-charcoal font-medium">
+                    {parsed.ocr.lowConfidence.length} cell(s) the engine was unsure of:
+                  </p>
+                  <ul className="mt-1 max-h-32 overflow-y-auto text-xs text-steel space-y-0.5">
+                    {parsed.ocr.lowConfidence.map((c, i) => (
+                      <li key={i}>
+                        <span className="font-medium">{c.tagName ?? '(no tag)'}</span> · {c.column}: "{c.text}" (
+                        {c.confidence}%)
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <p className="text-xs text-steelLight">
+                If the sheet file is available, paste or upload it instead — that carries exact values.
+              </p>
+            </div>
+          )}
+          {source === 'paste' && (
+            <p className="text-sm text-andonGreen">
+              Pasted {parsed.orders.length} orders from the clipboard — exact values, no OCR.
+            </p>
+          )}
           {staleOrders.length > 0 && (
             <div className="bg-andonRedBg border border-andonRed p-3 text-sm text-andonRed space-y-2">
               <p>

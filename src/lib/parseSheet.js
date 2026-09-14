@@ -26,11 +26,14 @@ function toIsoDate(month, day) {
 }
 
 /**
- * Parses the 'Truesdale' sheet from an uploaded workbook (File object).
- * Walks every row top-to-bottom tracking the most recent 'PICK UP x/x'
- * banner row, so each order gets tagged with the pickup-date section it
- * actually falls under in the sheet — not just a single date for the
- * whole file.
+ * Walks a grid of rows (array of arrays, first row = header) top-to-bottom
+ * tracking the most recent 'PICK UP x/x' banner row, so each order gets
+ * tagged with the pickup-date section it actually falls under — not just a
+ * single date for the whole grid.
+ *
+ * Shared by every import route: uploaded .xlsx, pasted spreadsheet cells,
+ * and OCR'd screenshots all reduce to the same grid before landing here, so
+ * they all produce identical output and go through the same review screen.
  *
  * Returns:
  *   {
@@ -38,26 +41,22 @@ function toIsoDate(month, day) {
  *     sections: [{ label, isoDate, ambiguous, count }]   // in sheet order
  *   }
  */
-export async function parseTruesdaleSheet(file) {
-  // Loaded on demand: xlsx is ~600kB and only admins importing a sheet ever
-  // need it. Keeping it out of the main bundle keeps the shop tablets fast.
-  const XLSX = await import('xlsx')
-
-  const buf = await file.arrayBuffer()
-  const wb = XLSX.read(buf, { type: 'array', cellDates: true })
-
-  const sheetName = wb.SheetNames.find((n) => n.trim().toLowerCase() === 'truesdale')
-  if (!sheetName) {
-    throw new Error(`No 'Truesdale' tab found. Sheets in this file: ${wb.SheetNames.join(', ')}`)
-  }
-  const ws = wb.Sheets[sheetName]
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true })
+export function parseRows(rows) {
+  if (!rows || rows.length === 0) throw new Error('Nothing to read — no rows found.')
 
   const header = rows[0].map((h) => (typeof h === 'string' ? h.trim() : h))
   const colIndex = {}
   header.forEach((h, i) => {
     if (h != null) colIndex[h] = i
   })
+
+  // Without a header row there's no way to know which column is which, and
+  // guessing would silently file statuses under the wrong department.
+  if (colIndex['Tag Name'] == null) {
+    throw new Error(
+      "No 'Tag Name' column found in the header row. Make sure the first row you copied is the header row from the sheet."
+    )
+  }
 
   const ordersByTag = new Map()
   const sectionsByDate = new Map() // isoDate -> { label, isoDate, ambiguous, count }
@@ -119,4 +118,75 @@ export async function parseTruesdaleSheet(file) {
   const sections = Array.from(sectionsByDate.values()).sort((a, b) => a.isoDate.localeCompare(b.isoDate))
 
   return { orders: Array.from(ordersByTag.values()), sections }
+}
+
+/**
+ * Parses the 'Truesdale' sheet from an uploaded workbook (File object).
+ */
+export async function parseTruesdaleSheet(file) {
+  // Loaded on demand: xlsx is ~600kB and only admins importing a sheet ever
+  // need it. Keeping it out of the main bundle keeps the shop tablets fast.
+  const XLSX = await import('xlsx')
+
+  const buf = await file.arrayBuffer()
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true })
+
+  const sheetName = wb.SheetNames.find((n) => n.trim().toLowerCase() === 'truesdale')
+  if (!sheetName) {
+    throw new Error(`No 'Truesdale' tab found. Sheets in this file: ${wb.SheetNames.join(', ')}`)
+  }
+  const ws = wb.Sheets[sheetName]
+  return parseRows(XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true }))
+}
+
+/**
+ * Parses spreadsheet cells copied to the clipboard. Excel puts the real cell
+ * text on the clipboard as tab-separated values, so this is exact — no OCR,
+ * no guessing. Quoted cells may span lines, so rows are assembled by walking
+ * characters rather than splitting on newlines.
+ */
+export function parseClipboardText(text) {
+  const rows = []
+  let row = []
+  let cell = ''
+  let inQuotes = false
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          cell += '"'
+          i++
+        } else {
+          inQuotes = false
+        }
+      } else {
+        cell += ch
+      }
+    } else if (ch === '"') {
+      inQuotes = true
+    } else if (ch === '\t') {
+      row.push(cell)
+      cell = ''
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++
+      row.push(cell)
+      rows.push(row)
+      row = []
+      cell = ''
+    } else {
+      cell += ch
+    }
+  }
+  if (cell !== '' || row.length > 0) {
+    row.push(cell)
+    rows.push(row)
+  }
+
+  const trimmed = rows.filter((r) => r.some((c) => c != null && String(c).trim() !== ''))
+  if (trimmed.length < 2) {
+    throw new Error('That paste had no data rows — select the header row plus the order rows in the sheet, then copy.')
+  }
+  return parseRows(trimmed)
 }

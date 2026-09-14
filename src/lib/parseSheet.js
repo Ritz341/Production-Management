@@ -1,5 +1,3 @@
-import * as XLSX from 'xlsx'
-
 export const STATUS_COLUMNS = [
   'Mods', 'V4T', 'Vin. Fix', 'Vin. Trap', 'Alum. Fix', 'Alum. Trap', 'XX',
   'H2/4', 'PVC', 'I-A', 'Doors', 'Roof Panels', 'Roof Extr.', 'Track',
@@ -41,6 +39,10 @@ function toIsoDate(month, day) {
  *   }
  */
 export async function parseTruesdaleSheet(file) {
+  // Loaded on demand: xlsx is ~600kB and only admins importing a sheet ever
+  // need it. Keeping it out of the main bundle keeps the shop tablets fast.
+  const XLSX = await import('xlsx')
+
   const buf = await file.arrayBuffer()
   const wb = XLSX.read(buf, { type: 'array', cellDates: true })
 

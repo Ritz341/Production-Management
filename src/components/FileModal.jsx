@@ -3,8 +3,15 @@ import { supabase } from '../lib/supabaseClient'
 
 const BUCKET = 'bt-files'
 
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|bmp|heic)$/i
+
+function isImage(filename) {
+  return IMAGE_EXTENSIONS.test(filename)
+}
+
 export default function FileModal({ order, onClose, allowUpload = false }) {
   const [files, setFiles] = useState([])
+  const [previews, setPreviews] = useState({}) // file id -> signed url
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
 
@@ -15,8 +22,27 @@ export default function FileModal({ order, onClose, allowUpload = false }) {
       .select('id, filename, storage_path, uploaded_at')
       .eq('order_id', order.id)
       .order('uploaded_at', { ascending: false })
-    setFiles(data ?? [])
+    const rows = data ?? []
+    setFiles(rows)
     setLoading(false)
+    loadPreviews(rows)
+  }
+
+  // Screenshots and photos render in place — a tag's damage photo is worth
+  // more at a glance than a filename you have to tap through to see. Signed
+  // in one batch so a tag with a dozen photos is still a single request.
+  async function loadPreviews(rows) {
+    const images = rows.filter((f) => isImage(f.filename))
+    if (images.length === 0) return
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrls(images.map((f) => f.storage_path), 3600)
+    if (error || !data) return
+    const urls = {}
+    data.forEach((entry, i) => {
+      if (entry.signedUrl) urls[images[i].id] = entry.signedUrl
+    })
+    setPreviews((prev) => ({ ...prev, ...urls }))
   }
 
   useEffect(() => {
@@ -71,9 +97,17 @@ export default function FileModal({ order, onClose, allowUpload = false }) {
               <li key={f.id}>
                 <button
                   onClick={() => handleOpen(f)}
-                  className="w-full text-left px-3 py-2 bg-white border border-paperDim text-sm text-andonBlue font-medium"
+                  className="w-full text-left bg-white border border-paperDim text-sm text-andonBlue font-medium"
                 >
-                  {f.filename}
+                  {previews[f.id] && (
+                    <img
+                      src={previews[f.id]}
+                      alt={f.filename}
+                      loading="lazy"
+                      className="w-full max-h-64 object-contain bg-paperDim border-b border-paperDim"
+                    />
+                  )}
+                  <span className="block px-3 py-2">{f.filename}</span>
                 </button>
               </li>
             ))}

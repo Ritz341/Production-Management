@@ -66,18 +66,31 @@ export default function DepartmentView() {
       }
       setDeptColumnMap(map)
     })
+
     // Newest ship date first in the list — oldest scrolls to the bottom.
-    supabase
-      .from('bt_build_weeks')
-      .select('*')
-      .order('ship_date', { ascending: false, nullsFirst: false })
-      .then(({ data }) => {
-        const weeks = data ?? []
-        setBuildWeeks(weeks)
-        // Default to the week the floor is actually building next, not
-        // everything mixed together.
-        setSelectedWeekId(nearestBuildWeekId(weeks) ?? 'all')
-      })
+    function loadWeeks(initial) {
+      return supabase
+        .from('bt_build_weeks')
+        .select('*')
+        .order('ship_date', { ascending: false, nullsFirst: false })
+        .then(({ data }) => {
+          const weeks = data ?? []
+          setBuildWeeks(weeks)
+          // Default to the week the floor is actually building next, not
+          // everything mixed together. Only on first load — a live refresh
+          // must never yank the tablet off the week someone is looking at.
+          if (initial) setSelectedWeekId(nearestBuildWeekId(weeks) ?? 'all')
+        })
+    }
+    loadWeeks(true)
+
+    // Admin moving a ship date mid-week has to reach the header on every
+    // tablet, not just raise the alert banner.
+    const channel = supabase
+      .channel('dept-build-weeks')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_build_weeks' }, () => loadWeeks(false))
+      .subscribe()
+    return () => supabase.removeChannel(channel)
   }, [])
 
   // When the selected department set changes, resolve the union of
@@ -156,6 +169,8 @@ export default function DepartmentView() {
     const channel = supabase
       .channel(`dept-${selectedDeptIds.join('-')}-${selectedWeekId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_order_status' }, load)
+      // Order edits (dealer, pickup date, moved to another week) too.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_orders' }, load)
       .subscribe()
 
     return () => {

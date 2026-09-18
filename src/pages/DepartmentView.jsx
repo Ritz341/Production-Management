@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { WORKFLOW_STAGES, workflowStageById } from '../lib/statusColors'
 import { nearestBuildWeekId, weekOptionLabel } from '../lib/dates'
+import { DONE_RANK, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import FileModal from '../components/FileModal.jsx'
 import NotificationBanner from '../components/NotificationBanner.jsx'
@@ -582,9 +583,6 @@ const STAGE_SWATCH = {
   shipped: 'bg-paper',
 }
 
-// Rank at which a department's job counts as done (Order Completed).
-const DONE_RANK = 3
-
 function BigAction({ cell, disabled, onClick }) {
   const next = nextStage(cell.stage)
   const rank = stageRank(cell.stage)
@@ -653,31 +651,6 @@ function byPickup(a, b) {
   const ad = a.scheduled_pickup_date || '9999'
   const bd = b.scheduled_pickup_date || '9999'
   return ad.localeCompare(bd)
-}
-
-function daysUntil(iso) {
-  if (!iso) return null
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return Math.round((new Date(iso + 'T00:00') - today) / 864e5)
-}
-
-function relativeDay(n) {
-  if (n == null) return ''
-  if (n < 0) return `${-n}d late`
-  if (n === 0) return 'Today'
-  if (n === 1) return 'Tomorrow'
-  return `in ${n} days`
-}
-
-function shortDate(iso) {
-  return new Date(iso + 'T00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
-}
-
-function stageRank(stageId) {
-  if (!stageId) return 0
-  const idx = STAGE_IDS.indexOf(stageId)
-  return idx < 0 ? 0 : idx + 1
 }
 
 // The "worst" (earliest) stage across this department's columns for an order

@@ -9,7 +9,8 @@ import NotificationBanner from '../components/NotificationBanner.jsx'
 import OrderFormModal from '../components/OrderFormModal.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
 import AdminImport from './AdminImport.jsx'
-import AdminBoard from './AdminBoard.jsx'
+import AdminOverview from './AdminOverview.jsx'
+import { DONE_RANK, stageRank } from '../lib/schedule'
 
 // Cycled per row in the Grid tab so long lists are easier to track
 // across a wide table (25 columns) than plain white/paper zebra
@@ -20,7 +21,8 @@ export default function AdminView() {
   const { signOut } = useAuth()
   const { live } = useConnection()
   const [blockTarget, setBlockTarget] = useState(null) // { orderId, columnId } while the reason picker is open
-  const [tab, setTab] = useState('board') // 'board' | 'grid' | 'import'
+  const [tab, setTab] = useState('overview') // 'overview' | 'grid' | 'import'
+  const [hideFinished, setHideFinished] = useState(true)
   const [buildWeeks, setBuildWeeks] = useState([])
   const [selectedWeekId, setSelectedWeekId] = useState('all')
   const [columns, setColumns] = useState([])
@@ -49,7 +51,7 @@ export default function AdminView() {
     const { data: cols, error: colsErr } = await supabase.from('bt_status_columns').select('id, name').order('sort_order')
     setColumns(cols ?? [])
 
-    let query = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id')
+    let query = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date')
     if (selectedWeekId !== 'all') query = query.eq('build_week_id', selectedWeekId)
     const { data: orderRows, error: ordersErr } = await query
 
@@ -164,11 +166,19 @@ export default function AdminView() {
     await supabase.from('bt_build_weeks').update({ ship_date: shipDateDraft || null }).eq('id', selectedWeekId)
   }
 
+  // Finished = every department on the order at Order Completed or
+  // later. Hidden by default so the grid shows the work still to do.
+  const isFinished = (o) => {
+    const cells = Object.values(o.statuses).filter((c) => c.visible)
+    return cells.length > 0 && cells.every((c) => stageRank(c.stage) >= DONE_RANK)
+  }
+  const finishedCount = orders.filter(isFinished).length
   const visibleOrders = orders.filter(
     (o) =>
-      !filter ||
-      o.tag_name.toLowerCase().includes(filter.toLowerCase()) ||
-      (o.dealer ?? '').toLowerCase().includes(filter.toLowerCase())
+      !(hideFinished && isFinished(o)) &&
+      (!filter ||
+        o.tag_name.toLowerCase().includes(filter.toLowerCase()) ||
+        (o.dealer ?? '').toLowerCase().includes(filter.toLowerCase()))
   )
 
   // A column only earns a spot in the grid if at least one visible order
@@ -183,31 +193,35 @@ export default function AdminView() {
       <header className="bg-charcoal px-5 py-4 flex items-center justify-between gap-4 border-b-4 border-safety flex-wrap">
         <h1 className="font-display text-2xl font-bold text-paper tracking-wide">Truesdale Build Tracker — Admin</h1>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setTab('board')}
-            className={`px-3 py-1.5 text-sm font-medium rounded ${tab === 'board' ? 'bg-safety text-charcoal' : 'text-paper'}`}
-          >
-            Board
-          </button>
-          <button
-            onClick={() => setTab('grid')}
-            className={`px-3 py-1.5 text-sm font-medium rounded ${tab === 'grid' ? 'bg-safety text-charcoal' : 'text-paper'}`}
-          >
-            Grid
-          </button>
-          <button
-            onClick={() => setTab('import')}
-            className={`px-3 py-1.5 text-sm font-medium rounded ${tab === 'import' ? 'bg-safety text-charcoal' : 'text-paper'}`}
-          >
-            Weekly Import
-          </button>
+          {[
+            ['overview', 'Overview'],
+            ['grid', 'Grid'],
+            ['import', 'Weekly Import'],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`px-3 py-1.5 text-sm font-medium rounded ${tab === id ? 'bg-safety text-charcoal' : 'text-paper'}`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
         <button onClick={signOut} className="text-sm text-steelLight hover:text-paper">
           Sign out
         </button>
       </header>
 
-      {tab === 'board' && <AdminBoard buildWeeks={buildWeeks} />}
+      {tab === 'overview' && (
+        <AdminOverview
+          buildWeeks={buildWeeks}
+          onWeeksChanged={loadBuildWeeks}
+          onEditOrder={(o) => setFormOrder(o)}
+          onNewOrder={() => setFormOrder('new')}
+          onImport={() => setTab('import')}
+          onOpenGrid={() => setTab('grid')}
+        />
+      )}
 
       {tab === 'import' && (
         <AdminImport
@@ -251,6 +265,10 @@ export default function AdminView() {
                 </button>
               </div>
             )}
+            <label className="flex items-center gap-2 text-sm text-steel cursor-pointer">
+              <input type="checkbox" checked={hideFinished} onChange={(e) => setHideFinished(e.target.checked)} className="w-4 h-4" />
+              Hide finished{finishedCount > 0 && ` (${finishedCount})`}
+            </label>
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}

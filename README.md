@@ -19,12 +19,21 @@ Built with **React + Vite + Tailwind** on **Supabase** (Postgres, Auth, Realtime
 - **File view** — open drawings and photos attached to a tag, with inline image previews
 - **Installable** — add to the tablet home screen; opens full screen like a native app
 
-### Admin
-- **Plant grid** — every order × all 25 status columns, inline editable, searchable by tag or dealer
-- **Board view** — per-department progress for each build week
+### Admin (production coordinator)
+- **Overview** — what ships next with a live countdown, % of the week built, and a stage breakdown
+- **Needs attention** — every blocked job with its reason and how long it's been stuck (clear it in one tap), and every order picking up within 3 days that isn't finished, latest first (open it to reschedule)
+- **Move a ship date** from the overview — every tablet's header and alert update instantly
+- **Department progress** for the selected week, and a live feed of what the floor is doing
+- **Plant grid** — every order × all status columns, inline editable, searchable, finished orders hidden by default
 - **New / edit orders** — add orders, edit core fields, add a department an order is missing
 - **Visibility control** — hide a single column on a single order from the floor
 - **File attach** — upload drawings, photos, and documents to a tag (private storage, signed URLs)
+
+### Logistics coordinator
+- **Add orders one at a time** as they're confirmed — they reach the floor immediately, with a notice on every tablet
+- Pickup week and departments stay picked between entries, so a batch of similar orders is a few taps each
+- Catches duplicate tags before saving, suggests dealers already on file, and can create a new pickup week
+- **Recent orders** list with each order's progress, plus attaching the order confirmation
 
 ### Weekly import
 Three ways to load the build week — all land on the same review screen, so nothing is written until admin confirms:
@@ -63,7 +72,7 @@ In the Supabase SQL editor, run **in order**:
 1. `schema.sql`
 2. `seed.sql`
 3. `import_data.sql` *(optional starting data)*
-4. `schema_v2.sql` through `schema_v11.sql`, in order
+4. `schema_v2.sql` through `schema_v12.sql`, in order
 
 > Run the migrations **before** creating the storage bucket — `schema_v9.sql` adds the storage policies the bucket needs.
 
@@ -81,8 +90,8 @@ Then add a matching profile:
 insert into bt_profiles (user_id, role, department_id, display_name)
 values (
   '<user UUID from Authentication > Users>',
-  'crew',                                                -- or 'admin' / 'shipping'
-  (select id from bt_departments where name = 'Mods'),   -- NULL for admin
+  'crew',                                                -- or 'admin' / 'shipping' / 'logistics'
+  (select id from bt_departments where name = 'Mods'),   -- NULL for admin / logistics
   'Mods Tablet'
 );
 ```
@@ -133,9 +142,10 @@ Stand up Supabase via Docker on the plant server, run the same SQL files, recrea
 ├── src/
 │   ├── pages/
 │   │   ├── AdminView.jsx        # plant grid
-│   │   ├── AdminBoard.jsx       # per-department progress board
+│   │   ├── AdminOverview.jsx    # coordinator home: at risk, blocked, departments, activity
 │   │   ├── AdminImport.jsx      # weekly import (paste / file / screenshot)
 │   │   ├── DepartmentView.jsx   # tablet queue
+│   │   ├── LogisticsView.jsx    # add orders one at a time
 │   │   ├── ShippingView.jsx
 │   │   └── Login.jsx
 │   ├── components/              # FileModal, OrderFormModal, BlockReasonModal, NotificationBanner
@@ -145,7 +155,7 @@ Stand up Supabase via Docker on the plant server, run the same SQL files, recrea
 │       ├── AuthContext.jsx
 │       ├── ConnectionContext.jsx
 │       └── supabaseClient.js
-├── schema.sql, schema_v2–v11.sql   # database + migrations
+├── schema.sql, schema_v2–v12.sql   # database + migrations
 ├── seed.sql, import_data.sql
 └── .github/workflows/build.yml     # CI build check
 ```
@@ -157,5 +167,4 @@ Stand up Supabase via Docker on the plant server, run the same SQL files, recrea
 - [ ] Order confirmation upload — read the tag from the PDF, strip the pricing page, attach the spec sheets
 - [ ] Admin UI for assigning departments to tablet logins (currently SQL)
 - [ ] Admin UI for adding departments / reassigning columns (currently SQL)
-- [ ] Hide fully-complete orders on the admin grid (department queues already have this)
 - [ ] Notify tablets when a new file lands on a tag

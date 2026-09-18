@@ -3,6 +3,7 @@ import Login from './pages/Login.jsx'
 import DepartmentView from './pages/DepartmentView.jsx'
 import AdminView from './pages/AdminView.jsx'
 import ShippingView from './pages/ShippingView.jsx'
+import LogisticsView from './pages/LogisticsView.jsx'
 
 export default function App() {
   const { session, profile, loading } = useAuth()
@@ -23,5 +24,6 @@ export default function App() {
 
   if (profile.role === 'admin') return <AdminView />
   if (profile.role === 'shipping') return <ShippingView />
+  if (profile.role === 'logistics') return <LogisticsView />
   return <DepartmentView />
 }

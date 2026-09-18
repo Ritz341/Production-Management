@@ -44,7 +44,7 @@ Three ways to load the build week — all land on the same review screen, so not
 | **Upload / drag & drop** | Drop the Truesdale `.xlsx` onto the page | Exact |
 | **Screenshot** | Upload or paste an image of the sheet | OCR — confidence shown and uncertain cells flagged |
 
-The importer detects each `PICK UP x/x` banner and creates a build week per section (dates marked `?` are flagged for confirmation), and lists orders no longer on the sheet so admin can choose which to remove.
+**Import only the pickup dates you want.** Every `PICK UP x/x` row on the sheet (in the Dealer column, highlighted or not) starts a section, and everything below it belongs to that pickup. The review screen lists each section with its order count; tick the ones to bring in and the rest of the sheet is ignored. The next upcoming pickup is ticked by default, dates marked `?` are flagged, and each date can be corrected before importing. Orders already in the app but missing from the sheet can optionally be cleaned up, and nothing is deleted unless ticked.
 
 ### Live everywhere
 - **Realtime updates** — changes push to every tablet instantly

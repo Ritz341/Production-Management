@@ -10,6 +10,9 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
   const [confirmedDelete, setConfirmedDelete] = useState(false)
   const [sectionOverrides, setSectionOverrides] = useState({}) // isoDate -> { label, isoDate }
   const [includedOrders, setIncludedOrders] = useState({}) // tagName -> bool
+  // Which pickup-date sections of the sheet to import: isoDate -> bool,
+  // plus NO_SECTION for rows above the first PICK UP banner.
+  const [pickedSections, setPickedSections] = useState({})
   const [includedColumns, setIncludedColumns] = useState({}) // tagName -> { colName: bool }
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -25,12 +28,29 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
     return () => document.removeEventListener('paste', handlePaste)
   })
 
+  // Only orders under the pickup dates admin picked are part of this
+  // import at all — the rest of the sheet is ignored.
+  const pickedOrders = useMemo(
+    () => (parsed ? parsed.orders.filter((o) => pickedSections[sectionOf(o)]) : []),
+    [parsed, pickedSections]
+  )
+  const ordersToLoad = pickedOrders.filter((o) => includedOrders[o.tagName])
+  const pickedLabel = parsed
+    ? [
+        ...parsed.sections.filter((sec) => pickedSections[sec.isoDate]).map((sec) => sec.label),
+        ...(pickedSections[NO_SECTION] ? ['no pickup date'] : []),
+      ].join(', ')
+    : ''
+
   const presentColumns = useMemo(() => {
-    if (!parsed) return []
     const seen = new Set()
-    parsed.orders.forEach((o) => Object.keys(o.columns).forEach((c) => seen.add(c)))
+    pickedOrders.forEach((o) => Object.keys(o.columns).forEach((c) => seen.add(c)))
     return STATUS_COLUMNS.filter((c) => seen.has(c))
-  }, [parsed])
+  }, [pickedOrders])
+
+  function togglePickedSection(key) {
+    setPickedSections((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
 
   // Every import route — uploaded file, pasted cells, OCR'd screenshot —
   // lands here, so all three get the same review-and-confirm step before
@@ -44,7 +64,7 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
       const { data: existing } = await supabase.from('bt_orders').select('id, tag_name')
       const stale = (existing ?? []).filter((o) => !currentTags.has(o.tag_name))
       setStaleOrders(stale)
-      setStaleToDelete(Object.fromEntries(stale.map((o) => [o.id, true])))
+      setStaleToDelete({})
       setConfirmedDelete(false)
 
       const overrides = {}
@@ -52,6 +72,13 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
         overrides[s.isoDate] = { label: s.label, isoDate: s.isoDate }
       })
       setSectionOverrides(overrides)
+
+      // Start with just the next pickup that hasn't happened yet — the
+      // usual case is importing one week. Rows above the first banner are
+      // normally already shipped, so they start unticked.
+      const today = new Date().toISOString().slice(0, 10)
+      const next = data.sections.find((sec) => sec.isoDate >= today) ?? data.sections[data.sections.length - 1]
+      setPickedSections(next ? { [next.isoDate]: true } : { [NO_SECTION]: true })
 
       const incOrders = {}
       const incCols = {}
@@ -181,6 +208,7 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
       // possibly-edited date from sectionOverrides).
       const weekIdByOriginalDate = {}
       for (const s of parsed.sections) {
+        if (!pickedSections[s.isoDate]) continue
         const override = sectionOverrides[s.isoDate]
         weekIdByOriginalDate[s.isoDate] = await resolveBuildWeekId(override.isoDate, override.label)
       }
@@ -192,7 +220,7 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
       let statusCount = 0
       let skipped = 0
 
-      for (const o of parsed.orders) {
+      for (const o of pickedOrders) {
         if (!includedOrders[o.tagName]) {
           skipped++
           continue
@@ -320,59 +348,81 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
               down the table below to confirm the statuses line up under the right departments.
             </p>
           )}
-          {staleOrders.length > 0 && (
-            <div className="bg-andonRedBg border border-andonRed p-3 text-sm text-andonRed space-y-2">
-              <p>
-                ⚠ {staleOrders.length} order(s) currently in the app are not on this sheet anymore (e.g.
-                shipped/completed and dropped off). Uncheck any you want to <strong>keep</strong> — everything left
-                checked is <strong>permanently deleted</strong>, files included, when you load this import.
-              </p>
-              <ul className="space-y-1 max-h-40 overflow-y-auto">
-                {staleOrders.map((o) => (
-                  <li key={o.id}>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={!!staleToDelete[o.id]} onChange={() => toggleStale(o.id)} />
-                      {o.tag_name}
-                    </label>
-                  </li>
-                ))}
-              </ul>
-              <label className="flex items-center gap-2 cursor-pointer font-semibold pt-1 border-t border-andonRed/30">
-                <input type="checkbox" checked={confirmedDelete} onChange={(e) => setConfirmedDelete(e.target.checked)} />
-                I confirm deleting {staleOrders.filter((o) => staleToDelete[o.id]).length} order(s) above
-              </label>
+          <section>
+            <div className="flex items-baseline justify-between gap-3 flex-wrap">
+              <h3 className="font-display text-xl font-bold text-charcoal">1 · Choose which pickup dates to import</h3>
+              <span className="text-sm text-steelLight">
+                Only orders listed under a ticked date are imported. The rest of the sheet is ignored.
+              </span>
             </div>
-          )}
-          <div>
-            <p className="text-sm font-medium text-steel mb-2">
-              Detected {parsed.sections.length} pickup-date sections in the sheet — each becomes its own build week.
-              Confirm the dates below (⚠ flagged ones had a "?" in the sheet, meaning they weren't confirmed there
-              either).
-            </p>
-            <div className="flex flex-wrap gap-3">
-              {parsed.sections.map((s) => (
-                <div key={s.isoDate} className={`border p-2 text-sm ${s.ambiguous ? 'border-safety bg-safety/10' : 'border-paperDim'}`}>
-                  <div className="font-medium text-charcoal">
-                    {s.ambiguous && '⚠ '}
-                    {s.count} orders
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {parsed.sections.map((s) => {
+                const on = !!pickedSections[s.isoDate]
+                return (
+                  <div
+                    key={s.isoDate}
+                    className={`rounded-lg border-2 p-3 flex gap-3 items-start ${on ? 'border-charcoal bg-white' : 'border-paperDim bg-paper opacity-70'}`}
+                  >
+                    <input
+                      id={`sec-${s.isoDate}`}
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => togglePickedSection(s.isoDate)}
+                      className="w-5 h-5 mt-0.5 accent-charcoal"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <label htmlFor={`sec-${s.isoDate}`} className="block cursor-pointer">
+                        <span className="font-display font-bold text-lg text-charcoal">{s.label}</span>
+                        <span className="block text-sm text-steelLight">
+                          {s.count} {s.count === 1 ? 'order' : 'orders'}
+                          {s.ambiguous && <b className="text-safetyDark"> · ⚠ “?” on the sheet — check the date</b>}
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-2 mt-1.5 text-xs text-steelLight">
+                        Ships
+                        <input
+                          type="date"
+                          value={sectionOverrides[s.isoDate]?.isoDate ?? s.isoDate}
+                          onChange={(e) => updateSectionDate(s.isoDate, e.target.value)}
+                          className="border border-paperDim rounded px-1 py-0.5 text-xs"
+                        />
+                      </label>
+                    </div>
                   </div>
+                )
+              })}
+              {parsed.orders.some((o) => !o.scheduledPickupDate) && (
+                <label
+                  className={`rounded-lg border-2 border-dashed p-3 flex gap-3 items-start cursor-pointer ${
+                    pickedSections[NO_SECTION] ? 'border-charcoal bg-white' : 'border-paperDim bg-paper opacity-70'
+                  }`}
+                >
                   <input
-                    type="date"
-                    value={sectionOverrides[s.isoDate]?.isoDate ?? s.isoDate}
-                    onChange={(e) => updateSectionDate(s.isoDate, e.target.value)}
-                    className="border border-paperDim rounded px-1 py-0.5 text-xs mt-1"
+                    type="checkbox"
+                    checked={!!pickedSections[NO_SECTION]}
+                    onChange={() => togglePickedSection(NO_SECTION)}
+                    className="w-5 h-5 mt-0.5 accent-charcoal"
                   />
-                </div>
-              ))}
+                  <span>
+                    <span className="font-display font-bold text-lg text-charcoal">
+                      {parsed.sections.length ? 'Above the first pickup date' : 'All orders'}
+                    </span>
+                    <span className="block text-sm text-steelLight">
+                      {parsed.orders.filter((o) => !o.scheduledPickupDate).length} orders
+                      {parsed.sections.length ? ' — usually already shipped. Imported with no build week.' : ''}
+                    </span>
+                  </span>
+                </label>
+              )}
             </div>
-            {parsed.orders.some((o) => !o.scheduledPickupDate) && (
-              <p className="text-xs text-steelLight mt-2">
-                {parsed.orders.filter((o) => !o.scheduledPickupDate).length} orders appear before any pickup-date
-                marker (already shipped/historical) — these load without a build week assignment.
+            {parsed.sections.length === 0 && (
+              <p className="text-sm text-safetyDark mt-2">
+                No pickup-date rows found — a row with “PICK UP 9/14” in the Dealer column marks where each pickup starts.
               </p>
             )}
-          </div>
+          </section>
 
+          <h3 className="font-display text-xl font-bold text-charcoal">2 · Review the orders</h3>
           <p className="text-sm text-steelLight">
             Uncheck an entire order to exclude it from this import, or uncheck one column on a specific order to hide
             just that column from the floor.
@@ -392,7 +442,7 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
                 </tr>
               </thead>
               <tbody>
-                {parsed.orders.map((o, i) => {
+                {pickedOrders.map((o, i) => {
                   const orderIncluded = includedOrders[o.tagName]
                   return (
                     <tr key={o.tagName} className={`${i % 2 === 0 ? 'bg-white' : 'bg-paper'} ${!orderIncluded ? 'opacity-40' : ''}`}>
@@ -424,15 +474,54 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
               </tbody>
             </table>
           </div>
+          {staleOrders.length > 0 && (
+            <details className="border border-paperDim bg-white p-3 text-sm">
+              <summary className="cursor-pointer font-medium text-steel">
+                Optional clean-up: {staleOrders.length} order(s) in the app aren't anywhere on this sheet
+              </summary>
+              <div className="mt-2 space-y-2 text-andonRed">
+                <p>
+                  Tick any that are finished and should be removed. Ticked orders are <strong>permanently deleted</strong>,
+                  files included. Nothing is removed unless you tick it.
+                </p>
+                <ul className="space-y-1 max-h-40 overflow-y-auto">
+                  {staleOrders.map((o) => (
+                    <li key={o.id}>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={!!staleToDelete[o.id]} onChange={() => toggleStale(o.id)} />
+                        {o.tag_name}
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+                {staleOrders.some((o) => staleToDelete[o.id]) && (
+                  <label className="flex items-center gap-2 cursor-pointer font-semibold pt-1 border-t border-andonRed/30">
+                    <input type="checkbox" checked={confirmedDelete} onChange={(e) => setConfirmedDelete(e.target.checked)} />
+                    I confirm deleting {staleOrders.filter((o) => staleToDelete[o.id]).length} order(s) above
+                  </label>
+                )}
+              </div>
+            </details>
+          )}
           <button
             onClick={handleCommit}
-            disabled={busy || (staleOrders.some((o) => staleToDelete[o.id]) && !confirmedDelete)}
+            disabled={busy || ordersToLoad.length === 0 || (staleOrders.some((o) => staleToDelete[o.id]) && !confirmedDelete)}
             className="bg-safety text-charcoal font-display font-bold text-lg px-6 py-2 disabled:opacity-50"
           >
-            {busy ? 'Loading…' : `Load ${parsed.orders.filter((o) => includedOrders[o.tagName]).length} orders`}
+            {busy
+              ? 'Importing…'
+              : ordersToLoad.length === 0
+                ? 'Tick a pickup date above to import'
+                : `Import ${ordersToLoad.length} orders — ${pickedLabel}`}
           </button>
         </div>
       )}
     </div>
   )
+}
+
+const NO_SECTION = 'none'
+
+function sectionOf(order) {
+  return order.scheduledPickupDate ?? NO_SECTION
 }

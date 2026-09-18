@@ -11,10 +11,13 @@ Built with **React + Vite + Tailwind** on **Supabase** (Postgres, Auth, Realtime
 ### Shop floor (department tablets)
 - **Shared department logins** — each tablet lands on its own queue
 - **Combined queues** — one tablet can cover 2–3 departments, or peek read-only at others
-- **Stage tracking** — paperwork → started → completed → packaged → shipped, with a quick-advance button
-- **Stage filter** — hide finished orders to see only active work
+- **Up next** — the most urgent job (earliest pickup, never a blocked one) with one large button
+- **Ship countdown** — "IN 3 DAYS" in the header, turning red as the truck gets close
+- **Lanes** — Blocked / To do / In progress / Done, with Undo after every tap
+- **Stage tracking** — paperwork → started → completed → packaged → shipped
 - **Blocked flag (🚧)** — mark a cell as blocked with a reason (Missing Glass, Wrong Cut, Machine Down, Waiting on Parts, Other); it turns red and can't be advanced by accident
 - **File view** — open drawings and photos attached to a tag, with inline image previews
+- **Installable** — add to the tablet home screen; opens full screen like a native app
 
 ### Admin
 - **Plant grid** — every order × all 25 status columns, inline editable, searchable by tag or dealer

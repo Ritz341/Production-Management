@@ -22,6 +22,13 @@ export default {
         andonRedBg: '#FBE7E7',
         andonBlue: '#2A5C8A',
         andonBlueBg: '#E4EDF4',
+        // Floor tablet: dark so it reads across a bright shop, and so the
+        // one yellow action button is the brightest thing on screen.
+        floor: '#15181C',
+        floorCard: '#20252B',
+        floorLine: '#2C3238',
+        floorMute: '#8B93A0',
+        blockedCard: '#2A1C1E',
       },
     },
   },

@@ -112,7 +112,12 @@ npm run dev
 > **npm 12+:** the `xlsx` package installs from the SheetJS CDN, which npm 12 blocks by default. Use `npm install --allow-remote=all`.
 
 ### 5. Deploy
-Connect the repo to Netlify (or any static host), build command `npm run build`, publish directory `dist`, and set the two `VITE_SUPABASE_*` environment variables in the site settings.
+Connect the repo to **Netlify**. `netlify.toml` already sets the build command and publish folder, so the only setup is adding `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under **Site settings → Environment variables**. Every push to `main` then redeploys, and tablets pick up the new version the next time the app opens.
+
+### 6. Install on the tablets
+Open the site in Chrome on each tablet → menu → **Add to Home screen**. It installs as **Build Tracker** with its own icon and opens full screen with no browser bar.
+
+To stop staff leaving the app, use Android **screen pinning** (Settings → Security → App pinning) or a kiosk browser such as Fully Kiosk.
 
 ### Moving to self-hosted Supabase
 Stand up Supabase via Docker on the plant server, run the same SQL files, recreate the `bt-files` bucket and the auth users/profiles, then point the two env vars at the new instance. No code changes — the client only ever talks to `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`.

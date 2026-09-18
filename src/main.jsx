@@ -17,3 +17,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     </BrowserRouter>
   </React.StrictMode>
 )
+
+// Makes the app installable ("Add to Home Screen") and open full screen
+// on the shop tablets. Production only — in dev a cached shell would
+// hide your latest edits.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'))
+}

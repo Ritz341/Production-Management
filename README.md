@@ -71,8 +71,9 @@ In the Supabase SQL editor, run **in order**:
 
 1. `schema.sql`
 2. `seed.sql`
-3. `import_data.sql` *(optional starting data)*
-4. `schema_v2.sql` through `schema_v12.sql`, in order
+3. `schema_v2.sql` through `schema_v12.sql`, in order
+
+Skip `import_data.sql` — it's a snapshot of an old sheet. Start empty and load orders through **Weekly import** or the logistics screen. To wipe orders later but keep departments and logins, run `reset_to_empty.sql`.
 
 > Run the migrations **before** creating the storage bucket — `schema_v9.sql` adds the storage policies the bucket needs.
 

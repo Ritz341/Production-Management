@@ -2,6 +2,11 @@
 # The two VITE_SUPABASE_* values still go in Site settings → Environment
 # variables — they never live in the repo.
 [build]
+  # The app builds from the repo root (index.html, vite.config.js and src/ are
+  # all here). Pinned explicitly because the project's "Base directory" build
+  # setting in the Netlify UI points at a folder that isn't in this repo, which
+  # failed every build at the config-parsing stage. This value wins over the UI.
+  base = "."
   command = "npm install --allow-remote=all && npm run build"
   publish = "dist"
 

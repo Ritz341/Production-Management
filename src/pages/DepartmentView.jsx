@@ -168,24 +168,38 @@ export default function DepartmentView() {
     // user why — just don't fire a write that'll never land.
     if (!live) return
     patchCell(orderId, columnId, { stage: next }) // optimistic
-    const { error } = await supabase
+    const saved = await saveCell(orderId, columnId, { workflow_stage: next })
+    if (!saved) patchCell(orderId, columnId, { stage: currentStage }) // roll back
+  }
+
+  // Writes one cell and reports whether it really saved. Supabase returns
+  // no error when a permission rule filters the row out — it just updates
+  // nothing — so the only honest check is that a row came back.
+  async function saveCell(orderId, columnId, fields) {
+    const { data, error } = await supabase
       .from('bt_order_status')
-      .update({ workflow_stage: next })
+      .update(fields)
       .eq('order_id', orderId)
       .eq('status_column_id', columnId)
-    if (error) patchCell(orderId, columnId, { stage: currentStage }) // roll back
+      .select('order_id')
+    if (error || !data?.length) {
+      setToast({
+        message: error
+          ? `Didn't save: ${error.message}`
+          : `Didn't save — this tablet isn't set up for ${columnById[columnId] ?? 'that department'}. Ask admin.`,
+        error: true,
+      })
+      return false
+    }
+    return true
   }
 
   // Set a specific stage (for the dropdown override)
   async function setStage(orderId, columnId, stageId, currentStage) {
     if (!live) return
     patchCell(orderId, columnId, { stage: stageId || null }) // optimistic
-    const { error } = await supabase
-      .from('bt_order_status')
-      .update({ workflow_stage: stageId || null })
-      .eq('order_id', orderId)
-      .eq('status_column_id', columnId)
-    if (error) patchCell(orderId, columnId, { stage: currentStage }) // roll back
+    const saved = await saveCell(orderId, columnId, { workflow_stage: stageId || null })
+    if (!saved) patchCell(orderId, columnId, { stage: currentStage }) // roll back
   }
 
   // Blocked is a flag layered on top of whatever stage a cell is
@@ -201,13 +215,21 @@ export default function DepartmentView() {
   async function applyBlocked(orderId, columnId, blocked, note) {
     const prevCell = orders.find((o) => o.id === orderId)?.cells[columnId]
     patchCell(orderId, columnId, { blocked, blockedNote: note }) // optimistic
-    const { error } = await supabase
-      .from('bt_order_status')
-      .update({ blocked_at: blocked ? new Date().toISOString() : null, blocked_note: blocked ? note : null })
-      .eq('order_id', orderId)
-      .eq('status_column_id', columnId)
-    if (error && prevCell) patchCell(orderId, columnId, { blocked: prevCell.blocked, blockedNote: prevCell.blockedNote }) // roll back
+    const saved = await saveCell(orderId, columnId, {
+      blocked_at: blocked ? new Date().toISOString() : null,
+      blocked_note: blocked ? note : null,
+    })
+    if (!saved && prevCell) patchCell(orderId, columnId, { blocked: prevCell.blocked, blockedNote: prevCell.blockedNote }) // roll back
   }
+
+  // Columns this login is allowed to change: only its assigned
+  // departments. Others added through the picker are there to look at —
+  // the database refuses their writes, so they get no buttons.
+  const writableColumnIds = useMemo(() => {
+    const ids = new Set()
+    for (const deptId of profile?.combinedDepartmentIds ?? []) for (const c of deptColumnMap[deptId] ?? []) ids.add(c)
+    return ids
+  }, [profile, deptColumnMap])
 
   const currentDeptName = useMemo(
     () => departments.filter((d) => selectedDeptIds.includes(d.id)).map((d) => d.name).join(' + ') || 'Loading…',
@@ -248,13 +270,14 @@ export default function DepartmentView() {
     const open = [...lanes.doing, ...lanes.todo].sort(byBuildOrder)
     for (const o of open) {
       const colId = ownColumnIds.find((id) => {
+        if (!writableColumnIds.has(id)) return false
         const c = o.cells[id]
         return c && !c.blocked && stageRank(c.stage) < DONE_RANK
       })
       if (colId != null) return { order: o, colId }
     }
     return null
-  }, [lanes, ownColumnIds])
+  }, [lanes, ownColumnIds, writableColumnIds])
 
   const [showAllDone, setShowAllDone] = useState(false)
   const [toast, setToast] = useState(null) // { message, undo }
@@ -408,7 +431,9 @@ export default function DepartmentView() {
       {toast && (
         <div
           role="status"
-          className="fixed left-1/2 -translate-x-1/2 bottom-5 z-50 bg-paper text-charcoal rounded-xl shadow-2xl pl-4 pr-2 py-2 flex items-center gap-4 max-w-[calc(100vw-32px)]"
+          className={`fixed left-1/2 -translate-x-1/2 bottom-5 z-50 rounded-xl shadow-2xl pl-4 pr-2 py-2 flex items-center gap-4 max-w-[calc(100vw-32px)] ${
+            toast.error ? 'bg-andonRed text-white' : 'bg-paper text-charcoal'
+          }`}
         >
           <span className="text-sm font-medium truncate">{toast.message}</span>
           {toast.undo && (
@@ -486,6 +511,11 @@ export default function DepartmentView() {
                 </div>
                 <StageSteps rank={rank} blocked={cell.blocked} />
               </div>
+              {!writableColumnIds.has(id) ? (
+                <span className="text-xs text-floorMute border border-floorLine rounded-md px-2 py-1" title="This tablet can see this department but not change it">
+                  View only
+                </span>
+              ) : (
               <div className="flex items-center gap-1.5">
                 {cell.blocked ? (
                   <button onClick={() => tapUnblock(o, id)} disabled={!live} className="rounded-lg border border-floorLine text-floorMute text-sm font-semibold px-3 py-2.5 disabled:opacity-40">
@@ -536,6 +566,7 @@ export default function DepartmentView() {
                   </select>
                 </span>
               </div>
+              )}
             </div>
           )
         })}

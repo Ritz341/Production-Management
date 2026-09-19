@@ -10,6 +10,8 @@ import OrderFormModal from '../components/OrderFormModal.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
 import AdminImport from './AdminImport.jsx'
 import AdminOverview from './AdminOverview.jsx'
+import AdminReports from './AdminReports.jsx'
+import { blockText } from '../lib/catalog'
 import { DONE_RANK, buildNumbers, byBuildOrder, stageRank, wasMovedRecently } from '../lib/schedule'
 
 // Cycled per row in the Grid tab so long lists are easier to track
@@ -52,13 +54,13 @@ export default function AdminView() {
     const { data: cols, error: colsErr } = await supabase.from('bt_status_columns').select('id, name').order('sort_order')
     setColumns(cols ?? [])
 
-    let query = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, notes, sequence, moved_at, moved_direction, status, cancel_reason, paperwork_ready_at, bt_build_weeks(ship_date)')
+    let query = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, notes, sequence, moved_at, moved_direction, status, cancel_reason, paperwork_ready_at, mods_count, room_shape, window_type, panel_type, bt_build_weeks(ship_date)')
     if (selectedWeekId !== 'all') query = query.eq('build_week_id', selectedWeekId)
     const { data: orderRows, error: ordersErr } = await query
 
     const { data: statusRows, error: statusErr } = await supabase
       .from('bt_order_status')
-      .select('order_id, status_column_id, status_value, is_visible, workflow_stage, blocked_at, blocked_note, removed_at, removed_note')
+      .select('order_id, status_column_id, status_value, is_visible, workflow_stage, blocked_at, blocked_note, blocked_category, removed_at, removed_note, built_by')
 
     // A failed query here (e.g. a schema migration not yet run against
     // this database) used to fail silently and just render an empty
@@ -76,6 +78,8 @@ export default function AdminView() {
         stage: s.workflow_stage,
         blocked: !!s.blocked_at,
         blockedNote: s.blocked_note,
+        blockedCategory: s.blocked_category,
+        builtBy: s.built_by,
         removed: !!s.removed_at,
         removedNote: s.removed_note,
       }
@@ -155,16 +159,16 @@ export default function AdminView() {
   // Unblocking needs no reason; blocking opens the reason picker below.
   function requestToggleBlocked(orderId, columnId, currentlyBlocked) {
     if (!live) return
-    if (currentlyBlocked) applyBlocked(orderId, columnId, false, null)
+    if (currentlyBlocked) applyBlocked(orderId, columnId, false)
     else setBlockTarget({ orderId, columnId })
   }
 
-  async function applyBlocked(orderId, columnId, blocked, note) {
+  async function applyBlocked(orderId, columnId, blocked, note = null, category = null) {
     const prev = findCell(orderId, columnId)
-    patchLocalCell(orderId, columnId, { blocked, blockedNote: note }) // optimistic
+    patchLocalCell(orderId, columnId, { blocked, blockedNote: note, blockedCategory: category }) // optimistic
     const { error } = await supabase
       .from('bt_order_status')
-      .update({ blocked_at: blocked ? new Date().toISOString() : null, blocked_note: blocked ? note : null })
+      .update({ blocked_at: blocked ? new Date().toISOString() : null, blocked_note: blocked ? note : null, blocked_category: blocked ? category : null })
       .eq('order_id', orderId)
       .eq('status_column_id', columnId)
     if (error && prev) patchLocalCell(orderId, columnId, { blocked: prev.blocked, blockedNote: prev.blockedNote }) // roll back
@@ -232,6 +236,7 @@ export default function AdminView() {
             ['overview', 'Overview'],
             ['grid', 'Grid'],
             ['import', 'Weekly Import'],
+            ['reports', 'Reports'],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -257,6 +262,8 @@ export default function AdminView() {
           onOpenGrid={() => setTab('grid')}
         />
       )}
+
+      {tab === 'reports' && <AdminReports />}
 
       {tab === 'import' && (
         <AdminImport
@@ -435,7 +442,7 @@ export default function AdminView() {
                         const chipClass = cell.blocked ? BLOCKED_CHIP_CLASS : stageInfo ? stageInfo.chipClass : 'bg-paperDim text-steelLight'
                         return (
                           <td key={c.id} className="px-1 py-1">
-                            <div className={`flex items-center gap-1 rounded ${chipClass}`} title={cell.blocked ? `Blocked${cell.blockedNote ? `: ${cell.blockedNote}` : ''}` : undefined}>
+                            <div className={`flex items-center gap-1 rounded ${chipClass}`} title={cell.blocked ? `Blocked: ${blockText(cell)}` : undefined}>
                               <select
                                 value={cell.stage ?? ''}
                                 onChange={(e) => handleStageCommit(o.id, c.id, e.target.value)}
@@ -500,8 +507,8 @@ export default function AdminView() {
       {blockTarget && (
         <BlockReasonModal
           onCancel={() => setBlockTarget(null)}
-          onConfirm={(reason) => {
-            applyBlocked(blockTarget.orderId, blockTarget.columnId, true, reason)
+          onConfirm={({ category, note }) => {
+            applyBlocked(blockTarget.orderId, blockTarget.columnId, true, note, category)
             setBlockTarget(null)
           }}
         />

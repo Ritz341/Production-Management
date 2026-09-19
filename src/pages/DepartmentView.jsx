@@ -2,14 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { WORKFLOW_STAGES } from '../lib/statusColors'
-import { blockText, defectLabel } from '../lib/catalog'
 import { nearestBuildWeekId, weekOptionLabel } from '../lib/dates'
 import { DONE_RANK, buildNumbers, byBuildOrder, daysUntil, nextStageId as nextStage, relativeDay, shortDate, stageLabel, stageRank, wasMovedRecently } from '../lib/schedule'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import FileModal from '../components/FileModal.jsx'
 import NotificationBanner from '../components/NotificationBanner.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
-import QualityIssueModal from '../components/QualityIssueModal.jsx'
 
 export default function DepartmentView() {
   const { profile, signOut } = useAuth()
@@ -30,7 +28,6 @@ export default function DepartmentView() {
   const [ownColumnIds, setOwnColumnIds] = useState([])
   const [orders, setOrders] = useState([])
   const [openOrder, setOpenOrder] = useState(null)
-  const [qualityFor, setQualityFor] = useState(null) // order being reported on
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
@@ -104,7 +101,7 @@ export default function DepartmentView() {
 
       const { data: statusRows, error: statusErr } = await supabase
         .from('bt_order_status')
-        .select('order_id, status_value, status_column_id, workflow_stage, is_visible, blocked_at, blocked_note, blocked_category')
+        .select('order_id, status_value, status_column_id, workflow_stage, is_visible, blocked_at, blocked_note')
         .in('order_id', orderIds)
         .eq('is_visible', true)
         // A department taken off the order (e.g. done in Canada) drops off its tablet.
@@ -115,20 +112,13 @@ export default function DepartmentView() {
       if (statusErr && active) setLoadError(`Couldn't load statuses: ${statusErr.message}`)
       if (!statusErr && !ordersErr && active) setLoadError('')
 
-      const { data: issueRows } = await supabase
-        .from('bt_quality_issues')
-        .select('id, order_id, responsible_column_id, reporter_column_id, defect_type, sent_back, created_at')
-        .in('order_id', orderIds)
-        .is('resolved_at', null)
-
       if (!active) return
 
       // The build number is the order's place among ALL active orders in
       // its pickup — not just this department's — so #3 is #3 on every
       // tablet and on the admin screen.
       const numbers = buildNumbers(orderRows ?? [])
-      const ordersById = new Map((orderRows ?? []).map((o) => [o.id, { ...o, buildNo: numbers.get(o.id), cells: {}, issues: [] }]))
-      for (const issue of issueRows ?? []) ordersById.get(issue.order_id)?.issues.push(issue)
+      const ordersById = new Map((orderRows ?? []).map((o) => [o.id, { ...o, buildNo: numbers.get(o.id), cells: {} }]))
       for (const row of statusRows ?? []) {
         const o = ordersById.get(row.order_id)
         if (!o) continue
@@ -137,7 +127,6 @@ export default function DepartmentView() {
           stage: row.workflow_stage,
           blocked: !!row.blocked_at,
           blockedNote: row.blocked_note,
-          blockedCategory: row.blocked_category,
         }
       }
       // Only orders that have at least one of this department's columns
@@ -157,7 +146,6 @@ export default function DepartmentView() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_order_status' }, load)
       // Order edits (dealer, pickup date, moved to another week) too.
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_orders' }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_quality_issues' }, load)
       .subscribe()
 
     return () => {
@@ -220,19 +208,18 @@ export default function DepartmentView() {
   // Unblocking needs no reason; blocking opens the reason picker below.
   function requestToggleBlocked(orderId, columnId, currentlyBlocked) {
     if (!live) return
-    if (currentlyBlocked) applyBlocked(orderId, columnId, false)
+    if (currentlyBlocked) applyBlocked(orderId, columnId, false, null)
     else setBlockTarget({ orderId, columnId })
   }
 
-  async function applyBlocked(orderId, columnId, blocked, note = null, category = null) {
+  async function applyBlocked(orderId, columnId, blocked, note) {
     const prevCell = orders.find((o) => o.id === orderId)?.cells[columnId]
-    patchCell(orderId, columnId, { blocked, blockedNote: note, blockedCategory: category }) // optimistic
+    patchCell(orderId, columnId, { blocked, blockedNote: note }) // optimistic
     const saved = await saveCell(orderId, columnId, {
       blocked_at: blocked ? new Date().toISOString() : null,
       blocked_note: blocked ? note : null,
-      blocked_category: blocked ? category : null,
     })
-    if (!saved && prevCell) patchCell(orderId, columnId, { blocked: prevCell.blocked, blockedNote: prevCell.blockedNote, blockedCategory: prevCell.blockedCategory }) // roll back
+    if (!saved && prevCell) patchCell(orderId, columnId, { blocked: prevCell.blocked, blockedNote: prevCell.blockedNote }) // roll back
   }
 
   // Columns this login is allowed to change: only its assigned
@@ -316,9 +303,9 @@ export default function DepartmentView() {
   }
 
   function tapUnblock(order, colId) {
-    const { blockedNote: note, blockedCategory: category } = order.cells[colId]
+    const note = order.cells[colId].blockedNote
     requestToggleBlocked(order.id, colId, true)
-    setToast({ message: `Block cleared on ${order.tag_name}`, undo: () => applyBlocked(order.id, colId, true, note, category) })
+    setToast({ message: `Block cleared on ${order.tag_name}`, undo: () => applyBlocked(order.id, colId, true, note) })
   }
 
   const shipDays = daysUntil(currentWeek?.ship_date)
@@ -465,21 +452,11 @@ export default function DepartmentView() {
 
       {openOrder && <FileModal order={openOrder} onClose={() => setOpenOrder(null)} />}
 
-      {qualityFor && (
-        <QualityIssueModal
-          order={qualityFor}
-          departments={Object.keys(qualityFor.cells).map((id) => ({ columnId: Number(id), name: columnById[id] }))}
-          reporterColumnId={Object.keys(qualityFor.cells).map(Number).find((id) => writableColumnIds.has(id)) ?? null}
-          onClose={() => setQualityFor(null)}
-          onSaved={(message) => setToast({ message: `${message} — #${qualityFor.buildNo} ${qualityFor.tag_name}` })}
-        />
-      )}
-
       {blockTarget && (
         <BlockReasonModal
           onCancel={() => setBlockTarget(null)}
-          onConfirm={({ category, note }) => {
-            applyBlocked(blockTarget.orderId, blockTarget.columnId, true, note, category)
+          onConfirm={(reason) => {
+            applyBlocked(blockTarget.orderId, blockTarget.columnId, true, reason)
             setBlockTarget(null)
           }}
         />
@@ -529,17 +506,10 @@ export default function DepartmentView() {
                 <div className="flex items-baseline gap-2 text-sm">
                   {own.length > 1 && <span className="font-bold">{columnById[id]}</span>}
                   <span className={cell.blocked ? 'text-[#FF9A9A]' : 'text-floorMute'}>
-                    {cell.blocked ? `Blocked — ${blockText(cell)}` : stageLabel(cell.stage)}
+                    {cell.blocked ? `Blocked${cell.blockedNote ? ` — ${cell.blockedNote}` : ''}` : stageLabel(cell.stage)}
                   </span>
                 </div>
                 <StageSteps rank={rank} blocked={cell.blocked} />
-                {o.issues
-                  .filter((q) => q.sent_back && q.responsible_column_id === id)
-                  .map((q) => (
-                    <div key={q.id} className="mt-1.5 inline-block rounded-md bg-safety text-charcoal text-xs font-bold px-2 py-0.5">
-                      ↩ Sent back{q.reporter_column_id ? ` by ${columnById[q.reporter_column_id]}` : ''}: {defectLabel[q.defect_type] ?? q.defect_type}
-                    </div>
-                  ))}
               </div>
               {!writableColumnIds.has(id) ? (
                 <span className="text-xs text-floorMute border border-floorLine rounded-md px-2 py-1" title="This tablet can see this department but not change it">
@@ -614,18 +584,9 @@ export default function DepartmentView() {
               )
             })}
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setQualityFor(o)}
-              disabled={!live}
-              className={`text-xs py-1 disabled:opacity-40 ${o.issues.length ? 'text-safety font-bold' : 'text-floorMute hover:text-paper'}`}
-            >
-              ⚑ {o.issues.length ? `${o.issues.length} quality issue${o.issues.length > 1 ? 's' : ''}` : 'Quality'}
-            </button>
-            <button onClick={() => setOpenOrder(o)} className="text-xs text-floorMute hover:text-paper py-1">
-              📎 Files
-            </button>
-          </div>
+          <button onClick={() => setOpenOrder(o)} className="text-xs text-floorMute hover:text-paper py-1">
+            📎 Files
+          </button>
         </div>
       </article>
     )

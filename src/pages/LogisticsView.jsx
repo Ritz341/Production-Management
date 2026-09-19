@@ -54,7 +54,7 @@ export default function LogisticsView() {
   async function loadOrders() {
     const { data: rows } = await supabase
       .from('bt_orders')
-      .select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, created_at, created_by, actual_pickup_date, status, cancel_reason, mods_count, room_shape, window_type, panel_type')
+      .select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, created_at, created_by, actual_pickup_date, status, cancel_reason')
       .order('created_at', { ascending: false })
       .limit(300)
     const ids = (rows ?? []).map((o) => o.id)

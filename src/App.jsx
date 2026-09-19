@@ -5,7 +5,6 @@ import AdminView from './pages/AdminView.jsx'
 import ShippingView from './pages/ShippingView.jsx'
 import LogisticsView from './pages/LogisticsView.jsx'
 import OfficeView from './pages/OfficeView.jsx'
-import QualityView from './pages/QualityView.jsx'
 
 export default function App() {
   const { session, profile, loading } = useAuth()
@@ -28,6 +27,5 @@ export default function App() {
   if (profile.role === 'shipping') return <ShippingView />
   if (profile.role === 'logistics') return <LogisticsView />
   if (profile.role === 'office') return <OfficeView />
-  if (profile.role === 'quality') return <QualityView />
   return <DepartmentView />
 }

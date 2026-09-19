@@ -220,6 +220,18 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
       let statusCount = 0
       let skipped = 0
 
+      // Build order = row order on the sheet, restarting at 1 under each
+      // PICK UP line. Only counts orders actually being imported, so an
+      // unticked row doesn't leave a gap.
+      const sequenceByTag = {}
+      const nextInSection = {}
+      for (const o of pickedOrders) {
+        if (!includedOrders[o.tagName]) continue
+        const key = sectionOf(o)
+        nextInSection[key] = (nextInSection[key] ?? 0) + 1
+        sequenceByTag[o.tagName] = nextInSection[key]
+      }
+
       for (const o of pickedOrders) {
         if (!includedOrders[o.tagName]) {
           skipped++
@@ -240,6 +252,7 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
               shipping_status: o.shippingStatus,
               build_week_id: buildWeekId,
               scheduled_pickup_date: resolvedScheduledDate,
+              sequence: sequenceByTag[o.tagName],
             },
             { onConflict: 'tag_name' }
           )

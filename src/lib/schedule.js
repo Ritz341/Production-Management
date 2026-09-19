@@ -3,17 +3,26 @@ import { WORKFLOW_STAGES } from './statusColors'
 // Shared by the floor, admin overview and logistics screens so "IN 3
 // DAYS", "LATE" and "done" mean exactly the same thing everywhere.
 
-const STAGE_IDS = WORKFLOW_STAGES.map((s) => s.id)
-
-/** 0 = not started, 1 = paperwork ready … 5 = on the truck. */
+/** 0 = not started, 1 = started, 2 = done. */
 export function stageRank(stageId) {
-  if (!stageId) return 0
-  const idx = STAGE_IDS.indexOf(stageId)
-  return idx < 0 ? 0 : idx + 1
+  if (stageId === 'started') return 1
+  // 'packaged' / 'shipped' are from before the floor steps were simplified.
+  if (stageId === 'completed' || stageId === 'packaged' || stageId === 'shipped') return 2
+  return 0 // null, or the old 'paperwork_ready'
 }
 
-/** Rank at which a department's job counts as done (Order Completed). */
-export const DONE_RANK = 3
+/** Rank at which a department's job counts as done. */
+export const DONE_RANK = 2
+
+/** The stage one tap moves a job to, or null once it's done. */
+export function nextStageId(stageId) {
+  return WORKFLOW_STAGES[stageRank(stageId)]?.id ?? null
+}
+
+/** Label for any stored stage, including the older ones. */
+export function stageLabel(stageId) {
+  return ['Not started', 'Started', 'Done'][stageRank(stageId)]
+}
 
 /** Whole days from today to an ISO date (negative = past), or null. */
 export function daysUntil(iso) {
@@ -41,4 +50,49 @@ export function ago(ts) {
   if (mins < 60) return `${mins}m`
   const hrs = Math.round(mins / 60)
   return hrs < 24 ? `${hrs}h` : `${Math.round(hrs / 24)}d`
+}
+
+/**
+ * Build numbers (#1, #2 …) per pickup: each active order's position
+ * among its build week's active orders, by `sequence`. Pass every active
+ * order in the week(s), not a department's subset, so the number is the
+ * same on every screen. Returns Map(orderId → number).
+ */
+export function buildNumbers(orders) {
+  const byWeek = new Map()
+  for (const o of orders) {
+    if (o.status && o.status !== 'active') continue
+    const key = o.build_week_id ?? 'none'
+    if (!byWeek.has(key)) byWeek.set(key, [])
+    byWeek.get(key).push(o)
+  }
+  const out = new Map()
+  for (const list of byWeek.values()) {
+    list.sort((a, b) => (a.sequence ?? 1e9) - (b.sequence ?? 1e9) || a.id - b.id)
+    list.forEach((o, i) => out.set(o.id, i + 1))
+  }
+  return out
+}
+
+/**
+ * Sort: earliest pickup week first, then build number within it. Goes by
+ * the order's build week, not its own pickup date, so inside a pickup
+ * admin's numbering is the only thing that decides — an order with an
+ * odd individual date can't jump the queue. Expects the week's ship date
+ * embedded as `bt_build_weeks` (select '…, bt_build_weeks(ship_date)').
+ */
+export function byBuildOrder(a, b) {
+  const ad = a.bt_build_weeks?.ship_date || a.scheduled_pickup_date || '9999'
+  const bd = b.bt_build_weeks?.ship_date || b.scheduled_pickup_date || '9999'
+  return (
+    ad.localeCompare(bd) ||
+    String(a.build_week_id).localeCompare(String(b.build_week_id)) ||
+    (a.buildNo ?? 1e9) - (b.buildNo ?? 1e9) ||
+    a.tag_name.localeCompare(b.tag_name)
+  )
+}
+
+/** An order admin moved in the last 24 hours — flagged on every tablet. */
+export function wasMovedRecently(order) {
+  return !!order.moved_at && Date.now() - new Date(order.moved_at) < 24 * 36e5
 }

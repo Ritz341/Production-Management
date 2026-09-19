@@ -3,17 +3,14 @@ import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { WORKFLOW_STAGES } from '../lib/statusColors'
 import { nearestBuildWeekId } from '../lib/dates'
-import { DONE_RANK, ago, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
+import { DONE_RANK, ago, buildNumbers, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
 
 // How close a pickup has to be before an unfinished order counts as at risk.
 const AT_RISK_DAYS = 3
 
 const STAGE_BAR = {
-  paperwork_ready: 'bg-safety',
   started: 'bg-andonBlue',
   completed: 'bg-andonGreen',
-  packaged: 'bg-violet-600',
-  shipped: 'bg-charcoal',
 }
 
 /**
@@ -65,14 +62,16 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       // picked up it no longer needs the coordinator's attention.
       const { data: orderRows, error: oErr } = await supabase
         .from('bt_orders')
-        .select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, created_at')
+        .select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, created_at, notes, sequence, status, cancel_reason')
         .is('actual_pickup_date', null)
+        .eq('status', 'active')
       const ids = (orderRows ?? []).map((o) => o.id)
       const { data: statusRows, error: sErr } = ids.length
         ? await supabase
             .from('bt_order_status')
             .select('order_id, status_column_id, status_value, is_visible, workflow_stage, blocked_at, blocked_note')
             .in('order_id', ids)
+            .is('removed_at', null)
         : { data: [] }
       const { data: eventRows } = await supabase
         .from('bt_events')
@@ -83,7 +82,8 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
 
       const err = oErr || sErr
       setLoadError(err ? `Couldn't load the overview: ${err.message}` : '')
-      const byId = new Map((orderRows ?? []).map((o) => [o.id, { ...o, statuses: {} }]))
+      const numbers = buildNumbers(orderRows ?? [])
+      const byId = new Map((orderRows ?? []).map((o) => [o.id, { ...o, buildNo: numbers.get(o.id), statuses: {} }]))
       for (const s of statusRows ?? []) {
         const o = byId.get(s.order_id)
         if (!o) continue
@@ -128,8 +128,12 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
     const byStage = Object.fromEntries(WORKFLOW_STAGES.map((s) => [s.id, 0]))
     let done = 0
     for (const c of cells) {
-      if (c.stage) byStage[c.stage]++
-      if (stageRank(c.stage) >= DONE_RANK) done++
+      const r = stageRank(c.stage)
+      if (r === 1) byStage.started++
+      if (r >= DONE_RANK) {
+        byStage.completed++
+        done++
+      }
     }
     const ordersDone = weekOrders.filter((o) => cellsOf(o).every(([, c]) => stageRank(c.stage) >= DONE_RANK)).length
     return { total: cells.length, done, byStage, ordersDone }
@@ -172,7 +176,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
             jobs++
             const r = stageRank(c.stage)
             if (r >= DONE_RANK) done++
-            else if (r === 2) started++
+            else if (r === 1) started++
             if (c.blocked) blockedN++
           }
         }
@@ -326,7 +330,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="rounded-md bg-andonRedBg text-andonRed text-xs font-bold px-2 py-0.5">BLOCKED {ago(c.blockedAt)}</span>
                       <button onClick={() => onEditOrder(o)} className="font-display font-bold text-lg text-charcoal hover:underline truncate">
-                        {o.tag_name}
+                        #{o.buildNo} {o.tag_name}
                       </button>
                     </div>
                     <div className="text-sm text-steelLight">
@@ -349,7 +353,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
                       <span className={`rounded-md text-xs font-bold px-2 py-0.5 ${days < 0 ? 'bg-andonRed text-white' : 'bg-safety/25 text-[#8A6606]'}`}>
                         {days < 0 ? `${-days}D LATE` : days === 0 ? 'PICKUP TODAY' : `PICKUP IN ${days}D`}
                       </span>
-                      <span className="font-display font-bold text-lg text-charcoal truncate">{o.tag_name}</span>
+                      <span className="font-display font-bold text-lg text-charcoal truncate">#{o.buildNo} {o.tag_name}</span>
                     </div>
                     <div className="text-sm text-steelLight">
                       Waiting on {open.map(([id]) => columnName[id]).join(', ')}

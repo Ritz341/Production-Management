@@ -9,7 +9,7 @@ import { weekOptionLabel } from '../lib/dates'
  * needs to be built). Never removes an existing column here — that's
  * what the 👁/🚫 visibility toggle in the Grid is for.
  */
-export default function OrderFormModal({ order, columns, buildWeeks, onClose, onSaved }) {
+export default function OrderFormModal({ order, columns, buildWeeks, onClose, onSaved, allowPull = false }) {
   const isEdit = !!order
   const existingColumnIds = new Set(order ? Object.keys(order.statuses).map(Number) : [])
 
@@ -22,6 +22,42 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
   const [selectedColumnIds, setSelectedColumnIds] = useState(new Set(existingColumnIds))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [pullNote, setPullNote] = useState('')
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  const columnName = Object.fromEntries(columns.map((c) => [c.id, c.name]))
+
+  // Pulling an order applies immediately (not on Save), so a cancelled
+  // order disappears from the floor the moment admin decides.
+  async function pull(action, columnId) {
+    setBusy(true)
+    setError('')
+    const note = pullNote.trim() || null
+    let result
+    if (action === 'cancel') {
+      result = await supabase
+        .from('bt_orders')
+        .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancel_reason: note })
+        .eq('id', order.id)
+    } else if (action === 'restore') {
+      result = await supabase.from('bt_orders').update({ status: 'active', cancelled_at: null, cancel_reason: null }).eq('id', order.id)
+    } else if (action === 'remove-dept') {
+      result = await supabase
+        .from('bt_order_status')
+        .update({ removed_at: new Date().toISOString(), removed_note: note })
+        .eq('order_id', order.id)
+        .eq('status_column_id', columnId)
+    } else if (action === 'restore-dept') {
+      result = await supabase
+        .from('bt_order_status')
+        .update({ removed_at: null, removed_note: null })
+        .eq('order_id', order.id)
+        .eq('status_column_id', columnId)
+    }
+    setBusy(false)
+    if (result?.error) return setError(result.error.message)
+    onSaved?.()
+    onClose()
+  }
 
   function toggleColumn(id) {
     setSelectedColumnIds((prev) => {
@@ -121,10 +157,18 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-steel mb-1">Build Week</label>
+              <label className="block text-sm font-medium text-steel mb-1">
+                Pickup {isEdit && <span className="text-steelLight font-normal">(moving it goes to the bottom of that pickup)</span>}
+              </label>
               <select
                 value={buildWeekId}
-                onChange={(e) => setBuildWeekId(e.target.value ? Number(e.target.value) : '')}
+                onChange={(e) => {
+                  const id = e.target.value ? Number(e.target.value) : ''
+                  setBuildWeekId(id)
+                  // Delaying to another pickup moves the pickup date with it.
+                  const week = buildWeeks.find((w) => w.id === id)
+                  if (week?.ship_date) setScheduledPickupDate(week.ship_date)
+                }}
                 className="w-full border border-paperDim rounded px-3 py-2 text-sm"
               >
                 <option value="">None</option>
@@ -178,6 +222,82 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
               })}
             </div>
           </div>
+
+          {isEdit && allowPull && (
+            <div className="border-t-2 border-paperDim pt-4 space-y-3">
+              <h3 className="font-display text-xl font-bold text-charcoal">Pull or change this order</h3>
+              <div>
+                <label htmlFor="pull-note" className="block text-sm font-medium text-steel mb-1">
+                  Reason
+                </label>
+                <input
+                  id="pull-note"
+                  value={pullNote}
+                  onChange={(e) => setPullNote(e.target.value)}
+                  placeholder="e.g. Canada will do the V4T, or dealer cancelled"
+                  className="w-full border border-paperDim rounded px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <p className="text-sm font-medium text-steel mb-1.5">Take one department off (the rest still build it)</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(order.statuses)
+                    .filter(([, c]) => c)
+                    .map(([colId, c]) =>
+                      c.removed ? (
+                        <button
+                          key={colId}
+                          onClick={() => pull('restore-dept', Number(colId))}
+                          disabled={busy}
+                          title={c.removedNote ?? ''}
+                          className="rounded-full border border-dashed border-steelLight px-3 py-1.5 text-sm text-steelLight"
+                        >
+                          <s>{columnName[colId]}</s> · Restore
+                        </button>
+                      ) : (
+                        <button
+                          key={colId}
+                          onClick={() => pull('remove-dept', Number(colId))}
+                          disabled={busy}
+                          className="rounded-full border border-paperDim bg-white px-3 py-1.5 text-sm text-charcoal hover:border-andonRed hover:text-andonRed"
+                        >
+                          {columnName[colId]} ✕
+                        </button>
+                      )
+                    )}
+                </div>
+              </div>
+
+              {order.status === 'cancelled' ? (
+                <div className="bg-andonRedBg text-andonRed rounded p-3 text-sm flex items-center justify-between gap-3">
+                  <span>
+                    <b>Cancelled</b>
+                    {order.cancel_reason ? ` — ${order.cancel_reason}` : ''}
+                  </span>
+                  <button onClick={() => pull('restore')} disabled={busy} className="bg-white text-charcoal font-semibold rounded px-3 py-1.5">
+                    Restore order
+                  </button>
+                </div>
+              ) : !confirmCancel ? (
+                <button onClick={() => setConfirmCancel(true)} className="text-sm font-semibold text-andonRed">
+                  Cancel the whole order…
+                </button>
+              ) : (
+                <div className="bg-andonRedBg rounded p-3 text-sm text-andonRed space-y-2">
+                  <p>It comes off every tablet. You can restore it later from the Grid (Show cancelled).</p>
+                  <div className="flex gap-2">
+                    <button onClick={() => pull('cancel')} disabled={busy} className="bg-andonRed text-white font-bold rounded px-3 py-1.5">
+                      Cancel order
+                    </button>
+                    <button onClick={() => setConfirmCancel(false)} className="text-steel px-2">
+                      Keep it
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={onClose} className="text-sm text-steelLight px-3 py-2">

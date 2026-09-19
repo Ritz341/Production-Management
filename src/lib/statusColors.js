@@ -68,17 +68,18 @@ export function overallStatus(statuses, columnIds) {
 }
 
 /**
- * Workflow stage — the 5-step lifecycle admins set per order/department
- * cell from a dropdown, replacing free-text C/X entry. Independent of the
- * raw imported sheet value (which is kept for reference but is no longer
- * what gets hand-edited).
+ * Workflow stage — what the floor sets per order/department: not started
+ * (null) → Started → Done. Kept deliberately short so a tablet is one tap
+ * per job. Paperwork is tracked separately by the office (see
+ * bt_orders.paperwork_ready_at), not as a floor stage.
+ *
+ * Older rows may still hold 'paperwork_ready', 'packaged' or 'shipped'
+ * from before this was simplified; stageRank() in lib/schedule.js reads
+ * those as not started / done so nothing is lost.
  */
 export const WORKFLOW_STAGES = [
-  { id: 'paperwork_ready', label: 'Paperwork Ready', chipClass: 'bg-safety/20 text-safetyDark', dotClass: 'bg-safety' },
-  { id: 'started', label: 'Order Started', chipClass: 'bg-andonBlueBg text-andonBlue', dotClass: 'bg-andonBlue' },
-  { id: 'completed', label: 'Order Completed', chipClass: 'bg-andonGreenBg text-andonGreen', dotClass: 'bg-andonGreen' },
-  { id: 'packaged', label: 'Packaged', chipClass: 'bg-violet-100 text-violet-700', dotClass: 'bg-violet-600' },
-  { id: 'shipped', label: 'Loaded on Truck', chipClass: 'bg-charcoal text-paper', dotClass: 'bg-charcoal' },
+  { id: 'started', label: 'Started', chipClass: 'bg-andonBlueBg text-andonBlue', dotClass: 'bg-andonBlue' },
+  { id: 'completed', label: 'Done', chipClass: 'bg-andonGreenBg text-andonGreen', dotClass: 'bg-andonGreen' },
 ]
 
 export const workflowStageById = Object.fromEntries(WORKFLOW_STAGES.map((s) => [s.id, s]))
@@ -89,11 +90,3 @@ export const workflowStageById = Object.fromEntries(WORKFLOW_STAGES.map((s) => [
 // overrides the stage chip's color wherever it's set.
 export const BLOCKED_CHIP_CLASS = 'bg-andonRedBg text-andonRed'
 export const BLOCKED_DOT_CLASS = 'bg-andonRed'
-
-// Rough mapping into the existing 3-bucket not_started/in_progress/complete
-// system so the Board tab's counts keep working without a rewrite.
-export function workflowBucket(stageId) {
-  if (!stageId || stageId === 'paperwork_ready') return 'not_started'
-  if (stageId === 'started') return 'in_progress'
-  return 'complete' // completed, packaged, shipped
-}

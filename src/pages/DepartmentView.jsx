@@ -1,22 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
-import { WORKFLOW_STAGES, workflowStageById } from '../lib/statusColors'
+import { WORKFLOW_STAGES } from '../lib/statusColors'
 import { nearestBuildWeekId, weekOptionLabel } from '../lib/dates'
-import { DONE_RANK, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
+import { DONE_RANK, buildNumbers, byBuildOrder, daysUntil, nextStageId as nextStage, relativeDay, shortDate, stageLabel, stageRank, wasMovedRecently } from '../lib/schedule'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import FileModal from '../components/FileModal.jsx'
 import NotificationBanner from '../components/NotificationBanner.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
-
-// Which stage comes next (index-based advancement)
-const STAGE_IDS = WORKFLOW_STAGES.map((s) => s.id)
-function nextStage(current) {
-  if (!current) return STAGE_IDS[0] // null -> first stage
-  const idx = STAGE_IDS.indexOf(current)
-  if (idx < 0 || idx >= STAGE_IDS.length - 1) return null // already at end
-  return STAGE_IDS[idx + 1]
-}
 
 export default function DepartmentView() {
   const { profile, signOut } = useAuth()
@@ -97,7 +88,8 @@ export default function DepartmentView() {
     setLoading(true)
 
     async function load() {
-      let orderQuery = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date')
+      let orderQuery = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, sequence, moved_at, moved_direction, bt_build_weeks(ship_date)')
+        .eq('status', 'active')
       if (selectedWeekId !== 'all') orderQuery = orderQuery.eq('build_week_id', selectedWeekId)
       const { data: orderRows, error: ordersErr } = await orderQuery
       if (ordersErr && active) setLoadError(`Couldn't load orders: ${ordersErr.message}`)
@@ -112,6 +104,8 @@ export default function DepartmentView() {
         .select('order_id, status_value, status_column_id, workflow_stage, is_visible, blocked_at, blocked_note')
         .in('order_id', orderIds)
         .eq('is_visible', true)
+        // A department taken off the order (e.g. done in Canada) drops off its tablet.
+        .is('removed_at', null)
       // A failed query here (e.g. a schema migration not yet run against
       // this database) used to fail silently and just render an empty
       // queue — say so instead.
@@ -120,7 +114,11 @@ export default function DepartmentView() {
 
       if (!active) return
 
-      const ordersById = new Map((orderRows ?? []).map((o) => [o.id, { ...o, cells: {} }]))
+      // The build number is the order's place among ALL active orders in
+      // its pickup — not just this department's — so #3 is #3 on every
+      // tablet and on the admin screen.
+      const numbers = buildNumbers(orderRows ?? [])
+      const ordersById = new Map((orderRows ?? []).map((o) => [o.id, { ...o, buildNo: numbers.get(o.id), cells: {} }]))
       for (const row of statusRows ?? []) {
         const o = ordersById.get(row.order_id)
         if (!o) continue
@@ -135,17 +133,8 @@ export default function DepartmentView() {
       const relevant = Array.from(ordersById.values()).filter((o) =>
         ownColumnIds.some((id) => o.cells[id] != null)
       )
-      // Sort: unfinished first (by pickup date), then completed
-      relevant.sort((a, b) => {
-        const aStage = worstOwnStage(a, ownColumnIds)
-        const bStage = worstOwnStage(b, ownColumnIds)
-        const aRank = stageRank(aStage)
-        const bRank = stageRank(bStage)
-        if (aRank !== bRank) return aRank - bRank
-        const aDate = a.scheduled_pickup_date || 'zz'
-        const bDate = b.scheduled_pickup_date || 'zz'
-        return aDate.localeCompare(bDate) || a.tag_name.localeCompare(b.tag_name)
-      })
+      // The floor builds in the order admin set: pickup first, then #1, #2 …
+      relevant.sort(byBuildOrder)
       setOrders(relevant)
       setLoading(false)
     }
@@ -249,23 +238,22 @@ export default function DepartmentView() {
   const lanes = useMemo(() => {
     const out = { blocked: [], todo: [], doing: [], done: [] }
     for (const o of orders) out[laneOf(o, ownColumnIds)].push(o)
-    for (const l of Object.values(out)) l.sort((a, b) => byPickup(a, b) || a.tag_name.localeCompare(b.tag_name))
+    for (const l of Object.values(out)) l.sort(byBuildOrder)
     return out
   }, [orders, ownColumnIds])
 
-  // The single most urgent thing to do next: earliest pickup first, and
-  // on the same day a job already under way beats one not started.
-  // Never a blocked job.
+  // Up next is simply the first job in build order (#1 before #2) that's
+  // not blocked and not done — admin's numbering decides, not the app.
   const upNext = useMemo(() => {
-    const candidates = []
-    for (const o of [...lanes.doing, ...lanes.todo]) {
-      for (const colId of ownColumnIds) {
-        const c = o.cells[colId]
-        if (c && !c.blocked && stageRank(c.stage) < DONE_RANK) candidates.push({ order: o, colId, rank: stageRank(c.stage) })
-      }
+    const open = [...lanes.doing, ...lanes.todo].sort(byBuildOrder)
+    for (const o of open) {
+      const colId = ownColumnIds.find((id) => {
+        const c = o.cells[id]
+        return c && !c.blocked && stageRank(c.stage) < DONE_RANK
+      })
+      if (colId != null) return { order: o, colId }
     }
-    candidates.sort((a, b) => byPickup(a.order, b.order) || b.rank - a.rank)
-    return candidates[0] ?? null
+    return null
   }, [lanes, ownColumnIds])
 
   const [showAllDone, setShowAllDone] = useState(false)
@@ -286,7 +274,7 @@ export default function DepartmentView() {
     const prev = cell.stage
     advanceStage(order.id, colId, prev)
     setToast({
-      message: `${order.tag_name} · ${columnById[colId]} → ${workflowStageById[next].label}`,
+      message: `#${order.buildNo} ${order.tag_name} · ${columnById[colId]} → ${stageLabel(next)}`,
       undo: () => setStage(order.id, colId, prev, next),
     })
   }
@@ -376,7 +364,9 @@ export default function DepartmentView() {
                   <div className="text-[11px] tracking-[0.14em] uppercase font-bold text-safety">
                     Up next{ownColumnIds.length > 1 ? ` · ${columnById[upNext.colId]}` : ''}
                   </div>
-                  <div className="font-display font-bold text-4xl leading-none mt-1 break-words">{upNext.order.tag_name}</div>
+                  <div className="font-display font-bold text-4xl leading-none mt-1 break-words">
+                    <span className="text-safety">#{upNext.order.buildNo}</span> {upNext.order.tag_name}
+                  </div>
                   <div className="text-sm text-floorMute mt-1.5">
                     {upNext.order.dealer}
                     {upNext.order.scheduled_pickup_date && ` · picks up ${shortDate(upNext.order.scheduled_pickup_date)}`}
@@ -459,8 +449,15 @@ export default function DepartmentView() {
       <article key={o.id} className={`rounded-xl border p-3 grid gap-2.5 ${isBlocked ? 'bg-blockedCard border-andonRed' : 'bg-floorCard border-floorLine'}`}>
         <div className="flex justify-between gap-2 items-start">
           <div className="min-w-0">
-            <div className="font-display font-bold text-xl leading-tight break-words">{o.tag_name}</div>
+            <div className="font-display font-bold text-xl leading-tight break-words">
+              <span className="text-safety">#{o.buildNo}</span> {o.tag_name}
+            </div>
             <div className="text-xs text-floorMute mt-0.5">{o.dealer}</div>
+            {wasMovedRecently(o) && (
+              <div className={`inline-block mt-1.5 rounded-md px-2 py-0.5 text-xs font-bold ${o.moved_direction === 'up' ? 'bg-[#5B9BD5] text-charcoal' : 'bg-floorLine text-paper'}`}>
+                {o.moved_direction === 'up' ? '↑ Moved up' : '↓ Moved down'} by admin
+              </div>
+            )}
           </div>
           {due != null && (
             <span
@@ -484,7 +481,7 @@ export default function DepartmentView() {
                 <div className="flex items-baseline gap-2 text-sm">
                   {own.length > 1 && <span className="font-bold">{columnById[id]}</span>}
                   <span className={cell.blocked ? 'text-[#FF9A9A]' : 'text-floorMute'}>
-                    {cell.blocked ? `Blocked${cell.blockedNote ? ` — ${cell.blockedNote}` : ''}` : workflowStageById[cell.stage]?.label ?? 'Not started'}
+                    {cell.blocked ? `Blocked${cell.blockedNote ? ` — ${cell.blockedNote}` : ''}` : stageLabel(cell.stage)}
                   </span>
                 </div>
                 <StageSteps rank={rank} blocked={cell.blocked} />
@@ -499,13 +496,13 @@ export default function DepartmentView() {
                     onClick={() => tapAdvance(o, id)}
                     disabled={!live}
                     className={`rounded-lg text-charcoal text-sm font-bold px-4 py-2.5 active:scale-95 transition-transform disabled:opacity-40 ${
-                      rank === 2 ? 'bg-[#4CC46F]' : rank < 2 ? 'bg-safety' : 'bg-paper'
+                      rank === 1 ? 'bg-[#4CC46F]' : 'bg-safety'
                     }`}
                   >
                     {STAGE_VERB[next]}
                   </button>
                 ) : (
-                  <span className="text-sm font-bold text-[#7FD49A] px-1">✓ On truck</span>
+                  <span className="text-sm font-bold text-[#7FD49A] px-1">✓ Done</span>
                 )}
                 {!cell.blocked && next && (
                   <button
@@ -550,8 +547,8 @@ export default function DepartmentView() {
               return (
                 <span
                   key={id}
-                  title={`${deptByColumnId[id] ?? columnById[id]}: ${c.blocked ? 'Blocked' : workflowStageById[c.stage]?.label ?? 'Not started'}`}
-                  className={`w-2.5 h-2.5 rounded-sm ${c.blocked ? 'bg-andonRed' : STAGE_SWATCH[c.stage] ?? 'bg-[#3A4047]'}`}
+                  title={`${deptByColumnId[id] ?? columnById[id]}: ${c.blocked ? 'Blocked' : stageLabel(c.stage)}`}
+                  className={`w-2.5 h-2.5 rounded-sm ${c.blocked ? 'bg-andonRed' : STAGE_SWATCH[stageRank(c.stage)]}`}
                 />
               )
             })}
@@ -568,20 +565,12 @@ export default function DepartmentView() {
 /* ── Pieces ── */
 
 const STAGE_VERB = {
-  paperwork_ready: 'Ready',
   started: 'Start',
-  completed: 'Complete',
-  packaged: 'Package',
-  shipped: 'Load',
+  completed: 'Done',
 }
 
-const STAGE_SWATCH = {
-  paperwork_ready: 'bg-safety',
-  started: 'bg-[#5B9BD5]',
-  completed: 'bg-[#4CC46F]',
-  packaged: 'bg-violet-400',
-  shipped: 'bg-paper',
-}
+// Other departments' dots, by rank: not started / started / done.
+const STAGE_SWATCH = ['bg-[#3A4047]', 'bg-[#5B9BD5]', 'bg-[#4CC46F]']
 
 function BigAction({ cell, disabled, onClick }) {
   const next = nextStage(cell.stage)
@@ -591,12 +580,12 @@ function BigAction({ cell, disabled, onClick }) {
       onClick={onClick}
       disabled={disabled}
       className={`rounded-2xl text-charcoal font-display font-extrabold uppercase tracking-wide text-3xl px-8 py-4 min-w-[200px] active:scale-[0.97] transition-transform disabled:opacity-40 ${
-        rank === 2 ? 'bg-[#4CC46F]' : 'bg-safety'
+        rank === 1 ? 'bg-[#4CC46F]' : 'bg-safety'
       }`}
     >
       {STAGE_VERB[next]}
       <span className="block font-body normal-case tracking-normal text-xs font-semibold opacity-70">
-        → {workflowStageById[next].label}
+        {next === 'started' ? 'Tap when you begin' : 'Tap when it’s finished'}
       </span>
     </button>
   )
@@ -643,14 +632,8 @@ function laneOf(order, ownColumnIds) {
   if (cells.some((c) => c.blocked)) return 'blocked'
   const worst = Math.min(...cells.map((c) => stageRank(c.stage)))
   if (worst >= DONE_RANK) return 'done'
-  if (worst === 2) return 'doing'
+  if (worst === 1) return 'doing'
   return 'todo'
-}
-
-function byPickup(a, b) {
-  const ad = a.scheduled_pickup_date || '9999'
-  const bd = b.scheduled_pickup_date || '9999'
-  return ad.localeCompare(bd)
 }
 
 // The "worst" (earliest) stage across this department's columns for an order

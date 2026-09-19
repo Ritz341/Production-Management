@@ -15,6 +15,7 @@ export default function ShippingView() {
       .from('bt_orders')
       .select('id, tag_name, dealer, truck_route, scheduled_pickup_date, actual_pickup_date')
       .not('scheduled_pickup_date', 'is', null)
+      .eq('status', 'active')
       .order('scheduled_pickup_date', { ascending: true })
     setOrders(data ?? [])
     setLoading(false)

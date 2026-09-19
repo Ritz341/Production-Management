@@ -10,6 +10,7 @@ import OrderFormModal from '../components/OrderFormModal.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
 import AdminImport from './AdminImport.jsx'
 import AdminOverview from './AdminOverview.jsx'
+import AdminReports from './AdminReports.jsx'
 import { blockText } from '../lib/catalog'
 import { DONE_RANK, buildNumbers, byBuildOrder, stageRank, wasMovedRecently } from '../lib/schedule'
 
@@ -235,6 +236,7 @@ export default function AdminView() {
             ['overview', 'Overview'],
             ['grid', 'Grid'],
             ['import', 'Weekly Import'],
+            ['reports', 'Reports'],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -260,6 +262,8 @@ export default function AdminView() {
           onOpenGrid={() => setTab('grid')}
         />
       )}
+
+      {tab === 'reports' && <AdminReports />}
 
       {tab === 'import' && (
         <AdminImport

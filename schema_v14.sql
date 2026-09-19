@@ -405,3 +405,16 @@ begin
     alter publication supabase_realtime add table bt_crew_days;
   end if;
 end $$;
+
+
+-- ── 8. Admin can read every login's name ───────────────────
+-- So reports can say "Mods tablet" instead of a user id. The check goes
+-- through a security-definer function: a policy on bt_profiles that
+-- queried bt_profiles directly would recurse and break every login.
+create or replace function bt_is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from bt_profiles where user_id = auth.uid() and role = 'admin')
+$$;
+
+drop policy if exists "admin read profiles" on bt_profiles;
+create policy "admin read profiles" on bt_profiles for select using (bt_is_admin());

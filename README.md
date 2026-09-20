@@ -33,6 +33,14 @@ Built with **React + Vite + Tailwind** on **Supabase** (Postgres, Auth, Realtime
 - **Visibility control** — hide a single column on a single order from the floor
 - **File attach** — upload drawings, photos, and documents to a tag (private storage, signed URLs)
 
+### Reporting and quality
+- **Activity log** — every start, finish, block, clear, move and quality event is recorded by the database with its time
+- **Block reasons** — material shortage, machine down, rework, waiting on another department, missing info, short-staffed, order change, other — plus a note
+- **Quality issues** — any tablet reports a problem against the department that made it; **send it back** to reopen their job and hold yours until it's redone (closes itself when marked Done)
+- **Quality login** — open issues, close with a note, log on any order, this week by problem and by department
+- **Estimates** — mods, room shape, windows and panels give each order a difficulty and person-days; each pickup shows Doable / Tight / Over against the Mods crew left before it ships
+- **Weekly Excel report** (admin → Reports) — output vs target, on-time pickups, blocked hours by reason, quality by problem and department, per-person output, full activity log; all in working hours
+
 ### Office
 - **Paperwork** screen: every active order by pickup, in build order — tick each as its paperwork is printed, or mark a whole pickup ready at once
 
@@ -78,7 +86,7 @@ In the Supabase SQL editor, run **in order**:
 
 1. `schema.sql`
 2. `seed.sql`
-3. `schema_v2.sql` through `schema_v13.sql`, in order
+3. `schema_v2.sql` through `schema_v14.sql`, in order
 
 Skip `import_data.sql` — it's a snapshot of an old sheet. Start empty and load orders through **Weekly import** or the logistics screen. To wipe orders later but keep departments and logins, run `reset_to_empty.sql`.
 
@@ -98,7 +106,7 @@ Then add a matching profile:
 insert into bt_profiles (user_id, role, department_id, display_name)
 values (
   '<user UUID from Authentication > Users>',
-  'crew',                                                -- or 'admin' / 'shipping' / 'logistics' / 'office'
+  'crew',                                                -- or 'admin' / 'shipping' / 'logistics' / 'office' / 'quality'
   (select id from bt_departments where name = 'Mods'),   -- NULL for admin / logistics / office
   'Mods Tablet'
 );

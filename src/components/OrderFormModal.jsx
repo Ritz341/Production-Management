@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { weekOptionLabel } from '../lib/dates'
+import { PANEL_TYPES, ROOM_SHAPES, WINDOW_TYPES } from '../lib/catalog'
 
 /**
  * Add or edit an order's core fields, and attach any department/status
@@ -20,6 +21,14 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
   const [buildWeekId, setBuildWeekId] = useState(order?.build_week_id ?? '')
   const [scheduledPickupDate, setScheduledPickupDate] = useState(order?.scheduled_pickup_date ?? '')
   const [selectedColumnIds, setSelectedColumnIds] = useState(new Set(existingColumnIds))
+  const [modsCount, setModsCount] = useState(order?.mods_count ?? '')
+  const [roomShape, setRoomShape] = useState(order?.room_shape ?? '')
+  const [windowType, setWindowType] = useState(order?.window_type ?? '')
+  const [panelType, setPanelType] = useState(order?.panel_type ?? '')
+  // Who built each department's part — typed from the paper checklist.
+  // Optional for now.
+  const initialBuiltBy = Object.fromEntries(Object.entries(order?.statuses ?? {}).map(([id, c]) => [id, c?.builtBy ?? '']))
+  const [builtBy, setBuiltBy] = useState(initialBuiltBy)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [pullNote, setPullNote] = useState('')
@@ -83,6 +92,10 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
         shipping_status: shippingStatus.trim() || null,
         build_week_id: buildWeekId || null,
         scheduled_pickup_date: scheduledPickupDate || null,
+        mods_count: modsCount === '' ? null : Number(modsCount),
+        room_shape: roomShape || null,
+        window_type: windowType || null,
+        panel_type: panelType || null,
       }
 
       let orderId
@@ -104,6 +117,20 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
           .from('bt_order_status')
           .insert({ order_id: orderId, status_column_id: columnId, is_visible: true })
         if (statusErr) throw statusErr
+      }
+
+      // Only write names that actually changed, so an untouched form never
+      // blanks out someone else's entry.
+      if (isEdit && allowPull) {
+        for (const [colId, name] of Object.entries(builtBy)) {
+          if ((initialBuiltBy[colId] ?? '') === name) continue
+          const { error: nameErr } = await supabase
+            .from('bt_order_status')
+            .update({ built_by: name.trim() || null })
+            .eq('order_id', orderId)
+            .eq('status_column_id', Number(colId))
+          if (nameErr) throw nameErr
+        }
       }
 
       onSaved?.()
@@ -199,6 +226,58 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
               placeholder="e.g. Shipped 8/14, CREDIT HOLD…"
             />
           </div>
+
+          <fieldset className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <legend className="text-sm font-medium text-steel mb-1 col-span-full">From the order confirmation (for the estimate)</legend>
+            <label className="text-xs text-steelLight">
+              Mods
+              <input
+                type="number"
+                min="0"
+                value={modsCount}
+                onChange={(e) => setModsCount(e.target.value)}
+                className="mt-0.5 w-full border border-paperDim rounded px-2 py-2 text-sm text-charcoal"
+              />
+            </label>
+            {[
+              ['Room', roomShape, setRoomShape, ROOM_SHAPES],
+              ['Windows', windowType, setWindowType, WINDOW_TYPES],
+              ['Panels', panelType, setPanelType, PANEL_TYPES],
+            ].map(([label, value, set, options]) => (
+              <label key={label} className="text-xs text-steelLight">
+                {label}
+                <select value={value} onChange={(e) => set(e.target.value)} className="mt-0.5 w-full border border-paperDim rounded px-2 py-2 text-sm text-charcoal bg-white">
+                  <option value="">—</option>
+                  {options.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </fieldset>
+
+          {isEdit && allowPull && Object.keys(builtBy).length > 0 && (
+            <fieldset>
+              <legend className="text-sm font-medium text-steel mb-1">
+                Who built it <span className="font-normal text-steelLight">(optional — from the paper checklist)</span>
+              </legend>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {Object.keys(builtBy).map((colId) => (
+                  <label key={colId} className="flex items-center gap-2 text-sm">
+                    <span className="w-24 shrink-0 text-steel">{columns.find((c) => c.id === Number(colId))?.name}</span>
+                    <input
+                      value={builtBy[colId]}
+                      onChange={(e) => setBuiltBy((prev) => ({ ...prev, [colId]: e.target.value }))}
+                      placeholder="e.g. Raj, Tom"
+                      className="flex-1 border border-paperDim rounded px-2 py-1.5"
+                    />
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-steel mb-2">

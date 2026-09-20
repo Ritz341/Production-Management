@@ -1,18 +1,4 @@
-# Netlify picks these up automatically when the repo is connected.
-# The two VITE_SUPABASE_* values still go in Site settings → Environment
-# variables — they never live in the repo.
 [build]
-  # The app builds from the repo root. Pinned because the "Base directory"
-  # setting in the Netlify dashboard names a folder that isn't in this repo,
-  # which failed every deploy before the build even started. This value
-  # overrides the dashboard.
   base = "."
   command = "npm install --allow-remote=all && npm run build"
   publish = "dist"
-
-# The service worker must never be cached by the browser, or tablets
-# can get stuck on an old version of the app.
-[[headers]]
-  for = "/sw.js"
-  [headers.values]
-    Cache-Control = "no-cache"

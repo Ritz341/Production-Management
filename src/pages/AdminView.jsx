@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
-import { byShipDate, nearestBuildWeekId, weekOptionLabel } from '../lib/dates'
+import { nearestBuildWeekId, weekOptionLabel } from '../lib/dates'
 import { WORKFLOW_STAGES, workflowStageById, BLOCKED_CHIP_CLASS } from '../lib/statusColors'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import FileModal from '../components/FileModal.jsx'
@@ -10,7 +10,9 @@ import OrderFormModal from '../components/OrderFormModal.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
 import AdminImport from './AdminImport.jsx'
 import AdminOverview from './AdminOverview.jsx'
-import { DONE_RANK, stageRank } from '../lib/schedule'
+import AdminReports from './AdminReports.jsx'
+import { blockText } from '../lib/catalog'
+import { DONE_RANK, buildNumbers, byBuildOrder, stageRank, wasMovedRecently } from '../lib/schedule'
 
 // Cycled per row in the Grid tab so long lists are easier to track
 // across a wide table (25 columns) than plain white/paper zebra
@@ -23,6 +25,7 @@ export default function AdminView() {
   const [blockTarget, setBlockTarget] = useState(null) // { orderId, columnId } while the reason picker is open
   const [tab, setTab] = useState('overview') // 'overview' | 'grid' | 'import'
   const [hideFinished, setHideFinished] = useState(true)
+  const [showCancelled, setShowCancelled] = useState(false)
   const [buildWeeks, setBuildWeeks] = useState([])
   const [selectedWeekId, setSelectedWeekId] = useState('all')
   const [columns, setColumns] = useState([])
@@ -51,13 +54,13 @@ export default function AdminView() {
     const { data: cols, error: colsErr } = await supabase.from('bt_status_columns').select('id, name').order('sort_order')
     setColumns(cols ?? [])
 
-    let query = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date')
+    let query = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, notes, sequence, moved_at, moved_direction, status, cancel_reason, paperwork_ready_at, mods_count, room_shape, window_type, panel_type, bt_build_weeks(ship_date)')
     if (selectedWeekId !== 'all') query = query.eq('build_week_id', selectedWeekId)
     const { data: orderRows, error: ordersErr } = await query
 
     const { data: statusRows, error: statusErr } = await supabase
       .from('bt_order_status')
-      .select('order_id, status_column_id, status_value, is_visible, workflow_stage, blocked_at, blocked_note')
+      .select('order_id, status_column_id, status_value, is_visible, workflow_stage, blocked_at, blocked_note, blocked_category, removed_at, removed_note, built_by')
 
     // A failed query here (e.g. a schema migration not yet run against
     // this database) used to fail silently and just render an empty
@@ -75,10 +78,20 @@ export default function AdminView() {
         stage: s.workflow_stage,
         blocked: !!s.blocked_at,
         blockedNote: s.blocked_note,
+        blockedCategory: s.blocked_category,
+        builtBy: s.built_by,
+        removed: !!s.removed_at,
+        removedNote: s.removed_note,
       }
     }
 
-    setOrders((orderRows ?? []).map((o) => ({ ...o, statuses: statusMap.get(o.id) ?? {} })).sort(byShipDate))
+    const numbers = buildNumbers(orderRows ?? [])
+    setOrders(
+      (orderRows ?? [])
+        .map((o) => ({ ...o, buildNo: numbers.get(o.id), statuses: statusMap.get(o.id) ?? {} }))
+        // Cancelled orders sort to the end of their pickup.
+        .sort((a, b) => (a.status === 'cancelled') - (b.status === 'cancelled') || byBuildOrder(a, b))
+    )
     setLoading(false)
   }
 
@@ -99,6 +112,7 @@ export default function AdminView() {
     const channel = supabase
       .channel('admin-grid-order-status')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_order_status' }, loadAll)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_orders' }, loadAll)
       .subscribe()
     return () => supabase.removeChannel(channel)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -145,19 +159,39 @@ export default function AdminView() {
   // Unblocking needs no reason; blocking opens the reason picker below.
   function requestToggleBlocked(orderId, columnId, currentlyBlocked) {
     if (!live) return
-    if (currentlyBlocked) applyBlocked(orderId, columnId, false, null)
+    if (currentlyBlocked) applyBlocked(orderId, columnId, false)
     else setBlockTarget({ orderId, columnId })
   }
 
-  async function applyBlocked(orderId, columnId, blocked, note) {
+  async function applyBlocked(orderId, columnId, blocked, note = null, category = null) {
     const prev = findCell(orderId, columnId)
-    patchLocalCell(orderId, columnId, { blocked, blockedNote: note }) // optimistic
+    patchLocalCell(orderId, columnId, { blocked, blockedNote: note, blockedCategory: category }) // optimistic
     const { error } = await supabase
       .from('bt_order_status')
-      .update({ blocked_at: blocked ? new Date().toISOString() : null, blocked_note: blocked ? note : null })
+      .update({ blocked_at: blocked ? new Date().toISOString() : null, blocked_note: blocked ? note : null, blocked_category: blocked ? category : null })
       .eq('order_id', orderId)
       .eq('status_column_id', columnId)
     if (error && prev) patchLocalCell(orderId, columnId, { blocked: prev.blocked, blockedNote: prev.blockedNote }) // roll back
+  }
+
+  // Swaps with the neighbouring order in the same pickup; every tablet
+  // re-sorts through realtime and flags the order as moved.
+  async function moveOrder(order, direction) {
+    if (!live) return
+    const { error } = await supabase.rpc('bt_move_order', { p_order_id: order.id, p_direction: direction })
+    if (error) setLoadError(`Couldn't move ${order.tag_name}: ${error.message}`)
+    else loadAll()
+  }
+
+  async function togglePaperwork(order) {
+    if (!live) return
+    const ready = !order.paperwork_ready_at
+    setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, paperwork_ready_at: ready ? new Date().toISOString() : null } : o)))
+    const { error } = await supabase.rpc('bt_set_paperwork_ready', { p_order_ids: [order.id], p_ready: ready })
+    if (error) {
+      setLoadError(`Couldn't update paperwork: ${error.message}`)
+      loadAll()
+    }
   }
 
   async function handleShipDateSave() {
@@ -169,13 +203,18 @@ export default function AdminView() {
   // Finished = every department on the order at Order Completed or
   // later. Hidden by default so the grid shows the work still to do.
   const isFinished = (o) => {
-    const cells = Object.values(o.statuses).filter((c) => c.visible)
+    const cells = Object.values(o.statuses).filter((c) => c.visible && !c.removed)
     return cells.length > 0 && cells.every((c) => stageRank(c.stage) >= DONE_RANK)
   }
-  const finishedCount = orders.filter(isFinished).length
+  const finishedCount = orders.filter((o) => o.status === 'active' && isFinished(o)).length
+  const cancelledCount = orders.filter((o) => o.status === 'cancelled').length
+  // Orders in the same pickup, in build order — for disabling ▲ on the
+  // first and ▼ on the last.
+  const activeInWeek = (o) => orders.filter((x) => x.status === 'active' && x.build_week_id === o.build_week_id)
   const visibleOrders = orders.filter(
     (o) =>
-      !(hideFinished && isFinished(o)) &&
+      (showCancelled || o.status !== 'cancelled') &&
+      !(hideFinished && o.status === 'active' && isFinished(o)) &&
       (!filter ||
         o.tag_name.toLowerCase().includes(filter.toLowerCase()) ||
         (o.dealer ?? '').toLowerCase().includes(filter.toLowerCase()))
@@ -197,6 +236,7 @@ export default function AdminView() {
             ['overview', 'Overview'],
             ['grid', 'Grid'],
             ['import', 'Weekly Import'],
+            ['reports', 'Reports'],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -222,6 +262,8 @@ export default function AdminView() {
           onOpenGrid={() => setTab('grid')}
         />
       )}
+
+      {tab === 'reports' && <AdminReports />}
 
       {tab === 'import' && (
         <AdminImport
@@ -269,6 +311,12 @@ export default function AdminView() {
               <input type="checkbox" checked={hideFinished} onChange={(e) => setHideFinished(e.target.checked)} className="w-4 h-4" />
               Hide finished{finishedCount > 0 && ` (${finishedCount})`}
             </label>
+            {cancelledCount > 0 && (
+              <label className="flex items-center gap-2 text-sm text-steel cursor-pointer">
+                <input type="checkbox" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} className="w-4 h-4" />
+                Show cancelled ({cancelledCount})
+              </label>
+            )}
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
@@ -292,7 +340,9 @@ export default function AdminView() {
               <table className="min-w-full text-sm bg-white shadow-sm">
                 <thead className="bg-charcoal text-paper font-display text-base">
                   <tr>
-                    <th className="px-3 py-2 text-left sticky left-0 bg-charcoal z-10">Tag Name</th>
+                    <th className="px-2 py-2 text-left sticky left-0 bg-charcoal z-10" title="Build order within the pickup">#</th>
+                    <th className="px-3 py-2 text-left">Tag Name</th>
+                    <th className="px-2 py-2 text-center" title="Paperwork ready (office only — not shown on the floor)">📄</th>
                     <th className="px-3 py-2 text-left">Dealer</th>
                     <th className="px-3 py-2 text-left">Ship Status</th>
                     {presentColumns.map((c) => (
@@ -306,8 +356,53 @@ export default function AdminView() {
                 <tbody>
                   {visibleOrders.map((o, i) => (
                     <tr key={o.id} className={ROW_SHADES[i % ROW_SHADES.length]}>
-                      <td className="px-3 py-2 font-display text-base font-semibold text-charcoal sticky left-0 bg-inherit">
-                        {o.tag_name}
+                      <td className="px-1 py-1 sticky left-0 bg-inherit whitespace-nowrap">
+                        {o.status === 'active' ? (
+                          <div className="flex items-center gap-1">
+                            <span className="font-display text-lg font-bold text-charcoal w-7 text-right tabular-nums">{o.buildNo}</span>
+                            <div className="flex flex-col">
+                              <button
+                                onClick={() => moveOrder(o, 'up')}
+                                disabled={!live || activeInWeek(o)[0]?.id === o.id}
+                                aria-label={`Move ${o.tag_name} up`}
+                                className="px-1.5 leading-none text-steel hover:text-charcoal disabled:opacity-20"
+                              >
+                                ▲
+                              </button>
+                              <button
+                                onClick={() => moveOrder(o, 'down')}
+                                disabled={!live || activeInWeek(o).at(-1)?.id === o.id}
+                                aria-label={`Move ${o.tag_name} down`}
+                                className="px-1.5 leading-none text-steel hover:text-charcoal disabled:opacity-20"
+                              >
+                                ▼
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-xs font-bold text-andonRed px-1">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`font-display text-base font-semibold ${o.status === 'cancelled' ? 'text-steelLight line-through' : 'text-charcoal'}`}>
+                          {o.tag_name}
+                        </span>
+                        {o.status === 'cancelled' && (
+                          <span className="block text-xs font-semibold text-andonRed">Cancelled{o.cancel_reason ? ` — ${o.cancel_reason}` : ''}</span>
+                        )}
+                        {o.status === 'active' && wasMovedRecently(o) && (
+                          <span className="block text-xs font-semibold text-andonBlue">{o.moved_direction === 'up' ? '↑ Moved up' : '↓ Moved down'} today</span>
+                        )}
+                      </td>
+                      <td className="px-1 py-1 text-center">
+                        <button
+                          onClick={() => togglePaperwork(o)}
+                          disabled={!live || o.status !== 'active'}
+                          title={o.paperwork_ready_at ? 'Paperwork ready — click to undo' : 'Mark paperwork ready'}
+                          className={`rounded px-2 py-1 text-sm font-bold ${o.paperwork_ready_at ? 'bg-andonGreenBg text-andonGreen' : 'text-paperDim hover:text-steel'}`}
+                        >
+                          {o.paperwork_ready_at ? '✓' : '○'}
+                        </button>
                       </td>
                       <td className="px-3 py-2 text-steelLight">{o.dealer}</td>
                       <td className="px-3 py-2 text-steelLight">{o.shipping_status}</td>
@@ -329,19 +424,31 @@ export default function AdminView() {
                               </button>
                             </td>
                           )
+                        if (cell.removed)
+                          return (
+                            <td key={c.id} className="px-1 py-1">
+                              <button
+                                onClick={() => setFormOrder(o)}
+                                title={`Removed from this order${cell.removedNote ? `: ${cell.removedNote}` : ''} — open the order to restore`}
+                                className="w-full rounded bg-paperDim text-steelLight text-xs px-2 py-1.5 line-through"
+                              >
+                                {cell.removedNote ?? 'Removed'}
+                              </button>
+                            </td>
+                          )
                         const stageInfo = cell.stage ? workflowStageById[cell.stage] : null
                         // Blocked overrides the stage color — more urgent
                         // than whatever stage it's stuck at.
                         const chipClass = cell.blocked ? BLOCKED_CHIP_CLASS : stageInfo ? stageInfo.chipClass : 'bg-paperDim text-steelLight'
                         return (
                           <td key={c.id} className="px-1 py-1">
-                            <div className={`flex items-center gap-1 rounded ${chipClass}`} title={cell.blocked ? `Blocked${cell.blockedNote ? `: ${cell.blockedNote}` : ''}` : undefined}>
+                            <div className={`flex items-center gap-1 rounded ${chipClass}`} title={cell.blocked ? `Blocked: ${blockText(cell)}` : undefined}>
                               <select
                                 value={cell.stage ?? ''}
                                 onChange={(e) => handleStageCommit(o.id, c.id, e.target.value)}
                                 className="flex-1 px-1.5 py-1 bg-transparent text-sm"
                               >
-                                <option value="">Set status…</option>
+                                <option value="">Not started</option>
                                 {WORKFLOW_STAGES.map((s) => (
                                   <option key={s.id} value={s.id}>
                                     {s.label}
@@ -393,14 +500,15 @@ export default function AdminView() {
           buildWeeks={buildWeeks}
           onClose={() => setFormOrder(null)}
           onSaved={loadAll}
+          allowPull
         />
       )}
 
       {blockTarget && (
         <BlockReasonModal
           onCancel={() => setBlockTarget(null)}
-          onConfirm={(reason) => {
-            applyBlocked(blockTarget.orderId, blockTarget.columnId, true, reason)
+          onConfirm={({ category, note }) => {
+            applyBlocked(blockTarget.orderId, blockTarget.columnId, true, note, category)
             setBlockTarget(null)
           }}
         />

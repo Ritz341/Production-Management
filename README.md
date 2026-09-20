@@ -11,11 +11,12 @@ Built with **React + Vite + Tailwind** on **Supabase** (Postgres, Auth, Realtime
 ### Shop floor (department tablets)
 - **Shared department logins** — each tablet lands on its own queue
 - **Combined queues** — one tablet can cover 2–3 departments, or peek read-only at others
-- **Up next** — the most urgent job (earliest pickup, never a blocked one) with one large button
+- **Build order** — orders are numbered #1, #2 … within each pickup, in sheet order, and every tablet builds in that order; orders admin moves are flagged "↑ Moved up" for 24 hours
+- **Up next** — the lowest-numbered job that isn't blocked or done, with one large button
 - **Ship countdown** — "IN 3 DAYS" in the header, turning red as the truck gets close
 - **Lanes** — Blocked / To do / In progress / Done, with Undo after every tap
-- **Stage tracking** — paperwork → started → completed → packaged → shipped
-- **Blocked flag (🚧)** — mark a cell as blocked with a reason (Missing Glass, Wrong Cut, Machine Down, Waiting on Parts, Other); it turns red and can't be advanced by accident
+- **Simple steps** — Not started → Started → Done
+- **Blocked (🚧)** — say what happened in your own words, or tap a quick reason (Missing Glass, Wrong Cut, Machine Down, Waiting on Parts); it turns red and can't be advanced by accident
 - **File view** — open drawings and photos attached to a tag, with inline image previews
 - **Installable** — add to the tablet home screen; opens full screen like a native app
 
@@ -25,9 +26,23 @@ Built with **React + Vite + Tailwind** on **Supabase** (Postgres, Auth, Realtime
 - **Move a ship date** from the overview — every tablet's header and alert update instantly
 - **Department progress** for the selected week, and a live feed of what the floor is doing
 - **Plant grid** — every order × all status columns, inline editable, searchable, finished orders hidden by default
+- **Change the build order** — ▲▼ on any order; every tablet re-sorts instantly
+- **Pull an order** — cancel it with a reason (restorable), delay it to another pickup (it goes to the bottom there), or take one department off it (e.g. "V4T done in Canada")
+- **Paperwork ready** — tick per order (office and admin only; never shown on the floor)
 - **New / edit orders** — add orders, edit core fields, add a department an order is missing
 - **Visibility control** — hide a single column on a single order from the floor
 - **File attach** — upload drawings, photos, and documents to a tag (private storage, signed URLs)
+
+### Reporting and quality
+- **Activity log** — every start, finish, block, clear, move and quality event is recorded by the database with its time
+- **Block reasons** — material shortage, machine down, rework, waiting on another department, missing info, short-staffed, order change, other — plus a note
+- **Quality issues** — any tablet reports a problem against the department that made it; **send it back** to reopen their job and hold yours until it's redone (closes itself when marked Done)
+- **Quality login** — open issues, close with a note, log on any order, this week by problem and by department
+- **Estimates** — mods, room shape, windows and panels give each order a difficulty and person-days; each pickup shows Doable / Tight / Over against the Mods crew left before it ships
+- **Weekly Excel report** (admin → Reports) — output vs target, on-time pickups, blocked hours by reason, quality by problem and department, per-person output, full activity log; all in working hours
+
+### Office
+- **Paperwork** screen: every active order by pickup, in build order — tick each as its paperwork is printed, or mark a whole pickup ready at once
 
 ### Logistics coordinator
 - **Add orders one at a time** as they're confirmed — they reach the floor immediately, with a notice on every tablet
@@ -44,7 +59,7 @@ Three ways to load the build week — all land on the same review screen, so not
 | **Upload / drag & drop** | Drop the Truesdale `.xlsx` onto the page | Exact |
 | **Screenshot** | Upload or paste an image of the sheet | OCR — confidence shown and uncertain cells flagged |
 
-The importer detects each `PICK UP x/x` banner and creates a build week per section (dates marked `?` are flagged for confirmation), and lists orders no longer on the sheet so admin can choose which to remove.
+**Import only the pickup dates you want.** Every `PICK UP x/x` row on the sheet (in the Dealer column, highlighted or not) starts a section, and everything below it belongs to that pickup. The review screen lists each section with its order count; tick the ones to bring in and the rest of the sheet is ignored. The next upcoming pickup is ticked by default, dates marked `?` are flagged, and each date can be corrected before importing. Orders already in the app but missing from the sheet can optionally be cleaned up, and nothing is deleted unless ticked.
 
 ### Live everywhere
 - **Realtime updates** — changes push to every tablet instantly
@@ -71,8 +86,9 @@ In the Supabase SQL editor, run **in order**:
 
 1. `schema.sql`
 2. `seed.sql`
-3. `import_data.sql` *(optional starting data)*
-4. `schema_v2.sql` through `schema_v12.sql`, in order
+3. `schema_v2.sql` through `schema_v14.sql`, in order
+
+Skip `import_data.sql` — it's a snapshot of an old sheet. Start empty and load orders through **Weekly import** or the logistics screen. To wipe orders later but keep departments and logins, run `reset_to_empty.sql`.
 
 > Run the migrations **before** creating the storage bucket — `schema_v9.sql` adds the storage policies the bucket needs.
 
@@ -90,8 +106,8 @@ Then add a matching profile:
 insert into bt_profiles (user_id, role, department_id, display_name)
 values (
   '<user UUID from Authentication > Users>',
-  'crew',                                                -- or 'admin' / 'shipping' / 'logistics'
-  (select id from bt_departments where name = 'Mods'),   -- NULL for admin / logistics
+  'crew',                                                -- or 'admin' / 'shipping' / 'logistics' / 'office' / 'quality'
+  (select id from bt_departments where name = 'Mods'),   -- NULL for admin / logistics / office
   'Mods Tablet'
 );
 ```
@@ -146,6 +162,7 @@ Stand up Supabase via Docker on the plant server, run the same SQL files, recrea
 │   │   ├── AdminImport.jsx      # weekly import (paste / file / screenshot)
 │   │   ├── DepartmentView.jsx   # tablet queue
 │   │   ├── LogisticsView.jsx    # add orders one at a time
+│   │   ├── OfficeView.jsx       # paperwork ready, per order
 │   │   ├── ShippingView.jsx
 │   │   └── Login.jsx
 │   ├── components/              # FileModal, OrderFormModal, BlockReasonModal, NotificationBanner
@@ -155,7 +172,7 @@ Stand up Supabase via Docker on the plant server, run the same SQL files, recrea
 │       ├── AuthContext.jsx
 │       ├── ConnectionContext.jsx
 │       └── supabaseClient.js
-├── schema.sql, schema_v2–v12.sql   # database + migrations
+├── schema.sql, schema_v2–v13.sql   # database + migrations
 ├── seed.sql, import_data.sql
 └── .github/workflows/build.yml     # CI build check
 ```

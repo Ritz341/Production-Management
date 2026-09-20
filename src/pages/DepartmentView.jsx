@@ -1,22 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
-import { WORKFLOW_STAGES, workflowStageById } from '../lib/statusColors'
+import { WORKFLOW_STAGES } from '../lib/statusColors'
+import { blockText, defectLabel } from '../lib/catalog'
 import { nearestBuildWeekId, weekOptionLabel } from '../lib/dates'
-import { DONE_RANK, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
+import { DONE_RANK, buildNumbers, byBuildOrder, daysUntil, nextStageId as nextStage, relativeDay, shortDate, stageLabel, stageRank, wasMovedRecently } from '../lib/schedule'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import FileModal from '../components/FileModal.jsx'
 import NotificationBanner from '../components/NotificationBanner.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
-
-// Which stage comes next (index-based advancement)
-const STAGE_IDS = WORKFLOW_STAGES.map((s) => s.id)
-function nextStage(current) {
-  if (!current) return STAGE_IDS[0] // null -> first stage
-  const idx = STAGE_IDS.indexOf(current)
-  if (idx < 0 || idx >= STAGE_IDS.length - 1) return null // already at end
-  return STAGE_IDS[idx + 1]
-}
+import QualityIssueModal from '../components/QualityIssueModal.jsx'
 
 export default function DepartmentView() {
   const { profile, signOut } = useAuth()
@@ -37,6 +30,7 @@ export default function DepartmentView() {
   const [ownColumnIds, setOwnColumnIds] = useState([])
   const [orders, setOrders] = useState([])
   const [openOrder, setOpenOrder] = useState(null)
+  const [qualityFor, setQualityFor] = useState(null) // order being reported on
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
@@ -97,7 +91,8 @@ export default function DepartmentView() {
     setLoading(true)
 
     async function load() {
-      let orderQuery = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date')
+      let orderQuery = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, sequence, moved_at, moved_direction, bt_build_weeks(ship_date)')
+        .eq('status', 'active')
       if (selectedWeekId !== 'all') orderQuery = orderQuery.eq('build_week_id', selectedWeekId)
       const { data: orderRows, error: ordersErr } = await orderQuery
       if (ordersErr && active) setLoadError(`Couldn't load orders: ${ordersErr.message}`)
@@ -109,18 +104,31 @@ export default function DepartmentView() {
 
       const { data: statusRows, error: statusErr } = await supabase
         .from('bt_order_status')
-        .select('order_id, status_value, status_column_id, workflow_stage, is_visible, blocked_at, blocked_note')
+        .select('order_id, status_value, status_column_id, workflow_stage, is_visible, blocked_at, blocked_note, blocked_category')
         .in('order_id', orderIds)
         .eq('is_visible', true)
+        // A department taken off the order (e.g. done in Canada) drops off its tablet.
+        .is('removed_at', null)
       // A failed query here (e.g. a schema migration not yet run against
       // this database) used to fail silently and just render an empty
       // queue — say so instead.
       if (statusErr && active) setLoadError(`Couldn't load statuses: ${statusErr.message}`)
       if (!statusErr && !ordersErr && active) setLoadError('')
 
+      const { data: issueRows } = await supabase
+        .from('bt_quality_issues')
+        .select('id, order_id, responsible_column_id, reporter_column_id, defect_type, sent_back, created_at')
+        .in('order_id', orderIds)
+        .is('resolved_at', null)
+
       if (!active) return
 
-      const ordersById = new Map((orderRows ?? []).map((o) => [o.id, { ...o, cells: {} }]))
+      // The build number is the order's place among ALL active orders in
+      // its pickup — not just this department's — so #3 is #3 on every
+      // tablet and on the admin screen.
+      const numbers = buildNumbers(orderRows ?? [])
+      const ordersById = new Map((orderRows ?? []).map((o) => [o.id, { ...o, buildNo: numbers.get(o.id), cells: {}, issues: [] }]))
+      for (const issue of issueRows ?? []) ordersById.get(issue.order_id)?.issues.push(issue)
       for (const row of statusRows ?? []) {
         const o = ordersById.get(row.order_id)
         if (!o) continue
@@ -129,23 +137,15 @@ export default function DepartmentView() {
           stage: row.workflow_stage,
           blocked: !!row.blocked_at,
           blockedNote: row.blocked_note,
+          blockedCategory: row.blocked_category,
         }
       }
       // Only orders that have at least one of this department's columns
       const relevant = Array.from(ordersById.values()).filter((o) =>
         ownColumnIds.some((id) => o.cells[id] != null)
       )
-      // Sort: unfinished first (by pickup date), then completed
-      relevant.sort((a, b) => {
-        const aStage = worstOwnStage(a, ownColumnIds)
-        const bStage = worstOwnStage(b, ownColumnIds)
-        const aRank = stageRank(aStage)
-        const bRank = stageRank(bStage)
-        if (aRank !== bRank) return aRank - bRank
-        const aDate = a.scheduled_pickup_date || 'zz'
-        const bDate = b.scheduled_pickup_date || 'zz'
-        return aDate.localeCompare(bDate) || a.tag_name.localeCompare(b.tag_name)
-      })
+      // The floor builds in the order admin set: pickup first, then #1, #2 …
+      relevant.sort(byBuildOrder)
       setOrders(relevant)
       setLoading(false)
     }
@@ -157,6 +157,7 @@ export default function DepartmentView() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_order_status' }, load)
       // Order edits (dealer, pickup date, moved to another week) too.
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_orders' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_quality_issues' }, load)
       .subscribe()
 
     return () => {
@@ -179,24 +180,38 @@ export default function DepartmentView() {
     // user why — just don't fire a write that'll never land.
     if (!live) return
     patchCell(orderId, columnId, { stage: next }) // optimistic
-    const { error } = await supabase
+    const saved = await saveCell(orderId, columnId, { workflow_stage: next })
+    if (!saved) patchCell(orderId, columnId, { stage: currentStage }) // roll back
+  }
+
+  // Writes one cell and reports whether it really saved. Supabase returns
+  // no error when a permission rule filters the row out — it just updates
+  // nothing — so the only honest check is that a row came back.
+  async function saveCell(orderId, columnId, fields) {
+    const { data, error } = await supabase
       .from('bt_order_status')
-      .update({ workflow_stage: next })
+      .update(fields)
       .eq('order_id', orderId)
       .eq('status_column_id', columnId)
-    if (error) patchCell(orderId, columnId, { stage: currentStage }) // roll back
+      .select('order_id')
+    if (error || !data?.length) {
+      setToast({
+        message: error
+          ? `Didn't save: ${error.message}`
+          : `Didn't save — this tablet isn't set up for ${columnById[columnId] ?? 'that department'}. Ask admin.`,
+        error: true,
+      })
+      return false
+    }
+    return true
   }
 
   // Set a specific stage (for the dropdown override)
   async function setStage(orderId, columnId, stageId, currentStage) {
     if (!live) return
     patchCell(orderId, columnId, { stage: stageId || null }) // optimistic
-    const { error } = await supabase
-      .from('bt_order_status')
-      .update({ workflow_stage: stageId || null })
-      .eq('order_id', orderId)
-      .eq('status_column_id', columnId)
-    if (error) patchCell(orderId, columnId, { stage: currentStage }) // roll back
+    const saved = await saveCell(orderId, columnId, { workflow_stage: stageId || null })
+    if (!saved) patchCell(orderId, columnId, { stage: currentStage }) // roll back
   }
 
   // Blocked is a flag layered on top of whatever stage a cell is
@@ -205,20 +220,29 @@ export default function DepartmentView() {
   // Unblocking needs no reason; blocking opens the reason picker below.
   function requestToggleBlocked(orderId, columnId, currentlyBlocked) {
     if (!live) return
-    if (currentlyBlocked) applyBlocked(orderId, columnId, false, null)
+    if (currentlyBlocked) applyBlocked(orderId, columnId, false)
     else setBlockTarget({ orderId, columnId })
   }
 
-  async function applyBlocked(orderId, columnId, blocked, note) {
+  async function applyBlocked(orderId, columnId, blocked, note = null, category = null) {
     const prevCell = orders.find((o) => o.id === orderId)?.cells[columnId]
-    patchCell(orderId, columnId, { blocked, blockedNote: note }) // optimistic
-    const { error } = await supabase
-      .from('bt_order_status')
-      .update({ blocked_at: blocked ? new Date().toISOString() : null, blocked_note: blocked ? note : null })
-      .eq('order_id', orderId)
-      .eq('status_column_id', columnId)
-    if (error && prevCell) patchCell(orderId, columnId, { blocked: prevCell.blocked, blockedNote: prevCell.blockedNote }) // roll back
+    patchCell(orderId, columnId, { blocked, blockedNote: note, blockedCategory: category }) // optimistic
+    const saved = await saveCell(orderId, columnId, {
+      blocked_at: blocked ? new Date().toISOString() : null,
+      blocked_note: blocked ? note : null,
+      blocked_category: blocked ? category : null,
+    })
+    if (!saved && prevCell) patchCell(orderId, columnId, { blocked: prevCell.blocked, blockedNote: prevCell.blockedNote, blockedCategory: prevCell.blockedCategory }) // roll back
   }
+
+  // Columns this login is allowed to change: only its assigned
+  // departments. Others added through the picker are there to look at —
+  // the database refuses their writes, so they get no buttons.
+  const writableColumnIds = useMemo(() => {
+    const ids = new Set()
+    for (const deptId of profile?.combinedDepartmentIds ?? []) for (const c of deptColumnMap[deptId] ?? []) ids.add(c)
+    return ids
+  }, [profile, deptColumnMap])
 
   const currentDeptName = useMemo(
     () => departments.filter((d) => selectedDeptIds.includes(d.id)).map((d) => d.name).join(' + ') || 'Loading…',
@@ -249,24 +273,24 @@ export default function DepartmentView() {
   const lanes = useMemo(() => {
     const out = { blocked: [], todo: [], doing: [], done: [] }
     for (const o of orders) out[laneOf(o, ownColumnIds)].push(o)
-    for (const l of Object.values(out)) l.sort((a, b) => byPickup(a, b) || a.tag_name.localeCompare(b.tag_name))
+    for (const l of Object.values(out)) l.sort(byBuildOrder)
     return out
   }, [orders, ownColumnIds])
 
-  // The single most urgent thing to do next: earliest pickup first, and
-  // on the same day a job already under way beats one not started.
-  // Never a blocked job.
+  // Up next is simply the first job in build order (#1 before #2) that's
+  // not blocked and not done — admin's numbering decides, not the app.
   const upNext = useMemo(() => {
-    const candidates = []
-    for (const o of [...lanes.doing, ...lanes.todo]) {
-      for (const colId of ownColumnIds) {
-        const c = o.cells[colId]
-        if (c && !c.blocked && stageRank(c.stage) < DONE_RANK) candidates.push({ order: o, colId, rank: stageRank(c.stage) })
-      }
+    const open = [...lanes.doing, ...lanes.todo].sort(byBuildOrder)
+    for (const o of open) {
+      const colId = ownColumnIds.find((id) => {
+        if (!writableColumnIds.has(id)) return false
+        const c = o.cells[id]
+        return c && !c.blocked && stageRank(c.stage) < DONE_RANK
+      })
+      if (colId != null) return { order: o, colId }
     }
-    candidates.sort((a, b) => byPickup(a.order, b.order) || b.rank - a.rank)
-    return candidates[0] ?? null
-  }, [lanes, ownColumnIds])
+    return null
+  }, [lanes, ownColumnIds, writableColumnIds])
 
   const [showAllDone, setShowAllDone] = useState(false)
   const [toast, setToast] = useState(null) // { message, undo }
@@ -286,15 +310,15 @@ export default function DepartmentView() {
     const prev = cell.stage
     advanceStage(order.id, colId, prev)
     setToast({
-      message: `${order.tag_name} · ${columnById[colId]} → ${workflowStageById[next].label}`,
+      message: `#${order.buildNo} ${order.tag_name} · ${columnById[colId]} → ${stageLabel(next)}`,
       undo: () => setStage(order.id, colId, prev, next),
     })
   }
 
   function tapUnblock(order, colId) {
-    const note = order.cells[colId].blockedNote
+    const { blockedNote: note, blockedCategory: category } = order.cells[colId]
     requestToggleBlocked(order.id, colId, true)
-    setToast({ message: `Block cleared on ${order.tag_name}`, undo: () => applyBlocked(order.id, colId, true, note) })
+    setToast({ message: `Block cleared on ${order.tag_name}`, undo: () => applyBlocked(order.id, colId, true, note, category) })
   }
 
   const shipDays = daysUntil(currentWeek?.ship_date)
@@ -376,7 +400,9 @@ export default function DepartmentView() {
                   <div className="text-[11px] tracking-[0.14em] uppercase font-bold text-safety">
                     Up next{ownColumnIds.length > 1 ? ` · ${columnById[upNext.colId]}` : ''}
                   </div>
-                  <div className="font-display font-bold text-4xl leading-none mt-1 break-words">{upNext.order.tag_name}</div>
+                  <div className="font-display font-bold text-4xl leading-none mt-1 break-words">
+                    <span className="text-safety">#{upNext.order.buildNo}</span> {upNext.order.tag_name}
+                  </div>
                   <div className="text-sm text-floorMute mt-1.5">
                     {upNext.order.dealer}
                     {upNext.order.scheduled_pickup_date && ` · picks up ${shortDate(upNext.order.scheduled_pickup_date)}`}
@@ -418,7 +444,9 @@ export default function DepartmentView() {
       {toast && (
         <div
           role="status"
-          className="fixed left-1/2 -translate-x-1/2 bottom-5 z-50 bg-paper text-charcoal rounded-xl shadow-2xl pl-4 pr-2 py-2 flex items-center gap-4 max-w-[calc(100vw-32px)]"
+          className={`fixed left-1/2 -translate-x-1/2 bottom-5 z-50 rounded-xl shadow-2xl pl-4 pr-2 py-2 flex items-center gap-4 max-w-[calc(100vw-32px)] ${
+            toast.error ? 'bg-andonRed text-white' : 'bg-paper text-charcoal'
+          }`}
         >
           <span className="text-sm font-medium truncate">{toast.message}</span>
           {toast.undo && (
@@ -437,11 +465,21 @@ export default function DepartmentView() {
 
       {openOrder && <FileModal order={openOrder} onClose={() => setOpenOrder(null)} />}
 
+      {qualityFor && (
+        <QualityIssueModal
+          order={qualityFor}
+          departments={Object.keys(qualityFor.cells).map((id) => ({ columnId: Number(id), name: columnById[id] }))}
+          reporterColumnId={Object.keys(qualityFor.cells).map(Number).find((id) => writableColumnIds.has(id)) ?? null}
+          onClose={() => setQualityFor(null)}
+          onSaved={(message) => setToast({ message: `${message} — #${qualityFor.buildNo} ${qualityFor.tag_name}` })}
+        />
+      )}
+
       {blockTarget && (
         <BlockReasonModal
           onCancel={() => setBlockTarget(null)}
-          onConfirm={(reason) => {
-            applyBlocked(blockTarget.orderId, blockTarget.columnId, true, reason)
+          onConfirm={({ category, note }) => {
+            applyBlocked(blockTarget.orderId, blockTarget.columnId, true, note, category)
             setBlockTarget(null)
           }}
         />
@@ -459,8 +497,15 @@ export default function DepartmentView() {
       <article key={o.id} className={`rounded-xl border p-3 grid gap-2.5 ${isBlocked ? 'bg-blockedCard border-andonRed' : 'bg-floorCard border-floorLine'}`}>
         <div className="flex justify-between gap-2 items-start">
           <div className="min-w-0">
-            <div className="font-display font-bold text-xl leading-tight break-words">{o.tag_name}</div>
+            <div className="font-display font-bold text-xl leading-tight break-words">
+              <span className="text-safety">#{o.buildNo}</span> {o.tag_name}
+            </div>
             <div className="text-xs text-floorMute mt-0.5">{o.dealer}</div>
+            {wasMovedRecently(o) && (
+              <div className={`inline-block mt-1.5 rounded-md px-2 py-0.5 text-xs font-bold ${o.moved_direction === 'up' ? 'bg-[#5B9BD5] text-charcoal' : 'bg-floorLine text-paper'}`}>
+                {o.moved_direction === 'up' ? '↑ Moved up' : '↓ Moved down'} by admin
+              </div>
+            )}
           </div>
           {due != null && (
             <span
@@ -484,11 +529,23 @@ export default function DepartmentView() {
                 <div className="flex items-baseline gap-2 text-sm">
                   {own.length > 1 && <span className="font-bold">{columnById[id]}</span>}
                   <span className={cell.blocked ? 'text-[#FF9A9A]' : 'text-floorMute'}>
-                    {cell.blocked ? `Blocked${cell.blockedNote ? ` — ${cell.blockedNote}` : ''}` : workflowStageById[cell.stage]?.label ?? 'Not started'}
+                    {cell.blocked ? `Blocked — ${blockText(cell)}` : stageLabel(cell.stage)}
                   </span>
                 </div>
                 <StageSteps rank={rank} blocked={cell.blocked} />
+                {o.issues
+                  .filter((q) => q.sent_back && q.responsible_column_id === id)
+                  .map((q) => (
+                    <div key={q.id} className="mt-1.5 inline-block rounded-md bg-safety text-charcoal text-xs font-bold px-2 py-0.5">
+                      ↩ Sent back{q.reporter_column_id ? ` by ${columnById[q.reporter_column_id]}` : ''}: {defectLabel[q.defect_type] ?? q.defect_type}
+                    </div>
+                  ))}
               </div>
+              {!writableColumnIds.has(id) ? (
+                <span className="text-xs text-floorMute border border-floorLine rounded-md px-2 py-1" title="This tablet can see this department but not change it">
+                  View only
+                </span>
+              ) : (
               <div className="flex items-center gap-1.5">
                 {cell.blocked ? (
                   <button onClick={() => tapUnblock(o, id)} disabled={!live} className="rounded-lg border border-floorLine text-floorMute text-sm font-semibold px-3 py-2.5 disabled:opacity-40">
@@ -499,13 +556,13 @@ export default function DepartmentView() {
                     onClick={() => tapAdvance(o, id)}
                     disabled={!live}
                     className={`rounded-lg text-charcoal text-sm font-bold px-4 py-2.5 active:scale-95 transition-transform disabled:opacity-40 ${
-                      rank === 2 ? 'bg-[#4CC46F]' : rank < 2 ? 'bg-safety' : 'bg-paper'
+                      rank === 1 ? 'bg-[#4CC46F]' : 'bg-safety'
                     }`}
                   >
                     {STAGE_VERB[next]}
                   </button>
                 ) : (
-                  <span className="text-sm font-bold text-[#7FD49A] px-1">✓ On truck</span>
+                  <span className="text-sm font-bold text-[#7FD49A] px-1">✓ Done</span>
                 )}
                 {!cell.blocked && next && (
                   <button
@@ -539,6 +596,7 @@ export default function DepartmentView() {
                   </select>
                 </span>
               </div>
+              )}
             </div>
           )
         })}
@@ -550,15 +608,24 @@ export default function DepartmentView() {
               return (
                 <span
                   key={id}
-                  title={`${deptByColumnId[id] ?? columnById[id]}: ${c.blocked ? 'Blocked' : workflowStageById[c.stage]?.label ?? 'Not started'}`}
-                  className={`w-2.5 h-2.5 rounded-sm ${c.blocked ? 'bg-andonRed' : STAGE_SWATCH[c.stage] ?? 'bg-[#3A4047]'}`}
+                  title={`${deptByColumnId[id] ?? columnById[id]}: ${c.blocked ? 'Blocked' : stageLabel(c.stage)}`}
+                  className={`w-2.5 h-2.5 rounded-sm ${c.blocked ? 'bg-andonRed' : STAGE_SWATCH[stageRank(c.stage)]}`}
                 />
               )
             })}
           </div>
-          <button onClick={() => setOpenOrder(o)} className="text-xs text-floorMute hover:text-paper py-1">
-            📎 Files
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setQualityFor(o)}
+              disabled={!live}
+              className={`text-xs py-1 disabled:opacity-40 ${o.issues.length ? 'text-safety font-bold' : 'text-floorMute hover:text-paper'}`}
+            >
+              ⚑ {o.issues.length ? `${o.issues.length} quality issue${o.issues.length > 1 ? 's' : ''}` : 'Quality'}
+            </button>
+            <button onClick={() => setOpenOrder(o)} className="text-xs text-floorMute hover:text-paper py-1">
+              📎 Files
+            </button>
+          </div>
         </div>
       </article>
     )
@@ -568,20 +635,12 @@ export default function DepartmentView() {
 /* ── Pieces ── */
 
 const STAGE_VERB = {
-  paperwork_ready: 'Ready',
   started: 'Start',
-  completed: 'Complete',
-  packaged: 'Package',
-  shipped: 'Load',
+  completed: 'Done',
 }
 
-const STAGE_SWATCH = {
-  paperwork_ready: 'bg-safety',
-  started: 'bg-[#5B9BD5]',
-  completed: 'bg-[#4CC46F]',
-  packaged: 'bg-violet-400',
-  shipped: 'bg-paper',
-}
+// Other departments' dots, by rank: not started / started / done.
+const STAGE_SWATCH = ['bg-[#3A4047]', 'bg-[#5B9BD5]', 'bg-[#4CC46F]']
 
 function BigAction({ cell, disabled, onClick }) {
   const next = nextStage(cell.stage)
@@ -591,12 +650,12 @@ function BigAction({ cell, disabled, onClick }) {
       onClick={onClick}
       disabled={disabled}
       className={`rounded-2xl text-charcoal font-display font-extrabold uppercase tracking-wide text-3xl px-8 py-4 min-w-[200px] active:scale-[0.97] transition-transform disabled:opacity-40 ${
-        rank === 2 ? 'bg-[#4CC46F]' : 'bg-safety'
+        rank === 1 ? 'bg-[#4CC46F]' : 'bg-safety'
       }`}
     >
       {STAGE_VERB[next]}
       <span className="block font-body normal-case tracking-normal text-xs font-semibold opacity-70">
-        → {workflowStageById[next].label}
+        {next === 'started' ? 'Tap when you begin' : 'Tap when it’s finished'}
       </span>
     </button>
   )
@@ -643,14 +702,8 @@ function laneOf(order, ownColumnIds) {
   if (cells.some((c) => c.blocked)) return 'blocked'
   const worst = Math.min(...cells.map((c) => stageRank(c.stage)))
   if (worst >= DONE_RANK) return 'done'
-  if (worst === 2) return 'doing'
+  if (worst === 1) return 'doing'
   return 'todo'
-}
-
-function byPickup(a, b) {
-  const ad = a.scheduled_pickup_date || '9999'
-  const bd = b.scheduled_pickup_date || '9999'
-  return ad.localeCompare(bd)
 }
 
 // The "worst" (earliest) stage across this department's columns for an order

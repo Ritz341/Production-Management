@@ -2,18 +2,17 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { WORKFLOW_STAGES } from '../lib/statusColors'
+import { blockText, isoDate, pickupLoads, useSettings } from '../lib/catalog'
+import WeekLoad from '../components/WeekLoad.jsx'
 import { nearestBuildWeekId } from '../lib/dates'
-import { DONE_RANK, ago, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
+import { DONE_RANK, ago, buildNumbers, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
 
 // How close a pickup has to be before an unfinished order counts as at risk.
 const AT_RISK_DAYS = 3
 
 const STAGE_BAR = {
-  paperwork_ready: 'bg-safety',
   started: 'bg-andonBlue',
   completed: 'bg-andonGreen',
-  packaged: 'bg-violet-600',
-  shipped: 'bg-charcoal',
 }
 
 /**
@@ -33,6 +32,9 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
   const [loadError, setLoadError] = useState('')
   const [shipDraft, setShipDraft] = useState('')
   const [toast, setToast] = useState('')
+  const settings = useSettings()
+  const [crewRows, setCrewRows] = useState([]) // bt_crew_days rows
+  const today = isoDate(new Date())
 
   useEffect(() => {
     setWeekId((prev) => prev ?? nearestBuildWeekId(buildWeeks))
@@ -65,25 +67,30 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       // picked up it no longer needs the coordinator's attention.
       const { data: orderRows, error: oErr } = await supabase
         .from('bt_orders')
-        .select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, created_at')
+        .select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, created_at, notes, sequence, status, cancel_reason, mods_count, room_shape, window_type, panel_type')
         .is('actual_pickup_date', null)
+        .eq('status', 'active')
       const ids = (orderRows ?? []).map((o) => o.id)
       const { data: statusRows, error: sErr } = ids.length
         ? await supabase
             .from('bt_order_status')
-            .select('order_id, status_column_id, status_value, is_visible, workflow_stage, blocked_at, blocked_note')
+            .select('order_id, status_column_id, status_value, is_visible, workflow_stage, blocked_at, blocked_note, blocked_category')
             .in('order_id', ids)
+            .is('removed_at', null)
         : { data: [] }
       const { data: eventRows } = await supabase
         .from('bt_events')
         .select('id, event_type, message, created_at')
         .order('created_at', { ascending: false })
         .limit(25)
+      const { data: crew } = await supabase.from('bt_crew_days').select('work_date, department_id, people')
       if (!active) return
+      setCrewRows(crew ?? [])
 
       const err = oErr || sErr
       setLoadError(err ? `Couldn't load the overview: ${err.message}` : '')
-      const byId = new Map((orderRows ?? []).map((o) => [o.id, { ...o, statuses: {} }]))
+      const numbers = buildNumbers(orderRows ?? [])
+      const byId = new Map((orderRows ?? []).map((o) => [o.id, { ...o, buildNo: numbers.get(o.id), statuses: {} }]))
       for (const s of statusRows ?? []) {
         const o = byId.get(s.order_id)
         if (!o) continue
@@ -94,6 +101,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
           blocked: !!s.blocked_at,
           blockedAt: s.blocked_at,
           blockedNote: s.blocked_note,
+          blockedCategory: s.blocked_category,
         }
       }
       setOrders([...byId.values()])
@@ -107,6 +115,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_order_status' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_orders' }, load)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bt_events' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_crew_days' }, load)
       .subscribe()
     return () => {
       active = false
@@ -128,8 +137,12 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
     const byStage = Object.fromEntries(WORKFLOW_STAGES.map((s) => [s.id, 0]))
     let done = 0
     for (const c of cells) {
-      if (c.stage) byStage[c.stage]++
-      if (stageRank(c.stage) >= DONE_RANK) done++
+      const r = stageRank(c.stage)
+      if (r === 1) byStage.started++
+      if (r >= DONE_RANK) {
+        byStage.completed++
+        done++
+      }
     }
     const ordersDone = weekOrders.filter((o) => cellsOf(o).every(([, c]) => stageRank(c.stage) >= DONE_RANK)).length
     return { total: cells.length, done, byStage, ordersDone }
@@ -172,7 +185,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
             jobs++
             const r = stageRank(c.stage)
             if (r >= DONE_RANK) done++
-            else if (r === 2) started++
+            else if (r === 1) started++
             if (c.blocked) blockedN++
           }
         }
@@ -200,6 +213,43 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       .eq('order_id', o.id)
       .eq('status_column_id', colId)
     setToast(error ? `Couldn't clear the block: ${error.message}` : `Cleared: ${columnName[colId]} on ${o.tag_name}`)
+  }
+
+  const modsDept = departments.find((d) => d.name === 'Mods')
+  const modsCrewByDate = useMemo(
+    () => Object.fromEntries(crewRows.filter((r) => r.department_id === modsDept?.id).map((r) => [r.work_date, Number(r.people)])),
+    [crewRows, modsDept]
+  )
+  const crewToday = useMemo(
+    () => Object.fromEntries(crewRows.filter((r) => r.work_date === today).map((r) => [r.department_id, Number(r.people)])),
+    [crewRows, today]
+  )
+
+  // Is each pickup doable? Cumulative across pickups (see pickupLoads),
+  // counting only orders whose Mods work isn't done yet.
+  const loads = useMemo(() => {
+    const modCols = new Set(deptColumns[modsDept?.id] ?? [])
+    const modsFinished = (o) => {
+      const cells = cellsOf(o).filter(([id]) => modCols.has(Number(id)))
+      return cells.length > 0 && cells.every(([, c]) => stageRank(c.stage) >= DONE_RANK)
+    }
+    return pickupLoads(
+      buildWeeks
+        .filter((w) => w.ship_date && daysUntil(w.ship_date) >= 0)
+        .map((w) => ({ key: w.id, shipDate: w.ship_date, orders: orders.filter((o) => o.build_week_id === w.id && !modsFinished(o)) })),
+      settings,
+      modsCrewByDate
+    )
+  }, [buildWeeks, orders, deptColumns, modsDept, settings, modsCrewByDate])
+
+  async function saveCrew(departmentId, value) {
+    if (!live) return
+    const people = value === '' ? null : Number(value)
+    const { error } =
+      people == null
+        ? await supabase.from('bt_crew_days').delete().eq('work_date', today).eq('department_id', departmentId)
+        : await supabase.from('bt_crew_days').upsert({ work_date: today, department_id: departmentId, people }, { onConflict: 'work_date,department_id' })
+    setToast(error ? `Couldn't save crew: ${error.message}` : 'Crew for today saved')
   }
 
   const upcoming = useMemo(() => {
@@ -305,7 +355,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
 
         <Kpi label="Blocked" value={blocked.length} tone={blocked.length ? 'red' : null}>
           <div className="text-sm text-steelLight mt-1 truncate">
-            {blocked.length ? `oldest ${ago(blocked[0].c.blockedAt)} — ${blocked[0].c.blockedNote ?? 'no reason given'}` : 'nothing stuck'}
+            {blocked.length ? `oldest ${ago(blocked[0].c.blockedAt)} — ${blockText(blocked[0].c)}` : 'nothing stuck'}
           </div>
         </Kpi>
       </div>
@@ -326,11 +376,11 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="rounded-md bg-andonRedBg text-andonRed text-xs font-bold px-2 py-0.5">BLOCKED {ago(c.blockedAt)}</span>
                       <button onClick={() => onEditOrder(o)} className="font-display font-bold text-lg text-charcoal hover:underline truncate">
-                        {o.tag_name}
+                        #{o.buildNo} {o.tag_name}
                       </button>
                     </div>
                     <div className="text-sm text-steelLight">
-                      <b className="text-steel">{columnName[colId]}</b> · {c.blockedNote ?? 'no reason given'} · {o.dealer}
+                      <b className="text-steel">{columnName[colId]}</b> · {blockText(c)} · {o.dealer}
                     </div>
                   </div>
                   <button
@@ -349,7 +399,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
                       <span className={`rounded-md text-xs font-bold px-2 py-0.5 ${days < 0 ? 'bg-andonRed text-white' : 'bg-safety/25 text-[#8A6606]'}`}>
                         {days < 0 ? `${-days}D LATE` : days === 0 ? 'PICKUP TODAY' : `PICKUP IN ${days}D`}
                       </span>
-                      <span className="font-display font-bold text-lg text-charcoal truncate">{o.tag_name}</span>
+                      <span className="font-display font-bold text-lg text-charcoal truncate">#{o.buildNo} {o.tag_name}</span>
                     </div>
                     <div className="text-sm text-steelLight">
                       Waiting on {open.map(([id]) => columnName[id]).join(', ')}
@@ -365,6 +415,51 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
         </section>
 
         <div className="grid gap-3">
+          {/* ── Can we make it? ── */}
+          {loads.get(weekId) && (
+            <section className="rounded-2xl bg-white border border-paperDim p-4">
+              <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">Can we make it?</h2>
+              <p className="text-sm text-steelLight mb-2">
+                Mods work left for {week?.label} and every pickup before it, against the crew until it ships.
+              </p>
+              <WeekLoad load={loads.get(weekId)} settings={settings} />
+            </section>
+          )}
+
+          {/* ── Crew today ── */}
+          <section className="rounded-2xl bg-white border border-paperDim p-4">
+            <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">Crew today</h2>
+            <p className="text-sm text-steelLight">
+              People on each department today. Leave blank to assume {settings.default_mods_crew} on Mods.
+            </p>
+            <ul className="mt-2 space-y-2">
+              {departments.map((d) => (
+                <li key={d.id} className="flex items-center justify-between gap-3">
+                  <label htmlFor={`crew-${d.id}`} className="font-display font-bold text-lg text-charcoal">
+                    {d.name}
+                  </label>
+                  <span className="flex items-center gap-2 text-sm text-steelLight">
+                    {d.id === modsDept?.id && crewToday[d.id] != null && (
+                      <span className="tabular-nums">target {Math.round(crewToday[d.id] * settings.mods_per_person_day)} mods</span>
+                    )}
+                    <input
+                      id={`crew-${d.id}`}
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      defaultValue={crewToday[d.id] ?? ''}
+                      key={`${d.id}-${crewToday[d.id] ?? ''}`}
+                      onBlur={(e) => e.target.value !== String(crewToday[d.id] ?? '') && saveCrew(d.id, e.target.value)}
+                      disabled={!live}
+                      className="w-16 rounded border border-paperDim px-2 py-1.5 text-charcoal tabular-nums"
+                    />
+                    people
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
           {/* ── Departments ── */}
           <section className="rounded-2xl bg-white border border-paperDim p-4">
             <div className="flex items-baseline justify-between">

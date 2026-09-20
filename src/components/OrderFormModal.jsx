@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { weekOptionLabel } from '../lib/dates'
+import { PANEL_TYPES, ROOM_SHAPES, WINDOW_TYPES } from '../lib/catalog'
 
 /**
  * Add or edit an order's core fields, and attach any department/status
@@ -9,7 +10,7 @@ import { weekOptionLabel } from '../lib/dates'
  * needs to be built). Never removes an existing column here — that's
  * what the 👁/🚫 visibility toggle in the Grid is for.
  */
-export default function OrderFormModal({ order, columns, buildWeeks, onClose, onSaved }) {
+export default function OrderFormModal({ order, columns, buildWeeks, onClose, onSaved, allowPull = false }) {
   const isEdit = !!order
   const existingColumnIds = new Set(order ? Object.keys(order.statuses).map(Number) : [])
 
@@ -20,8 +21,52 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
   const [buildWeekId, setBuildWeekId] = useState(order?.build_week_id ?? '')
   const [scheduledPickupDate, setScheduledPickupDate] = useState(order?.scheduled_pickup_date ?? '')
   const [selectedColumnIds, setSelectedColumnIds] = useState(new Set(existingColumnIds))
+  const [modsCount, setModsCount] = useState(order?.mods_count ?? '')
+  const [roomShape, setRoomShape] = useState(order?.room_shape ?? '')
+  const [windowType, setWindowType] = useState(order?.window_type ?? '')
+  const [panelType, setPanelType] = useState(order?.panel_type ?? '')
+  // Who built each department's part — typed from the paper checklist.
+  // Optional for now.
+  const initialBuiltBy = Object.fromEntries(Object.entries(order?.statuses ?? {}).map(([id, c]) => [id, c?.builtBy ?? '']))
+  const [builtBy, setBuiltBy] = useState(initialBuiltBy)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [pullNote, setPullNote] = useState('')
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  const columnName = Object.fromEntries(columns.map((c) => [c.id, c.name]))
+
+  // Pulling an order applies immediately (not on Save), so a cancelled
+  // order disappears from the floor the moment admin decides.
+  async function pull(action, columnId) {
+    setBusy(true)
+    setError('')
+    const note = pullNote.trim() || null
+    let result
+    if (action === 'cancel') {
+      result = await supabase
+        .from('bt_orders')
+        .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancel_reason: note })
+        .eq('id', order.id)
+    } else if (action === 'restore') {
+      result = await supabase.from('bt_orders').update({ status: 'active', cancelled_at: null, cancel_reason: null }).eq('id', order.id)
+    } else if (action === 'remove-dept') {
+      result = await supabase
+        .from('bt_order_status')
+        .update({ removed_at: new Date().toISOString(), removed_note: note })
+        .eq('order_id', order.id)
+        .eq('status_column_id', columnId)
+    } else if (action === 'restore-dept') {
+      result = await supabase
+        .from('bt_order_status')
+        .update({ removed_at: null, removed_note: null })
+        .eq('order_id', order.id)
+        .eq('status_column_id', columnId)
+    }
+    setBusy(false)
+    if (result?.error) return setError(result.error.message)
+    onSaved?.()
+    onClose()
+  }
 
   function toggleColumn(id) {
     setSelectedColumnIds((prev) => {
@@ -47,6 +92,10 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
         shipping_status: shippingStatus.trim() || null,
         build_week_id: buildWeekId || null,
         scheduled_pickup_date: scheduledPickupDate || null,
+        mods_count: modsCount === '' ? null : Number(modsCount),
+        room_shape: roomShape || null,
+        window_type: windowType || null,
+        panel_type: panelType || null,
       }
 
       let orderId
@@ -68,6 +117,20 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
           .from('bt_order_status')
           .insert({ order_id: orderId, status_column_id: columnId, is_visible: true })
         if (statusErr) throw statusErr
+      }
+
+      // Only write names that actually changed, so an untouched form never
+      // blanks out someone else's entry.
+      if (isEdit && allowPull) {
+        for (const [colId, name] of Object.entries(builtBy)) {
+          if ((initialBuiltBy[colId] ?? '') === name) continue
+          const { error: nameErr } = await supabase
+            .from('bt_order_status')
+            .update({ built_by: name.trim() || null })
+            .eq('order_id', orderId)
+            .eq('status_column_id', Number(colId))
+          if (nameErr) throw nameErr
+        }
       }
 
       onSaved?.()
@@ -121,10 +184,18 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-steel mb-1">Build Week</label>
+              <label className="block text-sm font-medium text-steel mb-1">
+                Pickup {isEdit && <span className="text-steelLight font-normal">(moving it goes to the bottom of that pickup)</span>}
+              </label>
               <select
                 value={buildWeekId}
-                onChange={(e) => setBuildWeekId(e.target.value ? Number(e.target.value) : '')}
+                onChange={(e) => {
+                  const id = e.target.value ? Number(e.target.value) : ''
+                  setBuildWeekId(id)
+                  // Delaying to another pickup moves the pickup date with it.
+                  const week = buildWeeks.find((w) => w.id === id)
+                  if (week?.ship_date) setScheduledPickupDate(week.ship_date)
+                }}
                 className="w-full border border-paperDim rounded px-3 py-2 text-sm"
               >
                 <option value="">None</option>
@@ -156,6 +227,58 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
             />
           </div>
 
+          <fieldset className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <legend className="text-sm font-medium text-steel mb-1 col-span-full">From the order confirmation (for the estimate)</legend>
+            <label className="text-xs text-steelLight">
+              Mods
+              <input
+                type="number"
+                min="0"
+                value={modsCount}
+                onChange={(e) => setModsCount(e.target.value)}
+                className="mt-0.5 w-full border border-paperDim rounded px-2 py-2 text-sm text-charcoal"
+              />
+            </label>
+            {[
+              ['Room', roomShape, setRoomShape, ROOM_SHAPES],
+              ['Windows', windowType, setWindowType, WINDOW_TYPES],
+              ['Panels', panelType, setPanelType, PANEL_TYPES],
+            ].map(([label, value, set, options]) => (
+              <label key={label} className="text-xs text-steelLight">
+                {label}
+                <select value={value} onChange={(e) => set(e.target.value)} className="mt-0.5 w-full border border-paperDim rounded px-2 py-2 text-sm text-charcoal bg-white">
+                  <option value="">—</option>
+                  {options.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </fieldset>
+
+          {isEdit && allowPull && Object.keys(builtBy).length > 0 && (
+            <fieldset>
+              <legend className="text-sm font-medium text-steel mb-1">
+                Who built it <span className="font-normal text-steelLight">(optional — from the paper checklist)</span>
+              </legend>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {Object.keys(builtBy).map((colId) => (
+                  <label key={colId} className="flex items-center gap-2 text-sm">
+                    <span className="w-24 shrink-0 text-steel">{columns.find((c) => c.id === Number(colId))?.name}</span>
+                    <input
+                      value={builtBy[colId]}
+                      onChange={(e) => setBuiltBy((prev) => ({ ...prev, [colId]: e.target.value }))}
+                      placeholder="e.g. Raj, Tom"
+                      className="flex-1 border border-paperDim rounded px-2 py-1.5"
+                    />
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-steel mb-2">
               Departments / columns to build {isEdit && <span className="text-steelLight font-normal">(checking one here only adds it — uncheck nothing here removes it; use the 👁 toggle in the Grid for that)</span>}
@@ -178,6 +301,82 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
               })}
             </div>
           </div>
+
+          {isEdit && allowPull && (
+            <div className="border-t-2 border-paperDim pt-4 space-y-3">
+              <h3 className="font-display text-xl font-bold text-charcoal">Pull or change this order</h3>
+              <div>
+                <label htmlFor="pull-note" className="block text-sm font-medium text-steel mb-1">
+                  Reason
+                </label>
+                <input
+                  id="pull-note"
+                  value={pullNote}
+                  onChange={(e) => setPullNote(e.target.value)}
+                  placeholder="e.g. Canada will do the V4T, or dealer cancelled"
+                  className="w-full border border-paperDim rounded px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <p className="text-sm font-medium text-steel mb-1.5">Take one department off (the rest still build it)</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(order.statuses)
+                    .filter(([, c]) => c)
+                    .map(([colId, c]) =>
+                      c.removed ? (
+                        <button
+                          key={colId}
+                          onClick={() => pull('restore-dept', Number(colId))}
+                          disabled={busy}
+                          title={c.removedNote ?? ''}
+                          className="rounded-full border border-dashed border-steelLight px-3 py-1.5 text-sm text-steelLight"
+                        >
+                          <s>{columnName[colId]}</s> · Restore
+                        </button>
+                      ) : (
+                        <button
+                          key={colId}
+                          onClick={() => pull('remove-dept', Number(colId))}
+                          disabled={busy}
+                          className="rounded-full border border-paperDim bg-white px-3 py-1.5 text-sm text-charcoal hover:border-andonRed hover:text-andonRed"
+                        >
+                          {columnName[colId]} ✕
+                        </button>
+                      )
+                    )}
+                </div>
+              </div>
+
+              {order.status === 'cancelled' ? (
+                <div className="bg-andonRedBg text-andonRed rounded p-3 text-sm flex items-center justify-between gap-3">
+                  <span>
+                    <b>Cancelled</b>
+                    {order.cancel_reason ? ` — ${order.cancel_reason}` : ''}
+                  </span>
+                  <button onClick={() => pull('restore')} disabled={busy} className="bg-white text-charcoal font-semibold rounded px-3 py-1.5">
+                    Restore order
+                  </button>
+                </div>
+              ) : !confirmCancel ? (
+                <button onClick={() => setConfirmCancel(true)} className="text-sm font-semibold text-andonRed">
+                  Cancel the whole order…
+                </button>
+              ) : (
+                <div className="bg-andonRedBg rounded p-3 text-sm text-andonRed space-y-2">
+                  <p>It comes off every tablet. You can restore it later from the Grid (Show cancelled).</p>
+                  <div className="flex gap-2">
+                    <button onClick={() => pull('cancel')} disabled={busy} className="bg-andonRed text-white font-bold rounded px-3 py-1.5">
+                      Cancel order
+                    </button>
+                    <button onClick={() => setConfirmCancel(false)} className="text-steel px-2">
+                      Keep it
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={onClose} className="text-sm text-steelLight px-3 py-2">

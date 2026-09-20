@@ -54,7 +54,7 @@ export default function LogisticsView() {
   async function loadOrders() {
     const { data: rows } = await supabase
       .from('bt_orders')
-      .select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, created_at, created_by, actual_pickup_date')
+      .select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, created_at, created_by, actual_pickup_date, status, cancel_reason, mods_count, room_shape, window_type, panel_type')
       .order('created_at', { ascending: false })
       .limit(300)
     const ids = (rows ?? []).map((o) => o.id)
@@ -351,8 +351,8 @@ export default function LogisticsView() {
                       {o.dealer ?? 'No dealer'} · added {ago(o.created_at)} ago
                     </div>
                     <div className="text-xs mt-1 flex flex-wrap gap-x-3">
-                      <span className={o.actual_pickup_date ? 'text-andonGreen font-semibold' : days != null && days < 0 ? 'text-andonRed font-semibold' : 'text-steel'}>
-                        {o.actual_pickup_date ? 'Picked up' : o.scheduled_pickup_date ? `Pickup ${shortDate(o.scheduled_pickup_date)} · ${relativeDay(days)}` : 'No pickup date'}
+                      <span className={o.status === 'cancelled' ? 'text-andonRed font-semibold' : o.actual_pickup_date ? 'text-andonGreen font-semibold' : days != null && days < 0 ? 'text-andonRed font-semibold' : 'text-steel'}>
+                        {o.status === 'cancelled' ? `Cancelled${o.cancel_reason ? ` — ${o.cancel_reason}` : ''}` : o.actual_pickup_date ? 'Picked up' : o.scheduled_pickup_date ? `Pickup ${shortDate(o.scheduled_pickup_date)} · ${relativeDay(days)}` : 'No pickup date'}
                       </span>
                       <span className="text-steel tabular-nums">
                         {done}/{cells.length} departments done

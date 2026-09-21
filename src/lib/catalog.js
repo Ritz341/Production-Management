@@ -52,6 +52,21 @@ export const PANEL_TYPES = [
 
 const LEVEL_SCORE = { easy: 1, medium: 2, hard: 3 }
 
+/** The process lists we start from; admin can edit or reset to these. */
+export const RECOMMENDED_PROCESSES = {
+  Mods: [
+    { id: 'framing', name: 'Mod frames', unit: 'mods', minutesEach: null, perFinished: 1 },
+    { id: 'staging', name: 'Final mod', unit: 'mods', minutesEach: null, perFinished: 1 },
+  ],
+  V4T: [
+    { id: 'vents_cut', name: 'Vents cut', unit: 'vents', minutesEach: null, perFinished: 4 },
+    { id: 'vents_glazed', name: 'Vents built & glazed', unit: 'vents', minutesEach: null, perFinished: 4 },
+    { id: 'frame_cut', name: 'Frame parts cut (saw)', unit: 'inserts', minutesEach: null, perFinished: 1 },
+    { id: 'frame_punch', name: 'Frame parts punched', unit: 'inserts', minutesEach: null, perFinished: 1 },
+    { id: 'frames', name: 'Frames assembled & squared', unit: 'inserts', minutesEach: null, perFinished: 1 },
+  ],
+}
+
 /** Defaults, used until the settings table has loaded (or if it's empty). */
 export const DEFAULT_SETTINGS = {
   mods_per_person_day: 3,
@@ -64,20 +79,11 @@ export const DEFAULT_SETTINGS = {
   // When departments enter their count during the day (end of each block).
   checkin_times: ['09:30', '11:30', '13:30', '16:00'],
   // Stations inside a department, in the order work flows through them.
-  // ratePerHour: what one person does in a working hour (null = not set).
-  // perFinished: how many of this step's units make one finished unit
-  // (4 vents per V4T insert), so the line's output can be compared.
-  processes: {
-    Mods: [
-      { id: 'framing', name: 'Framing', unit: 'mods', ratePerHour: null, perFinished: 1 },
-      { id: 'staging', name: 'Staging', unit: 'mods', ratePerHour: null, perFinished: 1 },
-    ],
-    V4T: [
-      { id: 'vents_cut', name: 'Vents cut', unit: 'vents', ratePerHour: null, perFinished: 4 },
-      { id: 'vents_glazed', name: 'Vents built & glazed', unit: 'vents', ratePerHour: null, perFinished: 4 },
-      { id: 'frames', name: 'Frames built & squared', unit: 'inserts', ratePerHour: null, perFinished: 1 },
-    ],
-  },
+  // minutesEach: minutes for ONE person to make ONE unit (null = not set)
+  // — what a time study measures. perFinished: how many of this step's
+  // units make one finished unit (4 vents per V4T insert), so the line's
+  // output can be compared.
+  processes: RECOMMENDED_PROCESSES,
   shift: {
     start: '07:30',
     end: '16:00',
@@ -330,11 +336,22 @@ export function workingHoursPerDay(settings = DEFAULT_SETTINGS) {
  *
  * capacity / bottleneck are null until every staffed step has a rate.
  */
+/**
+ * How many one person makes in a working hour. Entered as minutes for
+ * one (easier to time); older settings stored the hourly rate directly.
+ */
+export function ratePerHourOf(p) {
+  if (p.minutesEach) return 60 / Number(p.minutesEach)
+  if (p.ratePerHour) return Number(p.ratePerHour)
+  return null
+}
+
 export function planLine(processes, peopleByProcess, settings = DEFAULT_SETTINGS) {
   const hours = workingHoursPerDay(settings)
   const steps = processes.map((p) => {
     const people = peopleByProcess[p.id] ?? null
-    const daily = people != null && p.ratePerHour ? people * Number(p.ratePerHour) * hours : null
+    const rate = ratePerHourOf(p)
+    const daily = people != null && rate ? people * rate * hours : null
     const finished = daily != null ? daily / (Number(p.perFinished) || 1) : null
     return { ...p, people, daily, finished }
   })

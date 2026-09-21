@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { WORKFLOW_STAGES } from '../lib/statusColors'
-import { blockText, fmtQty, isoDate, pickupLoads, planLine, processesFor, useSettings } from '../lib/catalog'
+import { blockText, fmtQty, isoDate, pickupLoads, planLine, processesFor, ratePerHourOf, useSettings } from '../lib/catalog'
 import WeekLoad from '../components/WeekLoad.jsx'
 import { nearestBuildWeekId } from '../lib/dates'
 import { DONE_RANK, ago, buildNumbers, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
@@ -583,7 +583,7 @@ function ProcessCrew({ dept, processes, people, settings, live, onSave }) {
             </label>
             <span className="flex items-center gap-2">
               <span className="tabular-nums text-xs text-steelLight">
-                {st.daily != null ? `${fmtQty(st.daily)} ${st.unit}` : st.ratePerHour ? '' : 'no rate'}
+                {st.daily != null ? `${fmtQty(st.daily)} ${st.unit}` : ratePerHourOf(st) ? '' : 'no time set'}
               </span>
               <input
                 id={`pc-${dept.id}-${st.id}`}
@@ -609,7 +609,7 @@ function ProcessCrew({ dept, processes, people, settings, live, onSave }) {
             · bottleneck <b className="text-andonRed">{plan.bottleneck.name}</b>
           </>
         ) : (
-          'Enter people per process (and rates in Targets & TVs) to see the line output.'
+          'Enter people per process (and minutes for one in Targets & TVs) to see the line output.'
         )}
       </p>
     </li>

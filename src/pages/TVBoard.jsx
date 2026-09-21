@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { DONE_RANK, buildNumbers, byBuildOrder, daysUntil, relativeDay, stageRank } from '../lib/schedule'
-import { blockText, checkinBlocks, clockLabel, fmtQty, isoDate, planLine, processesFor, productiveMinutesPerDay, rateFor, useSettings, workingMinutesBetween } from '../lib/catalog'
+import { blockText, checkinBlocks, clockLabel, fmtQty, isoDate, planLine, processesFor, productiveMinutesPerDay, rateFor, ratePerHourOf, useSettings, workingMinutesBetween } from '../lib/catalog'
 
 /**
  * The 65" board above a department, on its own PC in full-screen Chrome.
@@ -308,8 +308,8 @@ export default function TVBoard({ department }) {
               ) : (
                 <div className="text-[1.2vw] text-floorMute mt-2">
                   {plan
-                    ? processes.some((p) => !p.ratePerHour)
-                      ? 'No target yet — admin sets each process’s rate in Admin → Targets & TVs.'
+                    ? processes.some((p) => !ratePerHourOf(p))
+                      ? 'No target yet — admin sets each process’s minutes in Admin → Targets & TVs.'
                       : 'No crew set for today — admin sets people per process on the Overview.'
                     : rate.perPerson
                       ? 'No crew set for today — admin can set it on the Overview.'

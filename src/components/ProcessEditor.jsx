@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { fmtQty, planLine, processesFor, workingHoursPerDay } from '../lib/catalog'
+import { RECOMMENDED_PROCESSES, fmtQty, planLine, processesFor, ratePerHourOf, workingHoursPerDay } from '../lib/catalog'
 
 /**
- * Admin: a department's processes (stations) with each one's rate per
- * person per hour, and the day's plan worked out underneath from the
+ * Admin: a department's processes (stations) with the minutes one person
+ * takes to make one, and the day's plan worked out underneath from the
  * crew entered for today — daily target per process, what that means in
  * finished units, and the bottleneck.
  */
@@ -19,7 +19,7 @@ export default function ProcessEditor({ department, settings, peopleToday, onSav
     setDirty(true)
   }
   function add() {
-    setRows((prev) => [...prev, { id: `step_${Date.now()}`, name: 'New step', unit: finishedUnit, ratePerHour: null, perFinished: 1 }])
+    setRows((prev) => [...prev, { id: `step_${Date.now()}`, name: 'New step', unit: finishedUnit, minutesEach: null, perFinished: 1 }])
     setDirty(true)
   }
   function remove(i) {
@@ -45,7 +45,9 @@ export default function ProcessEditor({ department, settings, peopleToday, onSav
             <tr>
               <th className="py-1 pr-2 font-semibold">Process (in order)</th>
               <th className="py-1 px-2 font-semibold">Unit</th>
-              <th className="py-1 px-2 font-semibold">Per person / hour</th>
+              <th className="py-1 px-2 font-semibold" title="How long it takes ONE person to make ONE — from a time study or a good estimate">
+                Minutes for one
+              </th>
               <th className="py-1 px-2 font-semibold" title="How many of this step's units make one finished unit — e.g. 4 vents per insert">
                 Per finished
               </th>
@@ -68,17 +70,20 @@ export default function ProcessEditor({ department, settings, peopleToday, onSav
                 <td className="py-1.5 px-2">
                   <input value={st.unit} onChange={(e) => update(i, { unit: e.target.value })} aria-label="Unit" className="w-20 rounded border border-paperDim px-2 py-1" />
                 </td>
-                <td className="py-1.5 px-2">
+                <td className="py-1.5 px-2 whitespace-nowrap">
                   <input
                     type="number"
                     min="0"
-                    step="0.1"
-                    value={st.ratePerHour ?? ''}
-                    onChange={(e) => update(i, { ratePerHour: e.target.value === '' ? null : Number(e.target.value) })}
-                    placeholder="set"
-                    aria-label="Rate per person per hour"
-                    className={`w-20 rounded border px-2 py-1 tabular-nums ${st.ratePerHour ? 'border-paperDim' : 'border-safety bg-safety/10'}`}
+                    step="1"
+                    value={st.minutesEach ?? (st.ratePerHour ? Math.round(60 / st.ratePerHour) : '')}
+                    onChange={(e) => update(i, { minutesEach: e.target.value === '' ? null : Number(e.target.value), ratePerHour: undefined })}
+                    placeholder="min"
+                    aria-label={`Minutes for one person to make one — ${st.name}`}
+                    className={`w-20 rounded border px-2 py-1 tabular-nums ${ratePerHourOf(st) ? 'border-paperDim' : 'border-safety bg-safety/10'}`}
                   />
+                  {ratePerHourOf(st) && (
+                    <span className="block text-xs text-steelLight tabular-nums">= {fmtQty(ratePerHourOf(st))} per hour</span>
+                  )}
                 </td>
                 <td className="py-1.5 px-2">
                   <input
@@ -124,9 +129,24 @@ export default function ProcessEditor({ department, settings, peopleToday, onSav
       </div>
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-        <button onClick={add} className="text-sm font-semibold text-andonBlue">
-          + Add a process
-        </button>
+        <div className="flex gap-4">
+          <button onClick={add} className="text-sm font-semibold text-andonBlue">
+            + Add a process
+          </button>
+          {RECOMMENDED_PROCESSES[department.name] && (
+            <button
+              onClick={() => {
+                // Keep any minutes already entered for steps that still exist.
+                const byId = Object.fromEntries(rows.map((r) => [r.id, r]))
+                setRows(RECOMMENDED_PROCESSES[department.name].map((r) => ({ ...r, minutesEach: byId[r.id]?.minutesEach ?? null })))
+                setDirty(true)
+              }}
+              className="text-sm text-steelLight hover:text-charcoal"
+            >
+              Use recommended steps
+            </button>
+          )}
+        </div>
         {dirty && (
           <div className="flex gap-2">
             <button
@@ -159,14 +179,14 @@ export default function ProcessEditor({ department, settings, peopleToday, onSav
             </b>{' '}
             — <span className="text-andonRed font-semibold">{plan.bottleneck.name}</span> is the bottleneck.
             <span className="block text-xs text-steelLight mt-0.5">
-              Daily target = people × per person per hour × {fmtQty(workingHoursPerDay(settings))} working hours. Set crew per process
-              on the Overview → Crew today.
+              Daily target = people × ({fmtQty(workingHoursPerDay(settings))} working hours × 60 ÷ minutes for one). Set people per
+              process on the Overview → Crew today.
             </span>
           </>
         ) : (
           <span className="text-steelLight">
-            {rows.some((r) => !r.ratePerHour)
-              ? 'Set a rate per person per hour for every process to see the day’s target and bottleneck.'
+            {rows.some((r) => !ratePerHourOf(r))
+              ? 'Enter the minutes for one for every process to see the day’s target and bottleneck.'
               : 'Enter people per process on the Overview → Crew today to see today’s target and bottleneck.'}
           </span>
         )}

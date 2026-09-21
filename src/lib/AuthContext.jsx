@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
 
 const AuthContext = createContext(null)
@@ -7,15 +7,27 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const userIdRef = useRef(null) // whose profile is loaded / loading
 
+  // Always ends loading, profile or not. A login with no role (a TV PC,
+  // or one not set up yet) used to leave the app on "Loading…" forever.
   async function loadProfile(userId) {
+    try {
+      await fetchProfile(userId)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function fetchProfile(userId) {
     const { data, error } = await supabase
       .from('bt_profiles')
       .select('user_id, role, department_id, display_name, bt_departments!bt_profiles_department_id_fkey(name)')
       .eq('user_id', userId)
       .single()
     if (error) {
-      console.error('Failed to load profile', error)
+      // No row is normal for a TV login; anything else is worth a log.
+      if (error.code !== 'PGRST116') console.error('Failed to load profile', error)
       setProfile(null)
       return
     }
@@ -41,22 +53,31 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
+      userIdRef.current = session?.user?.id ?? null
       if (session?.user) loadProfile(session.user.id)
       else setLoading(false)
     })
 
+    // Only a different login needs its profile (re)loaded. Token
+    // refreshes fire this hourly for the same user; reloading then would
+    // blink every TV board back to the loading screen.
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
-      if (session?.user) loadProfile(session.user.id)
-      else setProfile(null)
+      const id = session?.user?.id ?? null
+      if (id === userIdRef.current) return
+      userIdRef.current = id
+      if (id) {
+        setLoading(true)
+        loadProfile(id)
+      } else {
+        setProfile(null)
+        setLoading(false)
+      }
     })
 
     return () => listener.subscription.unsubscribe()
   }, [])
 
-  useEffect(() => {
-    if (profile !== null || !session) setLoading(false)
-  }, [profile, session])
 
   async function signIn(email, password) {
     return supabase.auth.signInWithPassword({ email, password })

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { DONE_RANK, buildNumbers, byBuildOrder, daysUntil, relativeDay, stageRank } from '../lib/schedule'
-import { blockText, isoDate, productiveMinutesPerDay, useSettings, workingMinutesBetween } from '../lib/catalog'
+import { blockText, checkinBlocks, clockLabel, isoDate, productiveMinutesPerDay, rateFor, useSettings, workingMinutesBetween } from '../lib/catalog'
 
 /**
  * The 65" board above a department, on its own PC in full-screen Chrome.
@@ -23,6 +23,7 @@ export default function TVBoard({ department }) {
   const [orders, setOrders] = useState([])
   const [doneToday, setDoneToday] = useState({ jobs: 0, mods: 0 })
   const [crew, setCrew] = useState(null)
+  const [counts, setCounts] = useState([]) // today's check-ins, oldest first
   const [error, setError] = useState('')
   const [now, setNow] = useState(new Date())
 
@@ -78,7 +79,15 @@ export default function TVBoard({ department }) {
         .eq('department_id', mine.id)
         .maybeSingle()
 
+      const { data: countRows } = await supabase
+        .from('bt_output_counts')
+        .select('count, at')
+        .eq('department_id', mine.id)
+        .eq('work_date', today)
+        .order('at')
+
       if (!alive) return
+      setCounts((countRows ?? []).map((c) => ({ count: Number(c.count), at: new Date(c.at) })))
       setError(oErr ? `Can't load orders: ${oErr.message}` : '')
       setDept(mine)
       setColumnIds(ids)
@@ -111,6 +120,7 @@ export default function TVBoard({ department }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_orders' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_build_weeks' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_crew_days' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_output_counts' }, load)
       .subscribe()
     // A board runs for weeks; a full reload every 10 minutes keeps it
     // honest even if a realtime message was missed.
@@ -138,10 +148,14 @@ export default function TVBoard({ department }) {
     return dates[0] ?? null
   }, [orders])
 
-  const target = crew != null ? Math.round(crew * settings.mods_per_person_day) : null
-  const useMods = orders.some((o) => o.mods_count) // only show mods if the office entered them
-  const doneNum = useMods ? doneToday.mods : doneToday.jobs
-  const unit = useMods ? 'mods' : 'orders'
+  const rate = rateFor(settings, dept?.name ?? department)
+  const target = crew != null && rate.perPerson ? Math.round(crew * rate.perPerson) : null
+  // What the crew counted beats what the app can infer: orders only
+  // finish in lumps, a count every two hours shows the real pace.
+  const lastCount = counts.length ? counts[counts.length - 1] : null
+  const useMods = orders.some((o) => o.mods_count) // only infer mods if the office entered them
+  const doneNum = lastCount ? lastCount.count : useMods ? doneToday.mods : doneToday.jobs
+  const unit = lastCount || target != null ? rate.unit : useMods ? 'mods' : 'orders'
 
   // Judge the day against what's expected BY NOW, not the whole day's
   // target — otherwise every morning looks like a disaster.
@@ -156,6 +170,36 @@ export default function TVBoard({ department }) {
   // behind on, so the board stays neutral instead of alarming red.
   const paceColor = pace == null ? 'text-paper' : pace >= 1 ? 'text-[#4CC46F]' : pace >= 0.75 ? 'text-safety' : 'text-[#FF6B6B]'
   const paceBar = pace == null ? 'bg-steelLight' : pace >= 1 ? 'bg-[#4CC46F]' : pace >= 0.75 ? 'bg-safety' : 'bg-[#FF6B6B]'
+  // The whole panel takes the colour, so the state reads from across the shop.
+  const paceCard =
+    pace == null
+      ? 'bg-floorCard border-floorLine'
+      : pace >= 1
+        ? 'bg-[#16301F] border-[#4CC46F]'
+        : pace >= 0.75
+          ? 'bg-[#33290F] border-safety'
+          : 'bg-[#3A1719] border-[#FF6B6B]'
+  const paceWord = pace == null ? null : pace >= 1 ? 'ON PACE' : pace >= 0.75 ? 'SLIGHTLY BEHIND' : 'BEHIND'
+
+  // ── The 2-hour blocks ──
+  // Each block is judged by the last count entered by 45 minutes after
+  // it ends (people update around the time, not on the dot).
+  const GRACE = 45 * 60000
+  const blocks = checkinBlocks(settings, target).map((b, i, all) => {
+    const prevEnd = i ? all[i - 1].end : null
+    const entry = [...counts].reverse().find((c) => c.at <= new Date(b.end.getTime() + GRACE) && (!prevEnd || c.at > new Date(prevEnd.getTime() - 60 * 60000)))
+    const isCurrent = now < b.end && (!prevEnd || now >= prevEnd)
+    const overdue = !entry && now > new Date(b.end.getTime() + 15 * 60000) && now < new Date(b.end.getTime() + GRACE * 4)
+    let state = 'upcoming'
+    if (isCurrent) state = 'current'
+    else if (now >= b.end) {
+      if (!entry) state = overdue ? 'late' : 'missed'
+      else if (b.targetByEnd == null) state = 'counted'
+      else state = entry.count >= b.targetByEnd ? 'met' : entry.count >= b.targetByEnd * 0.85 ? 'close' : 'short'
+    }
+    return { ...b, entry, state }
+  })
+  const dueBlock = blocks.find((b) => b.state === 'current' || b.state === 'late')
   const shipDays = daysUntil(nextWeek)
 
   if (error) {
@@ -196,8 +240,11 @@ export default function TVBoard({ department }) {
         {/* ── Left: today, then problems ── */}
         <div className="flex flex-col gap-5 min-h-0">
           {config.today !== false && (
-            <section className="rounded-3xl bg-floorCard border border-floorLine px-8 py-6">
-              <div className="text-[1.1vw] tracking-[0.2em] uppercase text-floorMute">Finished today</div>
+            <section className={`rounded-3xl border-2 px-8 py-6 ${paceCard}`}>
+              <div className="flex items-baseline justify-between gap-4">
+                <div className="text-[1.1vw] tracking-[0.2em] uppercase text-floorMute">Finished today</div>
+                {paceWord && <div className={`font-display font-extrabold text-[1.8vw] ${paceColor}`}>{paceWord}</div>}
+              </div>
               <div className="flex items-end gap-6 mt-1">
                 <div className={`font-display font-extrabold leading-[0.85] tabular-nums text-[9vw] ${paceColor}`}>
                   {doneNum}
@@ -227,8 +274,33 @@ export default function TVBoard({ department }) {
                   </div>
                 </>
               ) : (
-                <div className="text-[1.2vw] text-floorMute mt-2">No crew set for today — admin can set it on the Overview.</div>
+                <div className="text-[1.2vw] text-floorMute mt-2">
+                  {rate.perPerson ? 'No crew set for today — admin can set it on the Overview.' : 'No target set — admin sets the rate per person in Admin → TVs.'}
+                </div>
               )}
+
+              {config.blocks !== false && (
+                <div className="mt-4 grid gap-2" style={{ gridTemplateColumns: `repeat(${blocks.length}, minmax(0, 1fr))` }}>
+                  {blocks.map((b) => (
+                    <div key={b.label} className={`rounded-xl px-3 py-2 text-center border-2 ${BLOCK_STYLE[b.state]}`}>
+                      <div className="text-[1vw] font-semibold opacity-80">{clockLabel(b.label)}</div>
+                      <div className="font-display font-extrabold text-[2vw] leading-none tabular-nums mt-0.5">
+                        {b.entry ? b.entry.count : b.state === 'current' ? '…' : b.state === 'late' ? '!' : '—'}
+                        {b.targetByEnd != null && <span className="text-[1.1vw] font-bold opacity-70"> / {Math.round(b.targetByEnd)}</span>}
+                      </div>
+                      <div className="text-[0.85vw] font-semibold uppercase tracking-wider opacity-80">{BLOCK_WORD[b.state]}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="text-[1.1vw] text-floorMute mt-2">
+                {lastCount ? `Count updated ${lastCount.at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}` : 'No count entered yet today'}
+                {dueBlock && (
+                  <span className={dueBlock.state === 'late' ? 'text-[#FF6B6B] font-bold' : ''}>
+                    {' '}· {dueBlock.state === 'late' ? `update was due at ${clockLabel(dueBlock.label)}` : `next update ${clockLabel(dueBlock.label)}`}
+                  </span>
+                )}
+              </div>
             </section>
           )}
 
@@ -304,4 +376,25 @@ export default function TVBoard({ department }) {
       )}
     </div>
   )
+}
+
+const BLOCK_STYLE = {
+  met: 'bg-[#16301F] border-[#4CC46F] text-[#7FD49A]',
+  close: 'bg-[#33290F] border-safety text-safety',
+  short: 'bg-[#3A1719] border-[#FF6B6B] text-[#FF8A8A]',
+  counted: 'bg-floor border-floorLine text-paper',
+  current: 'bg-floor border-paper/60 text-paper',
+  late: 'bg-[#3A1719] border-[#FF6B6B] text-[#FF8A8A] animate-pulse',
+  missed: 'bg-floor border-floorLine text-floorMute',
+  upcoming: 'bg-floor border-floorLine text-floorMute',
+}
+const BLOCK_WORD = {
+  met: 'target met',
+  close: 'close',
+  short: 'short',
+  counted: 'counted',
+  current: 'now',
+  late: 'update late',
+  missed: 'no update',
+  upcoming: 'later',
 }

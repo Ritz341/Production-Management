@@ -58,6 +58,11 @@ export const DEFAULT_SETTINGS = {
   default_mods_crew: 4,
   difficulty_multiplier: { easy: 1.0, medium: 1.25, hard: 1.5 },
   size_bands: { small: 10, medium: 14 },
+  // Per-department daily output per person, set in Admin → TVs, e.g.
+  // { Mods: { perPerson: 3, unit: 'mods' }, V4T: { perPerson: 12, unit: 'inserts' } }.
+  rates: {},
+  // When departments enter their count during the day (end of each block).
+  checkin_times: ['09:30', '11:30', '13:30', '16:00'],
   shift: {
     start: '07:30',
     end: '16:00',
@@ -240,4 +245,52 @@ export function pickupLoads(pickups, settings = DEFAULT_SETTINGS, crewByDate = {
     })
   }
   return out
+}
+
+/**
+ * A department's daily output rate per person and what it's counted in.
+ * Mods falls back to mods_per_person_day (what the estimates use), so
+ * the two can't drift apart. Null perPerson = no target set yet.
+ */
+export function rateFor(settings, departmentName) {
+  const r = settings.rates?.[departmentName]
+  if (r?.perPerson) return { perPerson: Number(r.perPerson), unit: r.unit || 'units' }
+  if (departmentName === 'Mods') return { perPerson: settings.mods_per_person_day, unit: 'mods' }
+  return { perPerson: null, unit: r?.unit || 'units' }
+}
+
+const toMin = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
+
+/** A Date for today at "HH:MM". */
+export function todayAt(hhmm) {
+  const d = new Date()
+  d.setHours(Number(hhmm.slice(0, 2)), Number(hhmm.slice(3, 5)), 0, 0)
+  return d
+}
+
+/**
+ * The day's check-in blocks with the cumulative target due at the end
+ * of each — the hour-by-hour board. Targets follow working time (breaks
+ * don't earn target), so a block with lunch in it asks for less.
+ * Returns [{ label, end: Date, targetByEnd }].
+ */
+export function checkinBlocks(settings, dailyTarget) {
+  const shift = settings.shift
+  const total = productiveMinutesPerDay(shift)
+  const start = todayAt(shift.start)
+  const times = [...(settings.checkin_times ?? DEFAULT_SETTINGS.checkin_times)]
+    .filter((t) => toMin(t) > toMin(shift.start) && toMin(t) <= toMin(shift.end))
+    .sort((a, b) => toMin(a) - toMin(b))
+  if (!times.length || times[times.length - 1] !== shift.end) times.push(shift.end)
+  return [...new Set(times)].map((t) => {
+    const end = todayAt(t)
+    const worked = workingMinutesBetween(start, end, shift) ?? 0
+    return { label: t, end, targetByEnd: dailyTarget == null ? null : (dailyTarget * worked) / total }
+  })
+}
+
+/** "9:30" / "1:30" from "09:30" / "13:30". */
+export function clockLabel(hhmm) {
+  const h = Number(hhmm.slice(0, 2))
+  return `${((h + 11) % 12) + 1}:${hhmm.slice(3, 5)}`
 }

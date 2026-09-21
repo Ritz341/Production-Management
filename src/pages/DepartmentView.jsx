@@ -10,6 +10,7 @@ import FileModal from '../components/FileModal.jsx'
 import NotificationBanner from '../components/NotificationBanner.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
 import QualityIssueModal from '../components/QualityIssueModal.jsx'
+import CountBar from '../components/CountBar.jsx'
 
 export default function DepartmentView() {
   const { profile, signOut } = useAuth()
@@ -371,6 +372,7 @@ export default function DepartmentView() {
               ))}
             </select>
           </div>
+          <CountBar departments={departments.filter((d) => profile?.combinedDepartmentIds?.includes(d.id))} live={live} />
         </div>
 
         {currentWeek?.ship_date && (

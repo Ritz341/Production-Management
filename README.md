@@ -33,6 +33,13 @@ Built with **React + Vite + Tailwind** on **Supabase** (Postgres, Auth, Realtime
 - **Visibility control** — hide a single column on a single order from the floor
 - **File attach** — upload drawings, photos, and documents to a tag (private storage, signed URLs)
 
+### Shop-floor TVs
+- One board per department on its own PC: open `https://<site>/?tv=Mods` in full-screen Chrome, signed in with any login (read-only)
+- **Finished today** against the day's target from Crew today, judged against what's expected *by this time of day* — neutral before the shift starts
+- **Build next**: the next six orders in build order, first one highlighted, blocked ones in red
+- **Problems**: blocked jobs with their reason, or "All clear"
+- Admin → **TVs**: turn each section on or off per board and put a message across the bottom; the TVs update within seconds
+
 ### Reporting and quality
 - **Activity log** — every start, finish, block, clear, move and quality event is recorded by the database with its time
 - **Block reasons** — material shortage, machine down, rework, waiting on another department, missing info, short-staffed, order change, other — plus a note
@@ -162,7 +169,9 @@ Stand up Supabase via Docker on the plant server, run the same SQL files, recrea
 │   │   ├── AdminImport.jsx      # weekly import (paste / file / screenshot)
 │   │   ├── DepartmentView.jsx   # tablet queue
 │   │   ├── LogisticsView.jsx    # add orders one at a time
-│   │   ├── OfficeView.jsx       # paperwork ready, per order
+│   │   ├── OfficeView.jsx       # paperwork + order details
+│   │   ├── QualityView.jsx      # quality inspector
+│   │   ├── TVBoard.jsx          # shop-floor TV board (?tv=Mods)
 │   │   ├── ShippingView.jsx
 │   │   └── Login.jsx
 │   ├── components/              # FileModal, OrderFormModal, BlockReasonModal, NotificationBanner

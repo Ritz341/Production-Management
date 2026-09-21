@@ -22,7 +22,7 @@ export default function TVBoard({ department }) {
   const [columnIds, setColumnIds] = useState([])
   const [columnName, setColumnName] = useState({})
   const [orders, setOrders] = useState([])
-  const [doneToday, setDoneToday] = useState({ jobs: 0, mods: 0 })
+  const [finished, setFinished] = useState([]) // orders this department finished today: { id, tag_name, buildNo, mods_count, at }
   const [crew, setCrew] = useState(null)
   const [counts, setCounts] = useState([]) // today's check-ins, oldest first: { process, count, at }
   const [processPeople, setProcessPeople] = useState({}) // processId -> people today
@@ -91,7 +91,7 @@ export default function TVBoard({ department }) {
       const midnight = new Date()
       midnight.setHours(0, 0, 0, 0)
       const { data: doneRows } = ids.length
-        ? await supabase.from('bt_activity').select('order_id, status_column_id').eq('kind', 'done').gte('at', midnight.toISOString()).in('status_column_id', ids)
+        ? await supabase.from('bt_activity').select('order_id, status_column_id, at').eq('kind', 'done').gte('at', midnight.toISOString()).in('status_column_id', ids).order('at')
         : { data: [] }
       const { data: crewRow } = await supabase
         .from('bt_crew_days')
@@ -131,12 +131,25 @@ export default function TVBoard({ department }) {
       }
       setOrders([...byId.values()].filter((o) => Object.keys(o.cells).length > 0).sort(byBuildOrder))
 
-      const uniqueDone = new Map((doneRows ?? []).map((r) => [`${r.order_id}:${r.status_column_id}`, r]))
-      const modsFor = (id) => byId.get(id)?.mods_count ?? 0
-      setDoneToday({
-        jobs: uniqueDone.size,
-        mods: [...new Set([...uniqueDone.values()].map((r) => r.order_id))].reduce((s, id) => s + modsFor(id), 0),
-      })
+      const lastDoneAt = new Map()
+      for (const r of doneRows ?? []) lastDoneAt.set(r.order_id, new Date(r.at))
+      const missing = [...lastDoneAt.keys()].filter((id) => !byId.has(id))
+      const { data: pickedUp } = missing.length
+        ? await supabase.from('bt_orders').select('id, tag_name, mods_count').in('id', missing)
+        : { data: [] }
+      const info = new Map([...byId.values(), ...(pickedUp ?? [])].map((o) => [o.id, o]))
+      const done = [...lastDoneAt.entries()]
+        .filter(([id]) => {
+          // Still in progress here (reopened, or another of its jobs open)? Not finished.
+          const o = byId.get(id)
+          if (!o) return true
+          const own = ids.map((c) => o.cells[c]).filter(Boolean)
+          return own.length > 0 && own.every((c) => stageRank(c.stage) >= DONE_RANK)
+        })
+        .map(([id, at]) => ({ id, at, tag_name: info.get(id)?.tag_name ?? `order ${id}`, buildNo: byId.get(id)?.buildNo, mods_count: info.get(id)?.mods_count ?? null }))
+        .sort((a, b) => b.at - a.at)
+      if (!alive) return
+      setFinished(done)
       setCrew(crewRow ? Number(crewRow.people) : null)
     }
 
@@ -196,9 +209,14 @@ export default function TVBoard({ department }) {
   // finish in lumps, a count every two hours shows the real pace.
   const ownCounts = plan ? countsFor(finalStep.id) : countsFor(null)
   const lastCount = ownCounts.length ? ownCounts[ownCounts.length - 1] : null
-  const useMods = orders.some((o) => o.mods_count) // only infer mods if the office entered them
-  const doneNum = lastCount ? lastCount.count : useMods ? doneToday.mods : doneToday.jobs
-  const unit = plan ? finalStep.unit : lastCount || target != null ? rate.unit : useMods ? 'mods' : 'orders'
+  // Count mods only when every finished order has a mod count — one
+  // without it would otherwise add nothing and the number would stall.
+  // Mod counts only describe Mods' output; every other department counts orders.
+  const isMods = (dept?.name ?? department).toLowerCase() === 'mods'
+  const useMods = isMods && (finished.length ? finished.every((f) => f.mods_count) : orders.some((o) => o.mods_count))
+  const finishedMods = finished.reduce((sum, f) => sum + (f.mods_count ?? 0), 0)
+  const doneNum = lastCount ? lastCount.count : useMods ? finishedMods : finished.length
+  const unit = lastCount ? (plan ? finalStep.unit : rate.unit) : useMods ? (plan ? finalStep.unit : 'mods') : finished.length === 1 ? 'order' : 'orders'
 
   // Judge the day against what's expected BY NOW, not the whole day's
   // target — otherwise every morning looks like a disaster.
@@ -410,7 +428,9 @@ export default function TVBoard({ department }) {
                     Line can finish {fmtQty(plan.capacity)} {finalStep.unit} today · bottleneck {plan.bottleneck.name} ·{' '}
                   </span>
                 )}
-                {lastCount ? `Count updated ${lastCount.at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}` : 'No count entered yet today'}
+                {lastCount
+                  ? `Showing the crew's count from ${lastCount.at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+                  : `Counting orders marked Done${useMods ? ' (in mods)' : ''} — no crew count yet today`}
                 {dueBlock && (
                   <span className={dueBlock.state === 'late' ? 'text-[#FF6B6B] font-bold' : ''}>
                     {' '}· {dueBlock.state === 'late' ? `update was due at ${clockLabel(dueBlock.label)}` : `next update ${clockLabel(dueBlock.label)}`}
@@ -481,6 +501,25 @@ export default function TVBoard({ department }) {
                   )
                 })}
               </ol>
+            )}
+            {finished.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-floorLine">
+                <div className="text-[1vw] tracking-[0.2em] uppercase text-[#7FD49A]">
+                  ✓ Finished today · {finished.length} {finished.length === 1 ? 'order' : 'orders'}
+                  {isMods && finishedMods > 0 && ` · ${finishedMods} mods`}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {finished.slice(0, 8).map((f) => (
+                    <span key={f.id} className="rounded-lg bg-[#16301F] border border-[#4CC46F] text-[#7FD49A] px-3 py-1 text-[1.1vw] font-semibold">
+                      {f.buildNo ? `#${f.buildNo} ` : ''}
+                      {f.tag_name} · {f.at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                  ))}
+                  {finished.length > 8 && (
+                    <span className="rounded-lg border border-[#4CC46F] text-[#7FD49A] px-3 py-1 text-[1.1vw] font-semibold">+{finished.length - 8} more</span>
+                  )}
+                </div>
+              </div>
             )}
           </section>
         )}

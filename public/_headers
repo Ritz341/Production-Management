@@ -1,0 +1,5 @@
+# Cloudflare Pages headers (Netlify uses netlify.toml for the same rule).
+# The service worker must never be cached, or a tablet can stay stuck on
+# an old version of the app after a deploy.
+/sw.js
+  Cache-Control: no-cache

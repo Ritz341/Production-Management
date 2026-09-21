@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { DONE_RANK, buildNumbers, byBuildOrder, daysUntil, relativeDay, stageRank } from '../lib/schedule'
-import { blockText, checkinBlocks, clockLabel, isoDate, productiveMinutesPerDay, rateFor, useSettings, workingMinutesBetween } from '../lib/catalog'
+import { blockText, checkinBlocks, clockLabel, fmtQty, isoDate, planLine, processesFor, productiveMinutesPerDay, rateFor, useSettings, workingMinutesBetween } from '../lib/catalog'
 
 /**
  * The 65" board above a department, on its own PC in full-screen Chrome.
@@ -23,7 +23,8 @@ export default function TVBoard({ department }) {
   const [orders, setOrders] = useState([])
   const [doneToday, setDoneToday] = useState({ jobs: 0, mods: 0 })
   const [crew, setCrew] = useState(null)
-  const [counts, setCounts] = useState([]) // today's check-ins, oldest first
+  const [counts, setCounts] = useState([]) // today's check-ins, oldest first: { process, count, at }
+  const [processPeople, setProcessPeople] = useState({}) // processId -> people today
   const [error, setError] = useState('')
   const [now, setNow] = useState(new Date())
 
@@ -81,13 +82,19 @@ export default function TVBoard({ department }) {
 
       const { data: countRows } = await supabase
         .from('bt_output_counts')
-        .select('count, at')
+        .select('process, count, at')
         .eq('department_id', mine.id)
         .eq('work_date', today)
         .order('at')
+      const { data: procDays } = await supabase
+        .from('bt_process_days')
+        .select('process, people')
+        .eq('department_id', mine.id)
+        .eq('work_date', today)
 
       if (!alive) return
-      setCounts((countRows ?? []).map((c) => ({ count: Number(c.count), at: new Date(c.at) })))
+      setCounts((countRows ?? []).map((c) => ({ process: c.process, count: Number(c.count), at: new Date(c.at) })))
+      setProcessPeople(Object.fromEntries((procDays ?? []).map((r) => [r.process, Number(r.people)])))
       setError(oErr ? `Can't load orders: ${oErr.message}` : '')
       setDept(mine)
       setColumnIds(ids)
@@ -121,6 +128,7 @@ export default function TVBoard({ department }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_build_weeks' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_crew_days' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_output_counts' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_process_days' }, load)
       .subscribe()
     // A board runs for weeks; a full reload every 10 minutes keeps it
     // honest even if a realtime message was missed.
@@ -149,13 +157,28 @@ export default function TVBoard({ department }) {
   }, [orders])
 
   const rate = rateFor(settings, dept?.name ?? department)
-  const target = crew != null && rate.perPerson ? Math.round(crew * rate.perPerson) : null
+  const processes = processesFor(settings, dept?.name ?? department)
+  const plan = processes.length ? planLine(processes, processPeople, settings) : null
+  const finalStep = plan ? plan.steps[plan.steps.length - 1] : null
+  const countsFor = (processId) => counts.filter((c) => (c.process ?? null) === (processId ?? null))
+
+  // With processes, the day's number is the LAST step's count (what the
+  // line actually finished) against what the bottleneck allows. Without,
+  // it's the department's own count against people × daily rate.
+  const target = plan
+    ? plan.capacity != null
+      ? Math.round(plan.capacity * (Number(finalStep.perFinished) || 1))
+      : null
+    : crew != null && rate.perPerson
+      ? Math.round(crew * rate.perPerson)
+      : null
   // What the crew counted beats what the app can infer: orders only
   // finish in lumps, a count every two hours shows the real pace.
-  const lastCount = counts.length ? counts[counts.length - 1] : null
+  const ownCounts = plan ? countsFor(finalStep.id) : countsFor(null)
+  const lastCount = ownCounts.length ? ownCounts[ownCounts.length - 1] : null
   const useMods = orders.some((o) => o.mods_count) // only infer mods if the office entered them
   const doneNum = lastCount ? lastCount.count : useMods ? doneToday.mods : doneToday.jobs
-  const unit = lastCount || target != null ? rate.unit : useMods ? 'mods' : 'orders'
+  const unit = plan ? finalStep.unit : lastCount || target != null ? rate.unit : useMods ? 'mods' : 'orders'
 
   // Judge the day against what's expected BY NOW, not the whole day's
   // target — otherwise every morning looks like a disaster.
@@ -185,9 +208,9 @@ export default function TVBoard({ department }) {
   // Each block is judged by the last count entered by 45 minutes after
   // it ends (people update around the time, not on the dot).
   const GRACE = 45 * 60000
-  const blocks = checkinBlocks(settings, target).map((b, i, all) => {
+  const blocksFor = (list, dailyTarget) => checkinBlocks(settings, dailyTarget).map((b, i, all) => {
     const prevEnd = i ? all[i - 1].end : null
-    const entry = [...counts].reverse().find((c) => c.at <= new Date(b.end.getTime() + GRACE) && (!prevEnd || c.at > new Date(prevEnd.getTime() - 60 * 60000)))
+    const entry = [...list].reverse().find((c) => c.at <= new Date(b.end.getTime() + GRACE) && (!prevEnd || c.at > new Date(prevEnd.getTime() - 60 * 60000)))
     const isCurrent = now < b.end && (!prevEnd || now >= prevEnd)
     const overdue = !entry && now > new Date(b.end.getTime() + 15 * 60000) && now < new Date(b.end.getTime() + GRACE * 4)
     let state = 'upcoming'
@@ -199,7 +222,15 @@ export default function TVBoard({ department }) {
     }
     return { ...b, entry, state }
   })
+  const blocks = blocksFor(ownCounts, target)
   const dueBlock = blocks.find((b) => b.state === 'current' || b.state === 'late')
+  // One row per process: its own count, target and blocks.
+  const processRows = plan
+    ? plan.steps.map((st) => {
+        const list = countsFor(st.id)
+        return { ...st, last: list.length ? list[list.length - 1] : null, blocks: blocksFor(list, st.daily) }
+      })
+    : []
   const shipDays = daysUntil(nextWeek)
 
   if (error) {
@@ -263,7 +294,8 @@ export default function TVBoard({ department }) {
                     <span className="absolute top-0 bottom-0 w-1 bg-paper/70" style={{ left: `${dayFraction * 100}%` }} />
                   </div>
                   <div className="text-[1.3vw] text-floorMute mt-2 tabular-nums">
-                    {crew} {crew === 1 ? 'person' : 'people'} today ·{' '}
+                    {plan ? Object.values(processPeople).reduce((a, b) => a + b, 0) : crew}{' '}
+                    {(plan ? Object.values(processPeople).reduce((a, b) => a + b, 0) : crew) === 1 ? 'person' : 'people'} today ·{' '}
                     {doneNum >= target
                       ? 'target met'
                       : dayFraction === 0
@@ -275,11 +307,44 @@ export default function TVBoard({ department }) {
                 </>
               ) : (
                 <div className="text-[1.2vw] text-floorMute mt-2">
-                  {rate.perPerson ? 'No crew set for today — admin can set it on the Overview.' : 'No target set — admin sets the rate per person in Admin → TVs.'}
+                  {plan
+                    ? processes.some((p) => !p.ratePerHour)
+                      ? 'No target yet — admin sets each process’s rate in Admin → Targets & TVs.'
+                      : 'No crew set for today — admin sets people per process on the Overview.'
+                    : rate.perPerson
+                      ? 'No crew set for today — admin can set it on the Overview.'
+                      : 'No target set — admin sets the rate per person in Admin → Targets & TVs.'}
                 </div>
               )}
 
-              {config.blocks !== false && (
+              {config.blocks !== false && plan && (
+                <div className="mt-4 grid gap-2">
+                  {processRows.map((st) => (
+                    <div key={st.id} className="grid grid-cols-[minmax(0,11vw)_minmax(0,7vw)_1fr] items-center gap-3">
+                      <div className={`font-display font-bold text-[1.4vw] leading-tight truncate ${plan.bottleneck?.id === st.id ? 'text-[#FF8A8A]' : ''}`}>
+                        {st.name}
+                        {plan.bottleneck?.id === st.id && <span className="block text-[0.8vw] tracking-wider uppercase">bottleneck</span>}
+                      </div>
+                      <div className="font-display font-extrabold text-[1.8vw] tabular-nums leading-none">
+                        {st.last ? fmtQty(st.last.count) : '—'}
+                        <span className="text-[1vw] text-floorMute"> / {st.daily != null ? fmtQty(st.daily) : '—'}</span>
+                      </div>
+                      <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${st.blocks.length}, minmax(0, 1fr))` }}>
+                        {st.blocks.map((b) => (
+                          <div key={b.label} className={`rounded-lg px-1 py-1 text-center border-2 ${BLOCK_STYLE[b.state]}`}>
+                            <div className="text-[0.8vw] font-semibold opacity-80 leading-none">{clockLabel(b.label)}</div>
+                            <div className="font-display font-extrabold text-[1.3vw] leading-none tabular-nums mt-0.5">
+                              {b.entry ? fmtQty(b.entry.count) : b.state === 'late' ? '!' : '—'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {config.blocks !== false && !plan && (
                 <div className="mt-4 grid gap-2" style={{ gridTemplateColumns: `repeat(${blocks.length}, minmax(0, 1fr))` }}>
                   {blocks.map((b) => (
                     <div key={b.label} className={`rounded-xl px-3 py-2 text-center border-2 ${BLOCK_STYLE[b.state]}`}>
@@ -294,6 +359,11 @@ export default function TVBoard({ department }) {
                 </div>
               )}
               <div className="text-[1.1vw] text-floorMute mt-2">
+                {plan?.capacity != null && (
+                  <span>
+                    Line can finish {fmtQty(plan.capacity)} {finalStep.unit} today · bottleneck {plan.bottleneck.name} ·{' '}
+                  </span>
+                )}
                 {lastCount ? `Count updated ${lastCount.at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}` : 'No count entered yet today'}
                 {dueBlock && (
                   <span className={dueBlock.state === 'late' ? 'text-[#FF6B6B] font-bold' : ''}>

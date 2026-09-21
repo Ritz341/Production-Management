@@ -63,6 +63,21 @@ export const DEFAULT_SETTINGS = {
   rates: {},
   // When departments enter their count during the day (end of each block).
   checkin_times: ['09:30', '11:30', '13:30', '16:00'],
+  // Stations inside a department, in the order work flows through them.
+  // ratePerHour: what one person does in a working hour (null = not set).
+  // perFinished: how many of this step's units make one finished unit
+  // (4 vents per V4T insert), so the line's output can be compared.
+  processes: {
+    Mods: [
+      { id: 'framing', name: 'Framing', unit: 'mods', ratePerHour: null, perFinished: 1 },
+      { id: 'staging', name: 'Staging', unit: 'mods', ratePerHour: null, perFinished: 1 },
+    ],
+    V4T: [
+      { id: 'vents_cut', name: 'Vents cut', unit: 'vents', ratePerHour: null, perFinished: 4 },
+      { id: 'vents_glazed', name: 'Vents built & glazed', unit: 'vents', ratePerHour: null, perFinished: 4 },
+      { id: 'frames', name: 'Frames built & squared', unit: 'inserts', ratePerHour: null, perFinished: 1 },
+    ],
+  },
   shift: {
     start: '07:30',
     end: '16:00',
@@ -293,4 +308,44 @@ export function checkinBlocks(settings, dailyTarget) {
 export function clockLabel(hhmm) {
   const h = Number(hhmm.slice(0, 2))
   return `${((h + 11) % 12) + 1}:${hhmm.slice(3, 5)}`
+}
+
+/** A department's processes, in flow order (empty = department as a whole). */
+export function processesFor(settings, departmentName) {
+  return settings.processes?.[departmentName] ?? DEFAULT_SETTINGS.processes[departmentName] ?? []
+}
+
+/** Working hours in a day (7:30–4:00 minus all breaks = 7.5). */
+export function workingHoursPerDay(settings = DEFAULT_SETTINGS) {
+  return productiveMinutesPerDay(settings.shift) / 60
+}
+
+/**
+ * The day's plan for a department's line, from who's on each process:
+ * each process's daily target (people × rate per hour × working hours),
+ * what that means in finished units, and which process limits the line.
+ *
+ *   planLine(processes, { framing: 2, staging: 3 }, settings)
+ *   → { steps: [{ ...process, people, daily, finished }], capacity, bottleneck }
+ *
+ * capacity / bottleneck are null until every staffed step has a rate.
+ */
+export function planLine(processes, peopleByProcess, settings = DEFAULT_SETTINGS) {
+  const hours = workingHoursPerDay(settings)
+  const steps = processes.map((p) => {
+    const people = peopleByProcess[p.id] ?? null
+    const daily = people != null && p.ratePerHour ? people * Number(p.ratePerHour) * hours : null
+    const finished = daily != null ? daily / (Number(p.perFinished) || 1) : null
+    return { ...p, people, daily, finished }
+  })
+  const known = steps.filter((st) => st.finished != null)
+  const complete = known.length === steps.length && steps.length > 0
+  const bottleneck = complete ? known.reduce((a, b) => (b.finished < a.finished ? b : a)) : null
+  return { steps, capacity: bottleneck ? bottleneck.finished : null, bottleneck, hours }
+}
+
+/** Round for display: whole numbers, one decimal under 10. */
+export function fmtQty(n) {
+  if (n == null) return '—'
+  return n < 10 ? String(Math.round(n * 10) / 10) : String(Math.round(n))
 }

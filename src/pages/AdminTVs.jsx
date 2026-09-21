@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
-import { clockLabel, rateFor, useSettings } from '../lib/catalog'
+import { clockLabel, isoDate, processesFor, rateFor, useSettings } from '../lib/catalog'
+import ProcessEditor from '../components/ProcessEditor.jsx'
 
 const ZONES = [
   ['today', 'Finished today', 'The big number, against the day’s target from Crew today.'],
@@ -26,6 +27,32 @@ export default function AdminTVs() {
     supabase.from('bt_departments').select('id, name').order('sort_order').then(({ data }) => setDepartments(data ?? []))
   }, [])
   useEffect(() => setBoards(settings.tv_boards ?? {}), [settings.tv_boards])
+
+  // Today's people per process, for the worked-out plan under each editor.
+  const [peopleToday, setPeopleToday] = useState({}) // departmentId -> { processId: people }
+  useEffect(() => {
+    function load() {
+      supabase
+        .from('bt_process_days')
+        .select('department_id, process, people')
+        .eq('work_date', isoDate(new Date()))
+        .then(({ data }) => {
+          const map = {}
+          for (const r of data ?? []) (map[r.department_id] ??= {})[r.process] = Number(r.people)
+          setPeopleToday(map)
+        })
+    }
+    load()
+    const channel = supabase
+      .channel('admin-tvs-crew')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_process_days' }, load)
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [])
+
+  async function saveProcesses(deptName, rows) {
+    return saveSetting('processes', { ...(settings.processes ?? {}), [deptName]: rows }, `${deptName} processes saved`)
+  }
 
   // Any settings key — rates, check-in times, boards — saved the same way.
   async function saveSetting(key, value, message = 'Saved — the TVs update in a few seconds') {
@@ -77,7 +104,7 @@ export default function AdminTVs() {
   return (
     <div className="px-4 sm:px-6 py-5 max-w-4xl mx-auto space-y-4">
       <section className="rounded-2xl bg-white border border-paperDim p-5">
-        <h2 className="font-display font-bold text-3xl uppercase tracking-wide text-charcoal">Shop-floor TVs</h2>
+        <h2 className="font-display font-bold text-3xl uppercase tracking-wide text-charcoal">Targets &amp; TVs</h2>
         <p className="text-sm text-steelLight mt-1">
           Each TV shows one department. Set it up once on that PC, then control it from here — it's read-only, so nobody
           can change a job from the TV.
@@ -95,6 +122,15 @@ export default function AdminTVs() {
               <code className="text-xs bg-paper border border-paperDim rounded px-2 py-1 text-steel break-all">{boardUrl(d.name)}</code>
             </div>
 
+            {processesFor(settings, d.name).length > 0 ? (
+              <ProcessEditor
+                key={JSON.stringify(processesFor(settings, d.name))}
+                department={d}
+                settings={settings}
+                peopleToday={peopleToday[d.id] ?? {}}
+                onSave={(rows) => saveProcesses(d.name, rows)}
+              />
+            ) : (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
               <span className="font-semibold text-steel">Target:</span>
               <input
@@ -119,7 +155,18 @@ export default function AdminTVs() {
               />
               <span className="text-steelLight">per person per day</span>
               {!rateFor(settings, d.name).perPerson && <span className="text-safetyDark font-semibold">— no target yet</span>}
+              <button
+                onClick={() =>
+                  saveProcesses(d.name, [
+                    { id: 'main', name: d.name, unit: rateFor(settings, d.name).unit, ratePerHour: null, perFinished: 1 },
+                  ])
+                }
+                className="text-andonBlue font-semibold ml-auto"
+              >
+                Split into processes
+              </button>
             </div>
+            )}
 
             <div className="mt-3 grid gap-2">
               {ZONES.map(([key, label, what]) => (

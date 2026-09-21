@@ -39,7 +39,8 @@ Built with **React + Vite + Tailwind** on **Supabase** (Postgres, Auth, Realtime
 - **Build next**: the next six orders in build order, first one highlighted, blocked ones in red
 - **Problems**: blocked jobs with their reason, or "All clear"
 - **2-hour blocks**: each department enters its count on the tablet at set times (default 9:30, 11:30, 1:30, 4:00); each block turns green (target met), amber (close) or red (short), and flashes red if the update is late
-- Admin → **TVs**: target per person per day and unit for each department, check-in times, each section on or off per board, and a message across the bottom; the TVs update within seconds
+- **Processes inside a department** (Mods: framing → staging; V4T: vents cut → vents built & glazed → frames built & squared): each has its own people, rate per person per hour and count check-ins. Daily target = people × rate × 7.5 working hours; the line's output is its slowest process (converted to finished units, e.g. 4 vents per insert), and the board names the bottleneck
+- Admin → **Targets & TVs**: target per person per day and unit for each department, check-in times, each section on or off per board, and a message across the bottom; the TVs update within seconds
 
 ### Reporting and quality
 - **Activity log** — every start, finish, block, clear, move and quality event is recorded by the database with its time
@@ -94,7 +95,7 @@ In the Supabase SQL editor, run **in order**:
 
 1. `schema.sql`
 2. `seed.sql`
-3. `schema_v2.sql` through `schema_v15.sql`, in order
+3. `schema_v2.sql` through `schema_v16.sql`, in order
 
 Skip `import_data.sql` — it's a snapshot of an old sheet. Start empty and load orders through **Weekly import** or the logistics screen. To wipe orders later but keep departments and logins, run `reset_to_empty.sql`.
 

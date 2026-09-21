@@ -238,7 +238,7 @@ export default function AdminView() {
             ['grid', 'Grid'],
             ['import', 'Weekly Import'],
             ['reports', 'Reports'],
-            ['tvs', 'TVs'],
+            ['tvs', 'Targets & TVs'],
           ].map(([id, label]) => (
             <button
               key={id}

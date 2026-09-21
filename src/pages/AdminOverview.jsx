@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { WORKFLOW_STAGES } from '../lib/statusColors'
-import { blockText, isoDate, pickupLoads, useSettings } from '../lib/catalog'
+import { blockText, fmtQty, isoDate, pickupLoads, planLine, processesFor, useSettings } from '../lib/catalog'
 import WeekLoad from '../components/WeekLoad.jsx'
 import { nearestBuildWeekId } from '../lib/dates'
 import { DONE_RANK, ago, buildNumbers, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
@@ -34,6 +34,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
   const [toast, setToast] = useState('')
   const settings = useSettings()
   const [crewRows, setCrewRows] = useState([]) // bt_crew_days rows
+  const [processDays, setProcessDays] = useState([]) // today's bt_process_days rows
   const today = isoDate(new Date())
 
   useEffect(() => {
@@ -84,8 +85,13 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
         .order('created_at', { ascending: false })
         .limit(25)
       const { data: crew } = await supabase.from('bt_crew_days').select('work_date, department_id, people')
+      const { data: procDays } = await supabase
+        .from('bt_process_days')
+        .select('department_id, process, people')
+        .eq('work_date', isoDate(new Date()))
       if (!active) return
       setCrewRows(crew ?? [])
+      setProcessDays(procDays ?? [])
 
       const err = oErr || sErr
       setLoadError(err ? `Couldn't load the overview: ${err.message}` : '')
@@ -116,6 +122,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_orders' }, load)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bt_events' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_crew_days' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_process_days' }, load)
       .subscribe()
     return () => {
       active = false
@@ -241,6 +248,27 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       modsCrewByDate
     )
   }, [buildWeeks, orders, deptColumns, modsDept, settings, modsCrewByDate])
+
+  const peopleByProcess = (deptId) =>
+    Object.fromEntries(processDays.filter((r) => r.department_id === deptId).map((r) => [r.process, Number(r.people)]))
+
+  // People on one process today. The department's total in bt_crew_days
+  // is kept equal to the sum, so estimates and anything reading the
+  // department crew still add up.
+  async function saveProcessCrew(dept, processId, value) {
+    if (!live) return
+    const people = value === '' ? null : Number(value)
+    const res =
+      people == null
+        ? await supabase.from('bt_process_days').delete().eq('work_date', today).eq('department_id', dept.id).eq('process', processId)
+        : await supabase
+            .from('bt_process_days')
+            .upsert({ work_date: today, department_id: dept.id, process: processId, people }, { onConflict: 'work_date,department_id,process' })
+    if (res.error) return setToast(`Couldn't save crew: ${res.error.message}`)
+    const next = { ...peopleByProcess(dept.id), [processId]: people }
+    const total = Object.values(next).reduce((sum, n) => sum + (n ?? 0), 0)
+    await saveCrew(dept.id, total ? String(total) : '')
+  }
 
   async function saveCrew(departmentId, value) {
     if (!live) return
@@ -432,8 +460,19 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
             <p className="text-sm text-steelLight">
               People on each department today. Leave blank to assume {settings.default_mods_crew} on Mods.
             </p>
-            <ul className="mt-2 space-y-2">
-              {departments.map((d) => (
+            <ul className="mt-2 space-y-3">
+              {departments.map((d) =>
+                processesFor(settings, d.name).length > 0 ? (
+                  <ProcessCrew
+                    key={d.id}
+                    dept={d}
+                    processes={processesFor(settings, d.name)}
+                    people={peopleByProcess(d.id)}
+                    settings={settings}
+                    live={live}
+                    onSave={(processId, v) => saveProcessCrew(d, processId, v)}
+                  />
+                ) : (
                 <li key={d.id} className="flex items-center justify-between gap-3">
                   <label htmlFor={`crew-${d.id}`} className="font-display font-bold text-lg text-charcoal">
                     {d.name}
@@ -456,7 +495,8 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
                     people
                   </span>
                 </li>
-              ))}
+                )
+              )}
             </ul>
           </section>
 
@@ -525,5 +565,53 @@ function Kpi({ label, value, tone, children }) {
       <div className={`font-display font-extrabold text-5xl leading-none mt-1.5 tabular-nums ${color}`}>{value}</div>
       {children}
     </div>
+  )
+}
+
+/** One department's people per process today, with the line worked out. */
+function ProcessCrew({ dept, processes, people, settings, live, onSave }) {
+  const plan = planLine(processes, people, settings)
+  const unit = processes[processes.length - 1]?.unit ?? 'units'
+  return (
+    <li className="rounded-xl border border-paperDim p-3">
+      <div className="font-display font-bold text-lg text-charcoal">{dept.name}</div>
+      <div className="mt-1 grid gap-1.5">
+        {plan.steps.map((st) => (
+          <div key={st.id} className={`flex items-center justify-between gap-3 text-sm ${plan.bottleneck?.id === st.id ? 'text-andonRed font-semibold' : 'text-steel'}`}>
+            <label htmlFor={`pc-${dept.id}-${st.id}`} className="truncate">
+              {st.name}
+            </label>
+            <span className="flex items-center gap-2">
+              <span className="tabular-nums text-xs text-steelLight">
+                {st.daily != null ? `${fmtQty(st.daily)} ${st.unit}` : st.ratePerHour ? '' : 'no rate'}
+              </span>
+              <input
+                id={`pc-${dept.id}-${st.id}`}
+                type="number"
+                min="0"
+                step="0.5"
+                defaultValue={people[st.id] ?? ''}
+                key={`${st.id}-${people[st.id] ?? ''}`}
+                onBlur={(e) => e.target.value !== String(people[st.id] ?? '') && onSave(st.id, e.target.value)}
+                disabled={!live}
+                className="w-14 rounded border border-paperDim px-2 py-1 text-charcoal tabular-nums"
+              />
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-steelLight">
+        {plan.capacity != null ? (
+          <>
+            <b className="text-charcoal">
+              Line: {fmtQty(plan.capacity)} {unit} today
+            </b>{' '}
+            · bottleneck <b className="text-andonRed">{plan.bottleneck.name}</b>
+          </>
+        ) : (
+          'Enter people per process (and rates in Targets & TVs) to see the line output.'
+        )}
+      </p>
+    </li>
   )
 }

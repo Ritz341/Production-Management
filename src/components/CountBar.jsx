@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
-import { checkinBlocks, clockLabel, isoDate, rateFor, useSettings } from '../lib/catalog'
+import { checkinBlocks, clockLabel, isoDate, processesFor, rateFor, useSettings } from '../lib/catalog'
 
 /**
  * On the floor tablet: how many this department has finished today, a
@@ -11,7 +11,7 @@ import { checkinBlocks, clockLabel, isoDate, rateFor, useSettings } from '../lib
  */
 export default function CountBar({ departments, live }) {
   const settings = useSettings()
-  const [latest, setLatest] = useState({}) // departmentId -> { count, at }
+  const [latest, setLatest] = useState({}) // 'departmentId:processId' -> { count, at }
   const [editing, setEditing] = useState(null) // department being updated
   const [now, setNow] = useState(new Date())
   const today = isoDate(new Date())
@@ -28,13 +28,13 @@ export default function CountBar({ departments, live }) {
     async function load() {
       const { data } = await supabase
         .from('bt_output_counts')
-        .select('department_id, count, at')
+        .select('department_id, process, count, at')
         .in('department_id', ids)
         .eq('work_date', today)
         .order('at')
       if (!alive) return
       const map = {}
-      for (const r of data ?? []) map[r.department_id] = { count: Number(r.count), at: new Date(r.at) }
+      for (const r of data ?? []) map[`${r.department_id}:${r.process ?? ''}`] = { count: Number(r.count), at: new Date(r.at) }
       setLatest(map)
     }
     load()
@@ -57,16 +57,25 @@ export default function CountBar({ departments, live }) {
 
   if (!departments.length) return null
 
+  // What gets counted: each process of each department, or the
+  // department as a whole when it has no processes.
+  const targets = departments.flatMap((d) => {
+    const procs = processesFor(settings, d.name)
+    return procs.length
+      ? procs.map((p) => ({ dept: d, process: p.id, label: p.name, unit: p.unit }))
+      : [{ dept: d, process: null, label: departments.length > 1 ? d.name : null, unit: rateFor(settings, d.name).unit }]
+  })
+
   return (
     <div className="mt-3 flex flex-wrap gap-2">
-      {departments.map((d) => {
-        const last = latest[d.id]
-        const unit = rateFor(settings, d.name).unit
+      {targets.map((t) => {
+        const key = `${t.dept.id}:${t.process ?? ''}`
+        const last = latest[key]
         const due = dueAt && (!last || last.at < new Date(dueAt.getTime() - 60 * 60000))
         return (
           <button
-            key={d.id}
-            onClick={() => setEditing(d)}
+            key={key}
+            onClick={() => setEditing(t)}
             disabled={!live}
             className={`flex items-center gap-3 rounded-xl border-2 px-4 py-2.5 text-left disabled:opacity-40 ${
               due ? 'border-safety bg-safety text-charcoal animate-pulse' : 'border-floorLine bg-floorCard text-paper'
@@ -75,8 +84,8 @@ export default function CountBar({ departments, live }) {
             <span className="font-display font-extrabold text-3xl leading-none tabular-nums">{last ? last.count : '—'}</span>
             <span className="leading-tight">
               <span className="block text-sm font-semibold">
-                {departments.length > 1 ? `${d.name} ` : ''}
-                {unit} done today
+                {t.label ? `${t.label}: ` : ''}
+                {t.unit} done today
               </span>
               <span className={`block text-xs ${due ? 'font-bold' : 'text-floorMute'}`}>
                 {due
@@ -92,9 +101,8 @@ export default function CountBar({ departments, live }) {
 
       {editing && (
         <CountModal
-          department={editing}
-          unit={rateFor(settings, editing.name).unit}
-          current={latest[editing.id]?.count ?? 0}
+          target={editing}
+          current={latest[`${editing.dept.id}:${editing.process ?? ''}`]?.count ?? 0}
           today={today}
           onClose={() => setEditing(null)}
         />
@@ -103,7 +111,8 @@ export default function CountBar({ departments, live }) {
   )
 }
 
-function CountModal({ department, unit, current, today, onClose }) {
+function CountModal({ target, current, today, onClose }) {
+  const { dept: department, process, unit } = target
   const [value, setValue] = useState(current)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -113,7 +122,7 @@ function CountModal({ department, unit, current, today, onClose }) {
     setError('')
     // The date comes from the tablet, not the server: the database runs
     // on UTC, which rolls over to tomorrow during a late local evening.
-    const { error: err } = await supabase.from('bt_output_counts').insert({ department_id: department.id, count: value, work_date: today })
+    const { error: err } = await supabase.from('bt_output_counts').insert({ department_id: department.id, process, count: value, work_date: today })
     setBusy(false)
     if (err) return setError(err.message.includes('row-level security') ? `This tablet isn't set up for ${department.name}. Ask admin.` : err.message)
     onClose()
@@ -125,7 +134,7 @@ function CountModal({ department, unit, current, today, onClose }) {
     <div className="fixed inset-0 bg-black/70 grid place-items-center z-[90] p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-2xl bg-floorCard border border-floorLine p-6 text-paper" onClick={(e) => e.stopPropagation()}>
         <h2 className="font-display font-extrabold uppercase text-3xl">
-          {department.name}: {unit} done today
+          {target.label ?? department.name}: {unit} done today
         </h2>
         <p className="text-floorMute mt-1">The total so far today, not since the last update.</p>
 

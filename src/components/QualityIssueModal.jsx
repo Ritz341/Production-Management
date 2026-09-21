@@ -15,8 +15,7 @@ import { DEFECT_TYPES } from '../lib/catalog'
  * is the reporting tablet's own job on this order, if any.
  */
 export default function QualityIssueModal({ order, departments, reporterColumnId = null, inspector = false, onClose, onSaved }) {
-  const others = departments.filter((d) => d.columnId !== reporterColumnId)
-  const [responsible, setResponsible] = useState(others.length === 1 ? others[0].columnId : null)
+  const [responsible, setResponsible] = useState(null)
   const [defect, setDefect] = useState(null)
   const [note, setNote] = useState('')
   const [sendBack, setSendBack] = useState(!inspector)
@@ -26,7 +25,9 @@ export default function QualityIssueModal({ order, departments, reporterColumnId
   // A department can send back another department's work (and is held
   // meanwhile). The quality inspector isn't a department, so they can
   // send anything back without holding anyone.
-  const canSendBack = responsible != null && (inspector || (reporterColumnId != null && responsible !== reporterColumnId))
+  const chosen = departments.find((d) => d.columnId === responsible)
+  const canSendBack =
+    responsible != null && chosen?.hasJob !== false && (inspector || (reporterColumnId != null && responsible !== reporterColumnId))
   const responsibleName = departments.find((d) => d.columnId === responsible)?.name
   const reporterName = departments.find((d) => d.columnId === reporterColumnId)?.name
 
@@ -132,4 +133,21 @@ export default function QualityIssueModal({ order, departments, reporterColumnId
       </div>
     </div>
   )
+}
+
+/**
+ * The department choices for an order: every department (Mods, V4T,
+ * Panel…), each pointing at its own job on this order — the column that
+ * gets reopened if the part is sent back. Panel covers several sheet
+ * columns (Roof Panels, Roof Extr., Acrylic, Mod Filler Panels); the
+ * first one the order actually has is used. A department with no job on
+ * the order can still be blamed, it just can't be sent back.
+ */
+export function departmentChoices(departments, deptColumnMap, orderColumnIds) {
+  const onOrder = new Set(orderColumnIds.map(Number))
+  return departments.map((d) => {
+    const cols = deptColumnMap[d.id] ?? []
+    const mine = cols.find((c) => onOrder.has(c))
+    return { columnId: mine ?? cols[0] ?? null, name: d.name, departmentId: d.id, hasJob: mine != null }
+  }).filter((d) => d.columnId != null)
 }

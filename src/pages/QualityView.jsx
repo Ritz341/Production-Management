@@ -5,7 +5,7 @@ import { useConnection } from '../lib/ConnectionContext.jsx'
 import { DEFECT_TYPES, defectLabel } from '../lib/catalog'
 import { ago, buildNumbers } from '../lib/schedule'
 import NotificationBanner from '../components/NotificationBanner.jsx'
-import QualityIssueModal from '../components/QualityIssueModal.jsx'
+import QualityIssueModal, { departmentChoices } from '../components/QualityIssueModal.jsx'
 
 /**
  * Quality inspector's screen: every open issue oldest-first (with the
@@ -19,6 +19,9 @@ export default function QualityView() {
   const [issues, setIssues] = useState([])
   const [orders, setOrders] = useState([])
   const [columns, setColumns] = useState([])
+  const [departments, setDepartments] = useState([])
+  const [deptColumnMap, setDeptColumnMap] = useState({}) // departmentId -> [columnId]
+  const [deptOfColumn, setDeptOfColumn] = useState({}) // columnId -> department name
   const [search, setSearch] = useState('')
   const [reportFor, setReportFor] = useState(null)
   const [closing, setClosing] = useState(null) // issue id being closed
@@ -49,6 +52,21 @@ export default function QualityView() {
   useEffect(() => {
     load()
     supabase.from('bt_status_columns').select('id, name').order('sort_order').then(({ data }) => setColumns(data ?? []))
+    Promise.all([
+      supabase.from('bt_departments').select('id, name').order('sort_order'),
+      supabase.from('bt_department_columns').select('department_id, status_column_id'),
+    ]).then(([{ data: depts }, { data: links }]) => {
+      setDepartments(depts ?? [])
+      const map = {}
+      const byCol = {}
+      const name = Object.fromEntries((depts ?? []).map((d) => [d.id, d.name]))
+      for (const l of links ?? []) {
+        ;(map[l.department_id] ??= []).push(l.status_column_id)
+        byCol[l.status_column_id] ??= name[l.department_id]
+      }
+      setDeptColumnMap(map)
+      setDeptOfColumn(byCol)
+    })
     const channel = supabase
       .channel('quality')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_quality_issues' }, load)
@@ -76,7 +94,7 @@ export default function QualityView() {
   }, [])
   const thisWeek = issues.filter((i) => new Date(i.created_at) >= weekStart)
   const byType = countBy(thisWeek, (i) => defectLabel[i.defect_type] ?? i.defect_type)
-  const byDept = countBy(thisWeek, (i) => columnName[i.responsible_column_id] ?? 'Not assigned')
+  const byDept = countBy(thisWeek, (i) => deptOfColumn[i.responsible_column_id] ?? columnName[i.responsible_column_id] ?? 'Not assigned')
 
   const matches = search.trim()
     ? orders.filter((o) => o.tag_name.toLowerCase().includes(search.trim().toLowerCase())).slice(0, 8)
@@ -162,8 +180,8 @@ export default function QualityView() {
                             {o ? `#${o.buildNo} ${o.tag_name}` : `Order ${i.order_id}`}
                           </div>
                           <div className="text-sm text-steelLight">
-                            Made by <b className="text-steel">{columnName[i.responsible_column_id] ?? '—'}</b>
-                            {i.reporter_column_id ? ` · found by ${columnName[i.reporter_column_id]}` : ' · found by quality'}
+                            Made by <b className="text-steel">{deptOfColumn[i.responsible_column_id] ?? columnName[i.responsible_column_id] ?? '—'}</b>
+                            {i.reporter_column_id ? ` · found by ${deptOfColumn[i.reporter_column_id] ?? columnName[i.reporter_column_id]}` : ' · found by quality'}
                             {i.note ? ` · ${i.note}` : ''}
                           </div>
                         </div>
@@ -217,7 +235,7 @@ export default function QualityView() {
       {reportFor && (
         <QualityIssueModal
           order={reportFor}
-          departments={reportFor.columnIds.map((id) => ({ columnId: id, name: columnName[id] }))}
+          departments={departmentChoices(departments, deptColumnMap, reportFor.columnIds)}
           inspector
           onClose={() => setReportFor(null)}
           onSaved={(message) => {

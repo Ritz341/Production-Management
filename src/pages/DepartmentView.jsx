@@ -9,7 +9,7 @@ import { useConnection } from '../lib/ConnectionContext.jsx'
 import FileModal from '../components/FileModal.jsx'
 import NotificationBanner from '../components/NotificationBanner.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
-import QualityIssueModal from '../components/QualityIssueModal.jsx'
+import QualityIssueModal, { departmentChoices } from '../components/QualityIssueModal.jsx'
 import CountBar from '../components/CountBar.jsx'
 
 export default function DepartmentView() {
@@ -470,8 +470,10 @@ export default function DepartmentView() {
       {qualityFor && (
         <QualityIssueModal
           order={qualityFor}
-          departments={Object.keys(qualityFor.cells).map((id) => ({ columnId: Number(id), name: columnById[id] }))}
-          reporterColumnId={Object.keys(qualityFor.cells).map(Number).find((id) => writableColumnIds.has(id)) ?? null}
+          departments={departmentChoices(departments, deptColumnMap, Object.keys(qualityFor.cells))}
+          reporterColumnId={
+            departmentChoices(departments, deptColumnMap, Object.keys(qualityFor.cells)).find((d) => d.hasJob && writableColumnIds.has(d.columnId))?.columnId ?? null
+          }
           onClose={() => setQualityFor(null)}
           onSaved={(message) => setToast({ message: `${message} — #${qualityFor.buildNo} ${qualityFor.tag_name}` })}
         />

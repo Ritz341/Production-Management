@@ -146,7 +146,7 @@ export function buildSheets(d, { start, end, settings }) {
   const blockHoursByDept = sumBy(weekEpisodes, (e) => deptOfCol[e.from.status_column_id] ?? colName[e.from.status_column_id] ?? '—', (e) => e.minutes ?? 0)
   const weekQuality = quality.filter((x) => inWeek(x.q.created_at))
   const qualityByType = count(weekQuality, (x) => defectLabel[x.q.defect_type] ?? x.q.defect_type)
-  const qualityByDept = count(weekQuality, (x) => colName[x.q.responsible_column_id] ?? 'Not assigned')
+  const qualityByDept = count(weekQuality, (x) => deptOfCol[x.q.responsible_column_id] ?? colName[x.q.responsible_column_id] ?? 'Not assigned')
 
   const lastDay = addDays(end, -1)
   const summary = [
@@ -254,8 +254,8 @@ export function buildSheets(d, { start, end, settings }) {
       dt(q.created_at),
       tag(q.order_id),
       defectLabel[q.defect_type] ?? q.defect_type,
-      colName[q.responsible_column_id] ?? '',
-      q.reporter_column_id ? colName[q.reporter_column_id] : 'Quality',
+      deptOfCol[q.responsible_column_id] ?? colName[q.responsible_column_id] ?? '',
+      q.reporter_column_id ? deptOfCol[q.reporter_column_id] ?? colName[q.reporter_column_id] : 'Quality',
       q.note ?? '',
       q.sent_back ? 'Yes' : '',
       q.resolved_at ? dt(q.resolved_at) : 'open',

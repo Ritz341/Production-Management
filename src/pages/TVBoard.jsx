@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
+import { useAuth } from '../lib/AuthContext.jsx'
 import { DONE_RANK, buildNumbers, byBuildOrder, daysUntil, relativeDay, stageRank } from '../lib/schedule'
 import { blockText, checkinBlocks, clockLabel, fmtQty, isoDate, planLine, processesFor, productiveMinutesPerDay, rateFor, ratePerHourOf, useSettings, workingMinutesBetween } from '../lib/catalog'
 
@@ -27,6 +28,25 @@ export default function TVBoard({ department }) {
   const [processPeople, setProcessPeople] = useState({}) // processId -> people today
   const [error, setError] = useState('')
   const [now, setNow] = useState(new Date())
+  const { session, signOut } = useAuth()
+  // Controls stay hidden so the board is clean from across the shop;
+  // moving the mouse shows them for a few seconds.
+  const [showControls, setShowControls] = useState(false)
+  useEffect(() => {
+    let t
+    const reveal = () => {
+      setShowControls(true)
+      clearTimeout(t)
+      t = setTimeout(() => setShowControls(false), 5000)
+    }
+    window.addEventListener('mousemove', reveal)
+    window.addEventListener('touchstart', reveal)
+    return () => {
+      clearTimeout(t)
+      window.removeEventListener('mousemove', reveal)
+      window.removeEventListener('touchstart', reveal)
+    }
+  }, [])
 
   const config = settings.tv_boards?.[department] ?? {}
   const today = isoDate(new Date())
@@ -239,6 +259,15 @@ export default function TVBoard({ department }) {
         <div>
           <div className="font-display text-6xl font-extrabold text-[#FF6B6B]">Board not set up</div>
           <p className="text-3xl text-floorMute mt-4">{error}</p>
+          <button
+            onClick={async () => {
+              await signOut()
+              window.location.href = '/'
+            }}
+            className="mt-8 rounded-xl bg-safety px-6 py-3 text-2xl font-bold text-charcoal"
+          >
+            Sign out
+          </button>
         </div>
       </div>
     )
@@ -247,6 +276,23 @@ export default function TVBoard({ department }) {
   return (
     <div className="h-full bg-floor text-paper flex flex-col overflow-hidden">
       {/* ── Top strip: who, when it ships, clock ── */}
+      {showControls && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-charcoal/95 border border-floorLine px-4 py-2 shadow-2xl">
+          <span className="text-sm text-floorMute">{session?.user?.email}</span>
+          <button onClick={() => window.location.reload()} className="rounded-lg border border-floorLine px-3 py-1.5 text-sm text-paper">
+            Reload
+          </button>
+          <button
+            onClick={async () => {
+              await signOut()
+              window.location.href = '/'
+            }}
+            className="rounded-lg bg-safety px-3 py-1.5 text-sm font-bold text-charcoal"
+          >
+            Sign out
+          </button>
+        </div>
+      )}
       <header className="flex items-center justify-between gap-6 px-8 pt-5 pb-3 border-b-4 border-safety">
         <h1 className="font-display font-extrabold uppercase text-[4.5vw] leading-none">{dept?.name ?? department}</h1>
         <div className="flex items-center gap-8">

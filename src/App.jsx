@@ -5,6 +5,7 @@ import AdminView from './pages/AdminView.jsx'
 import ShippingView from './pages/ShippingView.jsx'
 import LogisticsView from './pages/LogisticsView.jsx'
 import TVBoard from './pages/TVBoard.jsx'
+import NoRoleView from './pages/NoRoleView.jsx'
 import OfficeView from './pages/OfficeView.jsx'
 import QualityView from './pages/QualityView.jsx'
 
@@ -22,13 +23,7 @@ export default function App() {
   const tvDepartment = new URLSearchParams(window.location.search).get('tv')
   if (tvDepartment) return <TVBoard department={tvDepartment} />
 
-  if (!profile) {
-    return (
-      <div className="h-screen flex items-center justify-center text-systemGray-400 text-center px-6">
-        This login isn't set up yet — ask admin to add it to bt_profiles with a role and department.
-      </div>
-    )
-  }
+  if (!profile) return <NoRoleView />
 
   if (profile.role === 'admin') return <AdminView />
   if (profile.role === 'shipping') return <ShippingView />

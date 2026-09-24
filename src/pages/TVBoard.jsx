@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { DONE_RANK, buildNumbers, byBuildOrder, daysUntil, relativeDay, stageRank } from '../lib/schedule'
-import { blockText, checkinBlocks, clockLabel, fmtQty, isoDate, planLine, processesFor, productiveMinutesPerDay, rateFor, ratePerHourOf, useSettings, workingMinutesBetween } from '../lib/catalog'
+import { blockText, checkinBlocks, clockLabel, countedProcesses, fmtQty, isoDate, planLine, processesFor, productiveMinutesPerDay, rateFor, ratePerHourOf, useSettings, workingMinutesBetween } from '../lib/catalog'
 
 /**
  * The 65" board above a department, on its own PC in full-screen Chrome.
@@ -264,7 +264,7 @@ export default function TVBoard({ department }) {
   const dueBlock = blocks.find((b) => b.state === 'current' || b.state === 'late')
   // One row per process: its own count, target and blocks.
   const processRows = plan
-    ? plan.steps.map((st) => {
+    ? countedProcesses(plan.steps).map((st) => {
         const list = countsFor(st.id)
         return { ...st, last: list.length ? list[list.length - 1] : null, blocks: blocksFor(list, st.daily) }
       })

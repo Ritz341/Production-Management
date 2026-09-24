@@ -55,15 +55,20 @@ const LEVEL_SCORE = { easy: 1, medium: 2, hard: 3 }
 /** The process lists we start from; admin can edit or reset to these. */
 export const RECOMMENDED_PROCESSES = {
   Mods: [
-    { id: 'framing', name: 'Mod frames', unit: 'mods', minutesEach: null, perFinished: 1 },
-    { id: 'staging', name: 'Final mod', unit: 'mods', minutesEach: null, perFinished: 1 },
+    { id: 'framing', name: 'Mod frames', line: 'Mods', unit: 'mods', minutesEach: null, perFinished: 1, counted: true, buffer: 4 },
+    { id: 'staging', name: 'Final mod', line: 'Mods', unit: 'mods', minutesEach: null, perFinished: 1, counted: true },
   ],
+  // Two lines running in parallel that meet at the squaring rack.
+  // buffer = orders that can wait between this step and the next.
   V4T: [
-    { id: 'vents_cut', name: 'Vents cut', unit: 'vents', minutesEach: null, perFinished: 4 },
-    { id: 'vents_glazed', name: 'Vents built & glazed', unit: 'vents', minutesEach: null, perFinished: 4 },
-    { id: 'frame_cut', name: 'Frame parts cut (saw)', unit: 'inserts', minutesEach: null, perFinished: 1 },
-    { id: 'frame_punch', name: 'Frame parts punched', unit: 'inserts', minutesEach: null, perFinished: 1 },
-    { id: 'frames', name: 'Frames assembled & squared', unit: 'inserts', minutesEach: null, perFinished: 1 },
+    { id: 'vents_cut', name: 'Vents cut', line: 'Vents', unit: 'vents', minutesEach: null, perFinished: 4, counted: true },
+    { id: 'vents_built', name: 'Vents built', line: 'Vents', unit: 'vents', minutesEach: null, perFinished: 4, counted: false },
+    { id: 'vents_glazed', name: 'Vents glazed', line: 'Vents', unit: 'vents', minutesEach: null, perFinished: 4, counted: true, buffer: 4 },
+    { id: 'frame_cut', name: 'Frame parts cut to size', line: 'Frames', unit: 'inserts', minutesEach: null, perFinished: 1, counted: false },
+    { id: 'frame_punch', name: 'Frame parts punched', line: 'Frames', unit: 'inserts', minutesEach: null, perFinished: 1, counted: true, buffer: 4 },
+    { id: 'frames_built', name: 'Frames built', line: 'Frames', unit: 'inserts', minutesEach: null, perFinished: 1, counted: true, buffer: 4 },
+    { id: 'assembled', name: 'Vents into frame · squared & checked', line: 'Assembly', unit: 'inserts', minutesEach: null, perFinished: 1, counted: true },
+    { id: 'screened', name: 'Screened · ready for Mods', line: 'Assembly', unit: 'inserts', minutesEach: null, perFinished: 1, counted: true },
   ],
 }
 
@@ -365,4 +370,25 @@ export function planLine(processes, peopleByProcess, settings = DEFAULT_SETTINGS
 export function fmtQty(n) {
   if (n == null) return '—'
   return n < 10 ? String(Math.round(n * 10) / 10) : String(Math.round(n))
+}
+
+/** Only the stations that get a count button on the tablet. */
+export function countedProcesses(processes) {
+  return processes.filter((p) => p.counted !== false)
+}
+
+/**
+ * Processes grouped into the lines they run on, keeping each line's
+ * order. V4T runs Vents and Frames side by side before Assembly, so
+ * they're shown as separate lines rather than one long chain.
+ */
+export function groupByLine(processes) {
+  const out = []
+  for (const p of processes) {
+    const name = p.line || 'Line'
+    const group = out.find((g) => g.line === name)
+    if (group) group.steps.push(p)
+    else out.push({ line: name, steps: [p] })
+  }
+  return out
 }

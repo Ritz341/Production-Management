@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
-import { checkinBlocks, clockLabel, isoDate, processesFor, rateFor, useSettings } from '../lib/catalog'
+import { checkinBlocks, clockLabel, countedProcesses, isoDate, processesFor, rateFor, useSettings } from '../lib/catalog'
 
 /**
  * On the floor tablet: how many this department has finished today, a
@@ -60,7 +60,7 @@ export default function CountBar({ departments, live }) {
   // What gets counted: each process of each department, or the
   // department as a whole when it has no processes.
   const targets = departments.flatMap((d) => {
-    const procs = processesFor(settings, d.name)
+    const procs = countedProcesses(processesFor(settings, d.name))
     return procs.length
       ? procs.map((p) => ({ dept: d, process: p.id, label: p.name, unit: p.unit }))
       : [{ dept: d, process: null, label: departments.length > 1 ? d.name : null, unit: rateFor(settings, d.name).unit }]

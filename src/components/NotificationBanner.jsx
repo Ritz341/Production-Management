@@ -91,23 +91,23 @@ export default function NotificationBanner() {
 
   return (
     <>
-      {/* ── Connection status — bottom-left, opposite the bell.
+      {/* ── Connection status — bottom-left, beside the bell.
           Shop floor WiFi has dead zones, and WiFi can look "connected"
           while the realtime websocket itself is dead — so this checks
           both, not just navigator.onLine. Quiet green dot when healthy,
           a full pill only when something's actually wrong. ── */}
       {!online ? (
-        <div className="fixed bottom-4 left-4 z-[70] bg-andonRed text-paper text-sm font-bold px-3 py-2 rounded-full shadow-lg flex items-center gap-2">
+        <div className="fixed bottom-4 left-[4.5rem] z-[70] bg-andonRed text-paper text-sm font-bold px-3 py-2 rounded-full shadow-lg flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full bg-paper animate-pulse" />
           Offline — changes won't save until reconnected
         </div>
       ) : !live ? (
-        <div className="fixed bottom-4 left-4 z-[70] bg-safetyDark text-paper text-sm font-bold px-3 py-2 rounded-full shadow-lg flex items-center gap-2">
+        <div className="fixed bottom-4 left-[4.5rem] z-[70] bg-safetyDark text-paper text-sm font-bold px-3 py-2 rounded-full shadow-lg flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full bg-paper animate-pulse" />
           Reconnecting…
         </div>
       ) : (
-        <div className="fixed bottom-4 left-4 z-[70] w-3 h-3 rounded-full bg-andonGreen shadow" title="Live" />
+        <div className="fixed bottom-[1.6rem] left-[4.5rem] z-[70] w-3 h-3 rounded-full bg-andonGreen shadow" title="Live" />
       )}
 
       {/* ── Ship date alerts — full-width, stays until Acknowledge ── */}
@@ -128,11 +128,10 @@ export default function NotificationBanner() {
       )}
 
       {/* ── Order status bell — badge count, opens a dropdown ──
-          Bottom-right, not top — every page's header already has its
-          own controls (dept switcher, sign out, etc.) in the top-right
-          corner, at varying heights, so the bell used to collide with
-          them. */}
-      <div className="fixed bottom-4 right-4 z-[70]">
+          Bottom-LEFT: headers already fill the top-right corner, and the
+          host's own badge (Netlify's, on the deployed site) sits in the
+          bottom-right. */}
+      <div className="fixed bottom-4 left-4 z-[70]">
         <button
           onClick={() => setBellOpen((v) => !v)}
           className="relative bg-charcoal text-paper w-11 h-11 rounded-full shadow-lg flex items-center justify-center text-lg"
@@ -147,7 +146,7 @@ export default function NotificationBanner() {
         </button>
 
         {bellOpen && (
-          <div className="absolute right-0 bottom-full mb-2 w-80 max-w-[90vw] max-h-[70vh] overflow-y-auto bg-white shadow-xl border border-paperDim rounded">
+          <div className="absolute left-0 bottom-full mb-2 w-80 max-w-[90vw] max-h-[70vh] overflow-y-auto bg-white shadow-xl border border-paperDim rounded">
             <div className="px-3 py-2 bg-charcoal text-paper text-sm font-semibold sticky top-0">
               Order status changes ({bellAlerts.length})
             </div>

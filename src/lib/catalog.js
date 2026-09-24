@@ -102,24 +102,44 @@ export const DEFAULT_SETTINGS = {
 }
 
 /** Live settings from bt_settings, merged over the defaults. */
+// Settings are read by several components on the same screen (a tablet
+// shows the department AND its count bar). Two components asking
+// Supabase for the same realtime topic is an error, so one shared
+// subscription feeds every caller and is dropped when the last one goes.
+let settingsCache = DEFAULT_SETTINGS
+let settingsChannel = null
+const settingsListeners = new Set()
+
+function loadSettings() {
+  supabase
+    .from('bt_settings')
+    .select('key, value')
+    .then(({ data }) => {
+      if (!data?.length) return
+      settingsCache = { ...DEFAULT_SETTINGS, ...Object.fromEntries(data.map((r) => [r.key, r.value])) }
+      for (const notify of settingsListeners) notify(settingsCache)
+    })
+}
+
 export function useSettings() {
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS)
+  const [settings, setSettings] = useState(settingsCache)
   useEffect(() => {
-    function load() {
-      supabase
-        .from('bt_settings')
-        .select('key, value')
-        .then(({ data }) => {
-          if (!data?.length) return
-          setSettings({ ...DEFAULT_SETTINGS, ...Object.fromEntries(data.map((r) => [r.key, r.value])) })
-        })
+    settingsListeners.add(setSettings)
+    setSettings(settingsCache)
+    loadSettings()
+    if (!settingsChannel) {
+      settingsChannel = supabase
+        .channel('settings')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_settings' }, loadSettings)
+        .subscribe()
     }
-    load()
-    const channel = supabase
-      .channel('settings')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_settings' }, load)
-      .subscribe()
-    return () => supabase.removeChannel(channel)
+    return () => {
+      settingsListeners.delete(setSettings)
+      if (settingsListeners.size === 0 && settingsChannel) {
+        supabase.removeChannel(settingsChannel)
+        settingsChannel = null
+      }
+    }
   }, [])
   return settings
 }

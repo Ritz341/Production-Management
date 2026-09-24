@@ -187,7 +187,7 @@ export function weekLoad(orders, shipDate, settings = DEFAULT_SETTINGS, crewByDa
 export function weekPace(total, done, shipDate, settings = DEFAULT_SETTINGS) {
   if (!total) return null
   const left = Math.max(0, total - done)
-  const days = Math.max(1, workdaysUntil(shipDate, settings.shift.workdays).length)
+  const days = Math.max(1, workdaysUntil(shipDate, (settings.shift ?? DEFAULT_SETTINGS.shift).workdays).length)
   return {
     total,
     done,

@@ -609,12 +609,26 @@ export default function DepartmentView() {
           <div className="flex flex-wrap gap-1" aria-label="Other departments on this order">
             {others.map((id) => {
               const c = o.cells[id]
+              const name = deptByColumnId[id] ?? columnById[id]
+              const rank = stageRank(c.stage)
+              const done = rank >= DONE_RANK
               return (
                 <span
                   key={id}
-                  title={`${deptByColumnId[id] ?? columnById[id]}: ${c.blocked ? 'Blocked' : stageLabel(c.stage)}`}
-                  className={`w-2.5 h-2.5 rounded-sm ${c.blocked ? 'bg-andonRed' : STAGE_SWATCH[stageRank(c.stage)]}`}
-                />
+                  title={`${name}: ${c.blocked ? 'Blocked' : stageLabel(c.stage)}`}
+                  className={`rounded px-1.5 py-[1px] text-[11px] font-semibold uppercase tracking-wide leading-tight border ${
+                    c.blocked
+                      ? 'bg-andonRed/20 border-andonRed text-[#FF8A8A]'
+                      : done
+                        ? 'bg-[#16301F] border-[#4CC46F] text-[#7FD49A]'
+                        : rank > 0
+                          ? 'bg-[#16263A] border-[#5B9BD5] text-[#9CC7EE]'
+                          : 'border-[#343A41] text-[#6B747E]'
+                  }`}
+                >
+                  {done ? '✓ ' : c.blocked ? '⚑ ' : ''}
+                  {shortDept(name)}
+                </span>
               )
             })}
           </div>
@@ -643,8 +657,16 @@ const STAGE_VERB = {
   completed: 'Done',
 }
 
-// Other departments' dots, by rank: not started / started / done.
-const STAGE_SWATCH = ['bg-[#3A4047]', 'bg-[#5B9BD5]', 'bg-[#4CC46F]']
+// Other departments on the card are named, not just coloured — a colour
+// alone doesn't tell the floor WHICH department is done. Long names are
+// shortened to initials so the chips still fit two or three to a row.
+function shortDept(name) {
+  const n = String(name ?? '').trim()
+  if (n.length <= 6) return n.toUpperCase()
+  const words = n.split(/[\s/&-]+/).filter(Boolean)
+  if (words.length > 1) return words.map((w) => w[0]).join('').toUpperCase()
+  return n.slice(0, 6).toUpperCase()
+}
 
 function BigAction({ cell, disabled, onClick }) {
   const next = nextStage(cell.stage)

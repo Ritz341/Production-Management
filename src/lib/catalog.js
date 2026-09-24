@@ -178,6 +178,26 @@ export function weekLoad(orders, shipDate, settings = DEFAULT_SETTINGS, crewByDa
   return { needed, available, days: days.length, missing, load: available > 0 ? needed / available : null }
 }
 
+/**
+ * The week, spread evenly over the workdays that are left: 18 orders
+ * with 5 days to go means 4 a day, so the first 4 still open are the
+ * ones that have to move today. Returns null when there's nothing to
+ * pace. `done` orders drop out, so finishing early lightens tomorrow.
+ */
+export function weekPace(total, done, shipDate, settings = DEFAULT_SETTINGS) {
+  if (!total) return null
+  const left = Math.max(0, total - done)
+  const days = Math.max(1, workdaysUntil(shipDate, settings.shift.workdays).length)
+  return {
+    total,
+    done,
+    left,
+    days,
+    dueToday: Math.ceil(left / days), // the share that keeps the week on track
+    pct: Math.round((done / total) * 100),
+  }
+}
+
 /** ISO dates of workdays from today up to (not including) the ship date. */
 export function workdaysUntil(shipDate, workdays = [1, 2, 3, 4, 5]) {
   if (!shipDate) return []

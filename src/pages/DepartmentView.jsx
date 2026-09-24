@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { WORKFLOW_STAGES } from '../lib/statusColors'
-import { blockText, defectLabel } from '../lib/catalog'
+import { blockText, defectLabel, useSettings, weekPace } from '../lib/catalog'
 import { nearestBuildWeekId, weekOptionLabel } from '../lib/dates'
 import { DONE_RANK, buildNumbers, byBuildOrder, daysUntil, nextStageId as nextStage, relativeDay, shortDate, stageLabel, stageRank, wasMovedRecently } from '../lib/schedule'
 import { useConnection } from '../lib/ConnectionContext.jsx'
@@ -293,6 +293,21 @@ export default function DepartmentView() {
     return null
   }, [lanes, ownColumnIds, writableColumnIds])
 
+  // ── Pace ──
+  // The week's work spread over the workdays left: 18 orders and 5 days
+  // means 4 today. The first few still open are highlighted amber so
+  // the floor knows which ones can't wait until tomorrow.
+  const settings = useSettings()
+  const pace = useMemo(
+    () => weekPace(orders.length, lanes.done.length, currentWeek?.ship_date, settings),
+    [orders.length, lanes.done.length, currentWeek?.ship_date, settings]
+  )
+  const dueTodayIds = useMemo(() => {
+    if (!pace) return new Set()
+    const open = [...lanes.blocked, ...lanes.doing, ...lanes.todo].sort(byBuildOrder)
+    return new Set(open.slice(0, pace.dueToday).map((o) => o.id))
+  }, [lanes, pace])
+
   const [showAllDone, setShowAllDone] = useState(false)
   const [toast, setToast] = useState(null) // { message, undo }
   useEffect(() => {
@@ -391,6 +406,44 @@ export default function DepartmentView() {
       <main className="px-4 sm:px-6 pb-24">
         {loadError && (
           <div className="mt-3 bg-andonRedBg text-andonRed text-sm px-4 py-3 rounded-lg">⚠ {loadError}</div>
+        )}
+
+        {/* ── The week, at a glance ── */}
+        {!loading && pace && (
+          <section className="mt-4 rounded-2xl border border-floorLine bg-floorCard px-4 sm:px-5 py-3.5">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <div className="text-[11px] tracking-[0.14em] uppercase font-bold text-floorMute">
+                Ready for pickup
+              </div>
+              <div className="font-display font-extrabold text-2xl tabular-nums">
+                <span className="text-[#7FD49A]">{pace.done}</span>
+                <span className="text-floorMute"> / {pace.total}</span>
+                <span className="text-floorMute text-base font-bold"> · {pace.pct}%</span>
+              </div>
+            </div>
+            <div className="relative h-3 rounded-full bg-floorLine overflow-hidden mt-2">
+              <i className="block h-full bg-[#4CC46F] transition-[width] duration-500" style={{ width: `${pace.pct}%` }} />
+              {/* what today's share would take it to */}
+              <span
+                className="absolute top-0 bottom-0 w-[3px] bg-safety"
+                style={{ left: `${Math.min(100, ((pace.done + pace.dueToday) / pace.total) * 100)}%` }}
+                title="Where today should finish"
+              />
+            </div>
+            <div className="text-sm mt-2">
+              {pace.left === 0 ? (
+                <span className="text-[#7FD49A] font-bold">Everything here is prepped for this pickup 🎉</span>
+              ) : (
+                <>
+                  <span className="text-safety font-bold">{pace.dueToday} to finish today</span>
+                  <span className="text-floorMute">
+                    {' '}
+                    to stay on pace · {pace.left} left over {pace.days} {pace.days === 1 ? 'day' : 'days'}
+                  </span>
+                </>
+              )}
+            </div>
+          </section>
         )}
 
         {/* ── Up next ── */}
@@ -495,16 +548,36 @@ export default function DepartmentView() {
     const own = ownColumnIds.filter((id) => o.cells[id] != null)
     const others = Object.keys(o.cells).map(Number).filter((id) => !ownColumnIds.includes(id))
     const isBlocked = own.some((id) => o.cells[id].blocked)
+    const isDone = own.length > 0 && own.every((id) => stageRank(o.cells[id].stage) >= DONE_RANK)
+    // Amber = this one is part of today's share; leaving it makes
+    // tomorrow worse. Blocked and done cards keep their own colour.
+    const isDueToday = !isDone && !isBlocked && dueTodayIds.has(o.id)
     const due = daysUntil(o.scheduled_pickup_date)
 
     return (
-      <article key={o.id} className={`rounded-xl border p-3 grid gap-2.5 ${isBlocked ? 'bg-blockedCard border-andonRed' : 'bg-floorCard border-floorLine'}`}>
+      <article
+        key={o.id}
+        className={`rounded-xl border p-3 grid gap-2.5 ${
+          isBlocked
+            ? 'bg-blockedCard border-andonRed'
+            : isDone
+              ? 'bg-[#16301F] border-[#4CC46F]'
+              : isDueToday
+                ? 'bg-[#2E2510] border-safety'
+                : 'bg-floorCard border-floorLine'
+        }`}
+      >
         <div className="flex justify-between gap-2 items-start">
           <div className="min-w-0">
-            <div className="font-display font-bold text-xl leading-tight break-words">
-              <span className="text-safety">#{o.buildNo}</span> {o.tag_name}
+            <div className={`font-display font-bold text-xl leading-tight break-words ${isDone ? 'text-[#B7ECC5]' : ''}`}>
+              <span className={isDone ? 'text-[#4CC46F]' : 'text-safety'}>#{o.buildNo}</span> {o.tag_name}
             </div>
-            <div className="text-xs text-floorMute mt-0.5">{o.dealer}</div>
+            <div className={`text-xs mt-0.5 ${isDone ? 'text-[#7FD49A]' : 'text-floorMute'}`}>{o.dealer}</div>
+            {isDueToday && (
+              <div className="inline-block mt-1.5 rounded-md bg-safety text-charcoal px-2 py-0.5 text-xs font-bold uppercase tracking-wide">
+                Do today
+              </div>
+            )}
             {wasMovedRecently(o) && (
               <div className={`inline-block mt-1.5 rounded-md px-2 py-0.5 text-xs font-bold ${o.moved_direction === 'up' ? 'bg-[#5B9BD5] text-charcoal' : 'bg-floorLine text-paper'}`}>
                 {o.moved_direction === 'up' ? '↑ Moved up' : '↓ Moved down'} by admin

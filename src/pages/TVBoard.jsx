@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { DONE_RANK, buildNumbers, byBuildOrder, daysUntil, relativeDay, stageRank } from '../lib/schedule'
-import { blockText, checkinBlocks, clockLabel, countedProcesses, fmtQty, isoDate, planLine, processesFor, productiveMinutesPerDay, rateFor, ratePerHourOf, useSettings, workingMinutesBetween } from '../lib/catalog'
+import { blockText, checkinBlocks, clockLabel, countedProcesses, fmtQty, isoDate, planLine, processesFor, productiveMinutesPerDay, rateFor, ratePerHourOf, useSettings, weekPace, workingMinutesBetween } from '../lib/catalog'
 
 /**
  * The 65" board above a department, on its own PC in full-screen Chrome.
@@ -184,10 +184,17 @@ export default function TVBoard({ department }) {
     () => orders.flatMap((o) => columnIds.filter((id) => o.cells[id]?.blocked).map((id) => ({ o, id, cell: o.cells[id] }))),
     [orders, columnIds]
   )
+  // ── The week, not just the day ──
+  // How much of this pickup is prepped, and how many have to be
+  // finished today for the rest of the week to still work.
+  const readyCount = useMemo(() => orders.filter((o) => lane(o) === 'done').length, [orders, columnIds])
   const nextWeek = useMemo(() => {
     const dates = orders.map((o) => o.bt_build_weeks?.ship_date).filter(Boolean).sort()
     return dates[0] ?? null
   }, [orders])
+
+  const weekProgress = weekPace(orders.length, readyCount, nextWeek, settings)
+  const dueTodayIds = new Set(queue.slice(0, weekProgress?.dueToday ?? 0).map((o) => o.id))
 
   const rate = rateFor(settings, dept?.name ?? department)
   const processes = processesFor(settings, dept?.name ?? department)
@@ -330,6 +337,40 @@ export default function TVBoard({ department }) {
           </div>
         </div>
       </header>
+
+      {weekProgress && (
+        <section className="px-8 pt-4">
+          <div className="flex items-baseline justify-between gap-6">
+            <div className="text-[1.1vw] tracking-[0.2em] uppercase text-floorMute">Ready for pickup</div>
+            <div className="font-display font-extrabold text-[2.2vw] leading-none tabular-nums">
+              <span className="text-[#4CC46F]">{weekProgress.done}</span>
+              <span className="text-floorMute"> / {weekProgress.total}</span>
+              <span className="text-floorMute text-[1.4vw]"> · {weekProgress.pct}%</span>
+            </div>
+            <div className="text-[1.4vw] font-display font-bold text-right">
+              {weekProgress.left === 0 ? (
+                <span className="text-[#4CC46F]">ALL PREPPED</span>
+              ) : (
+                <>
+                  <span className="text-safety">{weekProgress.dueToday} to finish today</span>
+                  <span className="text-floorMute text-[1.1vw]">
+                    {' '}
+                    · {weekProgress.left} left · {weekProgress.days} {weekProgress.days === 1 ? 'day' : 'days'}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="relative h-5 rounded-full bg-floorLine overflow-hidden mt-2">
+            <i className="block h-full bg-[#4CC46F] transition-[width] duration-700" style={{ width: `${weekProgress.pct}%` }} />
+            {/* where today should end if the day's share gets done */}
+            <span
+              className="absolute top-0 bottom-0 w-[0.35vw] bg-safety"
+              style={{ left: `${Math.min(100, ((weekProgress.done + weekProgress.dueToday) / weekProgress.total) * 100)}%` }}
+            />
+          </div>
+        </section>
+      )}
 
       <div className="flex-1 grid grid-cols-[1.15fr_1fr] gap-6 px-8 py-5 min-h-0">
         {/* ── Left: today, then problems ── */}
@@ -478,7 +519,13 @@ export default function TVBoard({ department }) {
                     <li
                       key={o.id}
                       className={`rounded-2xl px-5 py-3 border-2 flex items-center gap-4 ${
-                        l === 'blocked' ? 'bg-[#2A1C1E] border-andonRed' : i === 0 ? 'bg-safety text-charcoal border-safety' : 'bg-floor border-floorLine'
+                        l === 'blocked'
+                          ? 'bg-[#2A1C1E] border-andonRed'
+                          : i === 0
+                            ? 'bg-safety text-charcoal border-safety'
+                            : dueTodayIds.has(o.id)
+                              ? 'bg-[#33290F] border-safety'
+                              : 'bg-floor border-floorLine'
                       }`}
                     >
                       <span className="font-display font-extrabold text-[2.6vw] leading-none tabular-nums w-[3.2vw]">{o.buildNo}</span>
@@ -486,6 +533,7 @@ export default function TVBoard({ department }) {
                         <span className="block font-display font-bold text-[1.9vw] leading-tight truncate">{o.tag_name}</span>
                         <span className={`block text-[1.1vw] truncate ${i === 0 && l !== 'blocked' ? 'text-charcoal/70' : 'text-floorMute'}`}>
                           {l === 'blocked' ? 'BLOCKED' : l === 'doing' ? 'In progress' : 'Not started'} · {o.dealer}
+                          {i > 0 && dueTodayIds.has(o.id) && <span className="text-safety font-bold"> · TODAY</span>}
                         </span>
                       </span>
                       {due != null && (

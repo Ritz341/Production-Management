@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build Tracker — Printed SOP</title>
+<style>
+  :root{
+    --ink:#14181C; --ink2:#3C434B; --mute:#666E78;
+    --line:#CFCAC0; --rail:#F1EEE8; --card:#FFFFFF;
+    --safety:#B37D00; --safety-bg:#FFF4D6;
+    --green:#1F6B37; --green-bg:#E3F2E7;
+    --red:#B31F26; --red-bg:#FBE6E6;
+    --blue:#1F4E7A; --blue-bg:#E4EDF5;
+    --display:"Arial Narrow","Barlow Condensed",Haettenschweiler,sans-serif;
+    --body:"Segoe UI",Calibri,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--rail);color:var(--ink);font-family:var(--body);line-height:1.45;}
+  .sheet{
+    background:var(--card); width:min(8.5in,100%); min-height:11in; margin:16px auto; padding:0.6in 0.7in;
+    box-shadow:0 2px 14px rgba(0,0,0,.18);
+  }
+  .howto{max-width:8.5in;margin:20px auto 0;padding:14px 18px;background:#fff;border-left:5px solid var(--safety);font-size:14px}
+  .howto b{font-family:var(--display);text-transform:uppercase;letter-spacing:.04em}
+
+  h1{font-family:var(--display);text-transform:uppercase;font-weight:700;font-size:40pt;line-height:.92;margin:0 0 6px;letter-spacing:-.01em}
+  h2{font-family:var(--display);text-transform:uppercase;font-size:20pt;margin:22px 0 6px;padding-bottom:3px;border-bottom:2px solid var(--ink);letter-spacing:.02em}
+  h3{font-family:var(--display);text-transform:uppercase;font-size:13.5pt;margin:14px 0 4px;color:var(--ink2);letter-spacing:.04em}
+  p,li,td,th{font-size:10.5pt}
+  p{margin:5px 0}
+  ul,ol{margin:5px 0 5px 20px;padding:0}
+  li{margin:2px 0}
+  .kicker{font-family:var(--display);text-transform:uppercase;letter-spacing:.2em;font-size:10pt;color:var(--mute);font-weight:700}
+  .lede{font-size:12pt;color:var(--ink2);max-width:60ch;margin:8px 0 0}
+  .rule{height:5px;background:var(--safety);margin:10px 0 0}
+
+  table{width:100%;border-collapse:collapse;margin:8px 0}
+  th{text-align:left;font-family:var(--display);text-transform:uppercase;font-size:10pt;letter-spacing:.06em;border-bottom:2px solid var(--ink);padding:4px 6px}
+  td{border-bottom:1px solid var(--line);padding:5px 6px;vertical-align:top}
+  tr{break-inside:avoid}
+
+  .box{border:1.5px solid var(--line);border-radius:6px;padding:10px 12px;margin:10px 0;break-inside:avoid}
+  .box h3{margin-top:0}
+  .warn{border-color:var(--red);background:var(--red-bg)}
+  .tip{border-color:var(--safety);background:var(--safety-bg)}
+  .ok{border-color:var(--green);background:var(--green-bg)}
+
+  .steps{list-style:none;margin:8px 0;padding:0;counter-reset:s}
+  .steps li{counter-increment:s;position:relative;padding-left:34px;margin:8px 0;break-inside:avoid}
+  .steps li::before{
+    content:counter(s);position:absolute;left:0;top:-1px;width:24px;height:24px;border-radius:50%;
+    background:var(--ink);color:#fff;font-family:var(--display);font-weight:700;font-size:13pt;
+    display:grid;place-items:center
+  }
+  .steps b{display:block;font-size:11.5pt}
+
+  .chip{display:inline-block;border:1.5px solid var(--line);border-radius:4px;padding:1px 7px;font-weight:700;font-size:9.5pt;text-transform:uppercase;letter-spacing:.03em}
+  .c-green{border-color:var(--green);background:var(--green-bg);color:var(--green)}
+  .c-amber{border-color:var(--safety);background:var(--safety-bg);color:var(--safety)}
+  .c-red{border-color:var(--red);background:var(--red-bg);color:var(--red)}
+  .c-blue{border-color:var(--blue);background:var(--blue-bg);color:var(--blue)}
+  .c-grey{color:var(--mute)}
+  .key{font-family:var(--display);font-size:12pt;font-weight:700;letter-spacing:.02em}
+
+  .big{font-family:var(--display);font-size:15pt;text-transform:uppercase;line-height:1.15}
+  .fill{border-bottom:1.5px dotted var(--mute);display:inline-block;min-width:150px}
+  .foot{margin-top:26px;padding-top:8px;border-top:1px solid var(--line);font-size:9pt;color:var(--mute);display:flex;justify-content:space-between;gap:12px}
+  .cut{border-top:2px dashed var(--mute);margin:26px 0 12px;text-align:center}
+  .cut span{background:var(--card);position:relative;top:-10px;padding:0 10px;font-size:9pt;color:var(--mute)}
+
+  @media print{
+    html,body{background:#fff}
+    /* A touch tighter on paper so most sections land on one sheet. */
+    p,li,td,th{font-size:10pt}
+    h1{font-size:34pt}
+    h2{font-size:18pt;margin-top:16px}
+    h3{font-size:12.5pt;margin-top:10px}
+    .box{margin:8px 0;padding:8px 10px}
+    .steps li{margin:6px 0}
+    td{padding:4px 6px}
+    .howto{display:none}
+    .sheet{width:auto;min-height:0;margin:0;padding:0;box-shadow:none;break-after:page}
+    .sheet:last-child{break-after:auto}
+    a{color:inherit;text-decoration:none}
+  }
+  @page{size:Letter portrait;margin:14mm}
+</style>
+</head>
+<body>
+
+<div class="howto">
+  <b>To print:</b> open this file in Chrome or Edge, press Ctrl + P, turn <b>Background graphics ON</b>, then print.
+  Each section starts on a new page, so you can hand out only the pages a person needs. The last sheet is a
+  cut-out card to tape beside each tablet.
+</div>
+
+<!-- COVER -->
+<section class="sheet">
+  <div class="kicker">Sunspace Truesdale · Standard operating procedure</div>
+  <h1>Build Tracker</h1>
+  <div class="rule"></div>
+  <p class="lede">
+    Everything we build for a pickup, on one screen. The floor taps what it finishes, the TVs show whether
+    we are on pace, and the office can answer "where is that order?" without walking the plant.
+  </p>
+
+  <h2>Who gets which sheets</h2>
+  <table>
+    <tr><th style="width:34%">Sheet</th><th>Give it to</th></tr>
+    <tr><td><b>2 · Signing in</b></td><td>Everyone</td></tr>
+    <tr><td><b>3–4 · Floor tablet</b></td><td>Mods, V4T, Panel, Track, Door</td></tr>
+    <tr><td><b>5 · Counts every 2 hours</b></td><td>The lead on each line</td></tr>
+    <tr><td><b>6 · TV boards</b></td><td>Tape near each TV</td></tr>
+    <tr><td><b>7 · Logistics</b></td><td>Whoever enters orders</td></tr>
+    <tr><td><b>8 · Office</b></td><td>Paperwork and order details</td></tr>
+    <tr><td><b>9 · Quality</b></td><td>Andrew</td></tr>
+    <tr><td><b>10 · Shipping</b></td><td>Loading the truck</td></tr>
+    <tr><td><b>11–12 · Production coordinator</b></td><td>Riz</td></tr>
+    <tr><td><b>13 · If something is wrong</b></td><td>Everyone</td></tr>
+    <tr><td><b>14 · Cut-out card</b></td><td>Tape beside every tablet</td></tr>
+  </table>
+
+  <h2>The three rules</h2>
+  <div class="box ok">
+    <p class="big" style="margin:0 0 6px">1 · Tap it when it happens, not later</p>
+    <p style="margin:0">The board is only worth reading if it is true. A tap takes two seconds.</p>
+  </div>
+  <div class="box tip">
+    <p class="big" style="margin:0 0 6px">2 · Build in the order on the screen</p>
+    <p style="margin:0">#1 before #2. If that order is wrong, say so — do not quietly build something else.</p>
+  </div>
+  <div class="box warn">
+    <p class="big" style="margin:0 0 6px">3 · Stuck? Report it before you move on</p>
+    <p style="margin:0">A blocked order in red gets help. A skipped order nobody knows about does not.</p>
+  </div>
+
+  <div class="foot"><span>Build Tracker SOP</span><span>Questions: Riz</span></div>
+</section>
+
+<!-- SIGNING IN -->
+<section class="sheet">
+  <div class="kicker">Sheet 2 · Everyone</div>
+  <h1>Signing in</h1>
+  <div class="rule"></div>
+
+  <h2>The address</h2>
+  <p class="big">sunspace-production.netlify.app</p>
+  <p>Same address on every tablet, PC and phone. The screen you get depends on the login, not the device.</p>
+
+  <h2>The logins</h2>
+  <p>Ask Riz for the password and write it here. One login per department — everybody on that line shares it.</p>
+  <table>
+    <tr><th style="width:38%">Login</th><th style="width:26%">Who</th><th>Password</th></tr>
+    <tr><td>mods@sunspace.local</td><td>Mods floor</td><td><span class="fill">&nbsp;</span></td></tr>
+    <tr><td>v4t@sunspace.local</td><td>V4T floor</td><td><span class="fill">&nbsp;</span></td></tr>
+    <tr><td>panel@sunspace.local</td><td>Panel floor</td><td><span class="fill">&nbsp;</span></td></tr>
+    <tr><td>track@sunspace.local</td><td>Track</td><td><span class="fill">&nbsp;</span></td></tr>
+    <tr><td>door@sunspace.local</td><td>Door</td><td><span class="fill">&nbsp;</span></td></tr>
+    <tr><td>logistics@sunspace.local</td><td>Order entry</td><td><span class="fill">&nbsp;</span></td></tr>
+    <tr><td>office@sunspace.local</td><td>Paperwork and details</td><td><span class="fill">&nbsp;</span></td></tr>
+    <tr><td>quality@sunspace.local</td><td>Andrew</td><td><span class="fill">&nbsp;</span></td></tr>
+    <tr><td>shipping@sunspace.local</td><td>Loading</td><td><span class="fill">&nbsp;</span></td></tr>
+    <tr><td>admin@sunspace.local</td><td>Riz only</td><td><span class="fill">&nbsp;</span></td></tr>
+  </table>
+
+  <div class="box">
+    <h3>Stay signed in</h3>
+    <p>Sign in once and leave it. The tablets are meant to stay logged in all day — do not sign out at break.
+      Sign out only if you are handing the tablet to another department.</p>
+  </div>
+
+  <div class="box tip">
+    <h3>One login at a time, per browser</h3>
+    <p>A browser can only hold one login. If you need the admin screen on a tablet that is signed in as Mods,
+      use a different device, or sign out first and back in afterwards.</p>
+  </div>
+
+  <h2>Put it on the home screen (tablets)</h2>
+  <ol>
+    <li>Open the address in Chrome.</li>
+    <li>Menu (⋮) → <b>Add to Home screen</b>.</li>
+    <li>Open it from that icon from then on — it fills the whole screen, no address bar.</li>
+  </ol>
+
+  <div class="foot"><span>Build Tracker SOP · Signing in</span><span>Sheet 2</span></div>
+</section>
+
+<!-- FLOOR 1 -->
+<section class="sheet">
+  <div class="kicker">Sheet 3 · Mods · V4T · Panel · Track · Door</div>
+  <h1>The floor tablet</h1>
+  <div class="rule"></div>
+  <p class="lede">Your screen shows only the orders your department has a job on, in the order the plant needs them built.</p>
+
+  <h2>Top of the screen</h2>
+  <table>
+    <tr><th style="width:32%">What</th><th>Means</th></tr>
+    <tr><td><b>THIS WEEK SHIPS</b></td><td>When the truck goes. Red when it is two days out or less.</td></tr>
+    <tr><td><b>READY FOR PICKUP</b><br>green bar</td><td>How much of this pickup your department has finished. The <b>amber tick</b> on the bar is where today should end — green past the tick means you are ahead of the week.</td></tr>
+    <tr><td><b>X to finish today</b></td><td>What is left, divided by the workdays before the truck. Finish more today and tomorrow's number drops.</td></tr>
+    <tr><td><b>UP NEXT</b></td><td>The one order to work on now, with a big <span class="chip c-amber">Start</span> button.</td></tr>
+  </table>
+
+  <h2>The four lanes</h2>
+  <table>
+    <tr><th style="width:24%">Lane</th><th>What is in it</th></tr>
+    <tr><td><span class="chip c-red">Blocked</span></td><td>Jobs that cannot move. Someone needs to fix these.</td></tr>
+    <tr><td><span class="key">To do</span></td><td>Not started.</td></tr>
+    <tr><td><span class="key">In progress</span></td><td>Started, not finished.</td></tr>
+    <tr><td><span class="chip c-green">Done</span></td><td>Finished here. Shows the last 6 — tap <b>Show all</b> for the rest.</td></tr>
+  </table>
+
+  <h2>The card colours — read these from a distance</h2>
+  <div class="box ok">
+    <p><span class="chip c-green">GREEN CARD</span> &nbsp; Finished. Every job your department has on that order is done. Nothing more to do.</p>
+  </div>
+  <div class="box tip">
+    <p><span class="chip c-amber">AMBER CARD · DO TODAY</span> &nbsp; Part of today's share. Leave it and tomorrow gets heavier.</p>
+  </div>
+  <div class="box warn">
+    <p><span class="chip c-red">RED CARD</span> &nbsp; Blocked. It shows the reason. It stays red until someone clears it.</p>
+  </div>
+  <div class="box">
+    <p><span class="chip c-grey">PLAIN CARD</span> &nbsp; Still this pickup, but not needed today. Get to it when the amber ones are gone.</p>
+  </div>
+
+  <h2>The day badge</h2>
+  <p>
+    <span class="chip c-red">LATE</span> past its pickup &nbsp;·&nbsp;
+    <span class="chip c-amber">TODAY</span> picks up today &nbsp;·&nbsp;
+    <span class="chip c-grey">4D</span> four days to go.
+  </p>
+
+  <div class="foot"><span>Build Tracker SOP · Floor tablet</span><span>Sheet 3</span></div>
+</section>
+
+<!-- FLOOR 2 -->
+<section class="sheet">
+  <div class="kicker">Sheet 4 · Mods · V4T · Panel · Track · Door</div>
+  <h1>Working an order</h1>
+  <div class="rule"></div>
+
+  <ol class="steps">
+    <li><b>Take the order at the top</b>
+      Under <b>UP NEXT</b>. It is #1 for a reason — the numbers come from the pickup sheet and the coordinator.</li>
+    <li><b>Tap START when you begin</b>
+      The card moves to <b>In progress</b>. The office and the TVs see it straight away.</li>
+    <li><b>Tap DONE when it is finished and checked</b>
+      The card turns <b>green</b> and moves to <b>Done</b>. Only tap Done when it is actually ready for the next department.</li>
+    <li><b>Wrong tap?</b>
+      A message appears at the bottom with <b>Undo</b> for a few seconds. After that, use the <b>⋮</b> menu on the card to set any stage.</li>
+  </ol>
+
+  <h2>When you cannot work on it</h2>
+  <ol class="steps">
+    <li><b>Tap the ⚠ button on that card</b></li>
+    <li><b>Pick the reason</b>
+      Material shortage · Machine down · Rework / wrong cut · Waiting on another department ·
+      Missing info / paperwork · Short-staffed · Order change · Other.</li>
+    <li><b>Add a note if it helps</b>
+      "Missing 2 screens" beats "Other". Keep it short.</li>
+    <li><b>Move to the next order</b>
+      It is on the red list now and on both TVs. When it is sorted, tap <b>Clear block</b>.</li>
+  </ol>
+  <div class="box warn">
+    <p><b>Do not leave an order half-done with nothing said.</b> If it is stuck, block it. That is the only way
+      anybody finds out in time to fix it.</p>
+  </div>
+
+  <h2>The rest of the card</h2>
+  <table>
+    <tr><th style="width:26%">Button</th><th>What it does</th></tr>
+    <tr><td><b>⚑ Quality</b></td><td>Report a defect — see the Quality page.</td></tr>
+    <tr><td><b>📎 Files</b></td><td>Drawings and paperwork for that order.</td></tr>
+    <tr><td><b>⋮</b></td><td>Set any stage directly. For fixing mistakes.</td></tr>
+    <tr><td><b>View only</b></td><td>That job belongs to another department. You can see it, not change it.</td></tr>
+  </table>
+
+  <h2>The little name tags at the bottom of a card</h2>
+  <p>Every other department that has a job on that order:</p>
+  <p>
+    <span class="chip c-grey">MODS</span> not started &nbsp;
+    <span class="chip c-blue">MODS</span> started &nbsp;
+    <span class="chip c-green">✓ MODS</span> done &nbsp;
+    <span class="chip c-red">⚑ PANEL</span> blocked
+  </p>
+  <p>Long names shorten to initials. So <span class="chip c-green">✓ V4T</span> means V4T has finished its part and it is ready for you.</p>
+
+  <div class="box tip">
+    <h3>Sent back to you</h3>
+    <p>An amber <b>↩ Sent back</b> tag on a card means Quality found a defect and it is yours to fix.
+      Fix it, then tap Done again.</p>
+  </div>
+
+  <div class="foot"><span>Build Tracker SOP · Working an order</span><span>Sheet 4</span></div>
+</section>
+
+<!-- COUNTS -->
+<section class="sheet">
+  <div class="kicker">Sheet 5 · Line leads</div>
+  <h1>Counts every 2 hours</h1>
+  <div class="rule"></div>
+  <p class="lede">Orders finish in lumps. A count every couple of hours is what tells us, at 11 in the morning,
+    whether the week is going to work.</p>
+
+  <h2>When</h2>
+  <p class="big">9:30 &nbsp;·&nbsp; 11:30 &nbsp;·&nbsp; 1:30 &nbsp;·&nbsp; 4:00</p>
+  <p>The buttons at the top of the tablet turn <b>amber and pulse</b> when a count is due. On the TV that
+    block flashes red with a <b>!</b> until it is entered.</p>
+
+  <h2>How</h2>
+  <ol class="steps">
+    <li><b>Tap the button for your station</b>
+      Along the top of the tablet, one per station that gets counted.</li>
+    <li><b>Enter the running total for today</b>
+      Not since the last check-in — the whole day so far. If you have cut 22 vents today, enter <b>22</b>.</li>
+    <li><b>Save</b>
+      The TV updates within seconds.</li>
+  </ol>
+
+  <h2>V4T — who counts what</h2>
+  <p>Two lines run side by side, and both have to finish. Only the stations in bold get counted; the rest
+    still count toward the target.</p>
+  <table>
+    <tr><th style="width:22%">Line</th><th>Stations</th><th style="width:24%">Storage</th></tr>
+    <tr><td><b>Vents</b></td><td>Cut → Built → <b>Glazed</b></td><td>~4 orders can wait</td></tr>
+    <tr><td><b>Frames</b></td><td>Cut to size → <b>Punched</b> → <b>Built</b></td><td>4 carts / 4 stations</td></tr>
+    <tr><td><b>Assembly</b></td><td>Vents into frame, squared and checked → <b>Screened</b></td><td>goes to Mods</td></tr>
+  </table>
+  <div class="box tip">
+    <p><b>One tablet is enough.</b> The lead walks the line at each check-in and enters all of them.
+      If you would rather split it, any phone or spare tablet can sign in with the same V4T login and sit at
+      the other end of the line — both feed the same board.</p>
+  </div>
+
+  <h2>Mods</h2>
+  <p>Two stations: <b>Mod frames</b> then <b>Final mod</b>. Count the mods finished at each.</p>
+
+  <div class="box warn">
+    <h3>If you miss one</h3>
+    <p>Enter it late — a late count is far better than none. The block goes amber instead of green, and the
+      day's total is still right.</p>
+  </div>
+
+  <div class="foot"><span>Build Tracker SOP · Counts</span><span>Sheet 5</span></div>
+</section>
+
+<!-- TV -->
+<section class="sheet">
+  <div class="kicker">Sheet 6 · Tape this near the TV</div>
+  <h1>Reading the TV</h1>
+  <div class="rule"></div>
+  <p class="lede">Nobody touches the TV. It is read-only and it looks after itself. Here is what it is telling you.</p>
+
+  <h2>Top band — the week</h2>
+  <table>
+    <tr><td style="width:34%"><b>READY FOR PICKUP</b></td><td>How much of this pickup is prepped. The green bar fills as orders finish.</td></tr>
+    <tr><td><b>Amber tick on the bar</b></td><td>Where today should end. Green past it means we are ahead.</td></tr>
+    <tr><td><b>X to finish today</b></td><td>Today's fair share of what is left.</td></tr>
+  </table>
+
+  <h2>Big number — today</h2>
+  <p>What the department has finished today, against today's target.</p>
+  <p>
+    <span class="chip c-green">ON PACE</span>
+    <span class="chip c-amber">SLIGHTLY BEHIND</span>
+    <span class="chip c-red">BEHIND</span>
+  </p>
+  <p>Judged against <b>this time of day</b>, not the whole day — so 9 a.m. does not look like a disaster.
+    The white line in the bar is how far through the working day we are.</p>
+
+  <h2>The 2-hour blocks</h2>
+  <table>
+    <tr><td style="width:26%"><span class="chip c-green">GREEN</span></td><td>Target met for that block</td></tr>
+    <tr><td><span class="chip c-amber">AMBER</span></td><td>Close — within 15%</td></tr>
+    <tr><td><span class="chip c-red">RED</span></td><td>Short</td></tr>
+    <tr><td><span class="chip c-red">!</span></td><td>The count is late. Someone needs to enter it.</td></tr>
+  </table>
+
+  <h2>Right side</h2>
+  <ul>
+    <li><b>BUILD NEXT</b> — the next orders in build order. The top one is highlighted; amber rows marked
+      <b>TODAY</b> are today's share; red is blocked.</li>
+    <li><b>✓ FINISHED TODAY</b> — every order finished today, in green, with the time. Clears overnight.</li>
+    <li><b>PROBLEMS</b> — blocked jobs and why. <b>All clear</b> in green when there are none.</li>
+    <li><b>Bottleneck</b> — the station holding the line back. That is where to put another person.</li>
+  </ul>
+
+  <div class="box">
+    <h3>If the TV is blank or stale</h3>
+    <p>Move the mouse — a small bar appears with <b>Reload</b>. If the clock in the corner has stopped or it
+      says <b>Offline</b>, the PC has lost wifi. Tell Riz.</p>
+  </div>
+
+  <div class="foot"><span>Build Tracker SOP · TV boards</span><span>Sheet 6</span></div>
+</section>
+
+<!-- LOGISTICS -->
+<section class="sheet">
+  <div class="kicker">Sheet 7 · Logistics coordinator</div>
+  <h1>Adding orders</h1>
+  <div class="rule"></div>
+  <p class="lede">Orders come in one at a time as they are sold. Get them in early — the plant can only plan what it can see.</p>
+
+  <ol class="steps">
+    <li><b>Sign in as logistics</b></li>
+    <li><b>Tap "Add an order"</b></li>
+    <li><b>Fill in what you know</b>
+      Tag name and dealer are required. Pickup date if it is set. Leave the rest for the office.</li>
+    <li><b>Tick the departments that have work on it</b>
+      Only tick the ones that actually build something. Ticking Panel when there is no panel puts a job on
+      their tablet that will never get done.</li>
+    <li><b>Save</b>
+      It appears on those tablets immediately, at the end of the build order, and the coordinator numbers it.</li>
+  </ol>
+
+  <h2>Changing an order</h2>
+  <ul>
+    <li><b>Pickup date moved</b> — change it on the order. Every tablet updates and re-sorts itself.</li>
+    <li><b>A department is no longer involved</b> — untick it. Their job disappears; the rest carries on.</li>
+    <li><b>Order cancelled or pulled</b> — tell the coordinator; cancelling is an admin job so it is logged.</li>
+  </ul>
+
+  <div class="box tip">
+    <h3>Tag names</h3>
+    <p>Use the tag exactly as it appears on the paperwork — <b>BOUSQUET_169483</b> — so it matches the
+      pickup sheet, the files and what the floor sees on the box.</p>
+  </div>
+
+  <div class="box warn">
+    <h3>Do not create the same order twice</h3>
+    <p>Search the tag first. Two copies mean two sets of jobs and a count that is wrong all week.</p>
+  </div>
+
+  <div class="foot"><span>Build Tracker SOP · Logistics</span><span>Sheet 7</span></div>
+</section>
+
+<!-- OFFICE -->
+<section class="sheet">
+  <div class="kicker">Sheet 8 · Office</div>
+  <h1>Office</h1>
+  <div class="rule"></div>
+  <p class="lede">Two jobs: say when the paperwork is ready, and fill in the details that let the app work out
+    how long an order takes.</p>
+
+  <h2>Paperwork ready</h2>
+  <ol class="steps">
+    <li><b>Open the order</b></li>
+    <li><b>Tick "Paperwork ready"</b> when the drawings and cut sheets are done</li>
+    <li><b>The floor sees it</b>
+      Until it is ticked, the floor can see the order is coming but knows the paperwork is not there yet.
+      It saves them chasing you.</li>
+  </ol>
+
+  <h2>Order details</h2>
+  <p>From the order confirmation. These set how hard the room is, which feeds the estimates:</p>
+  <table>
+    <tr><th style="width:26%">Field</th><th>Choices</th></tr>
+    <tr><td><b>Mods</b></td><td>How many mods / walls — the single most useful number you can enter.</td></tr>
+    <tr><td><b>Room shape</b></td><td>Square · Pitched / soffit · Cathedral / gable</td></tr>
+    <tr><td><b>Windows</b></td><td>V4T · Vinyl fix · Vinyl trap / glass</td></tr>
+    <tr><td><b>Panels</b></td><td>2" insulated · Double foam, protected · Full filler panel</td></tr>
+  </table>
+  <div class="box tip">
+    <p><b>Why it matters:</b> a 14-mod cathedral with trap glass is not the same day's work as a 6-mod square.
+      With these filled in, the coordinator's "Can we make it?" is real. Without them, it is a guess.</p>
+  </div>
+
+  <h2>Files</h2>
+  <p>Attach drawings and paperwork to the order. The floor opens them with <b>📎 Files</b> — no more walking
+    a print out to the line.</p>
+
+  <div class="foot"><span>Build Tracker SOP · Office</span><span>Sheet 8</span></div>
+</section>
+
+<!-- QUALITY -->
+<section class="sheet">
+  <div class="kicker">Sheet 9 · Quality</div>
+  <h1>Quality</h1>
+  <div class="rule"></div>
+
+  <h2>Reporting a defect</h2>
+  <ol class="steps">
+    <li><b>Tap ⚑ Quality on the order</b>
+      Anyone on the floor can do this, not just Quality.</li>
+    <li><b>Pick the department responsible</b>
+      Mods, V4T, Panel, Track or Door — whoever made it. Departments with no job on that order are greyed out.</li>
+    <li><b>Pick the defect</b>
+      Wrong size / does not fit · Out of square · Glazing problem · Scratched / damaged · Wrong colour ·
+      Wrong machined part · Material shortage · Missing parts · Other.</li>
+    <li><b>Send it back, or just record it</b>
+      <b>Send back</b> reopens that department's job and puts an amber <b>↩ Sent back</b> tag on their card.
+      Leave it off to record a defect you fixed on the spot — it still counts in the report.</li>
+  </ol>
+
+  <h2>The quality screen</h2>
+  <ul>
+    <li>Everything open, newest first, with order, department and defect.</li>
+    <li><b>Resolve</b> when it is fixed and checked — that closes it and time-stamps it.</li>
+    <li>Nothing is deleted. Every report stays in the weekly report.</li>
+  </ul>
+
+  <div class="box ok">
+    <h3>What it is for</h3>
+    <p>Not blame — pattern. Five "out of square" from the same station in a month is a machine or a method
+      problem, and that only shows up if the small ones get logged too.</p>
+  </div>
+
+  <div class="box warn">
+    <h3>Send back vs block</h3>
+    <p><b>Send back</b> = it was built wrong; the department who built it must fix it.<br>
+      <b>Block (⚠)</b> = we cannot build it — missing material, machine down, waiting on someone.</p>
+  </div>
+
+  <div class="foot"><span>Build Tracker SOP · Quality</span><span>Sheet 9</span></div>
+</section>
+
+<!-- SHIPPING -->
+<section class="sheet">
+  <div class="kicker">Sheet 10 · Shipping</div>
+  <h1>Shipping</h1>
+  <div class="rule"></div>
+
+  <h2>Loading day</h2>
+  <ol class="steps">
+    <li><b>Open the shipping screen</b>
+      Everything for that pickup, with whether each department has finished.</li>
+    <li><b>Load what is green</b>
+      An order that is not green somewhere is not ready. Check before it goes on the truck.</li>
+    <li><b>Mark it picked up</b>
+      It comes off the boards and out of the counts.</li>
+  </ol>
+
+  <div class="box warn">
+    <h3>Something is not finished and the truck is here</h3>
+    <p>Tell the coordinator before it leaves. They can move it to the next pickup so the numbers stay honest —
+      an order that quietly ships half-done wrecks next week's plan too.</p>
+  </div>
+
+  <div class="foot"><span>Build Tracker SOP · Shipping</span><span>Sheet 10</span></div>
+</section>
+
+<!-- ADMIN 1 -->
+<section class="sheet">
+  <div class="kicker">Sheet 11 · Production coordinator</div>
+  <h1>Running the week</h1>
+  <div class="rule"></div>
+
+  <h2>Monday — set the week up</h2>
+  <ol class="steps">
+    <li><b>Import the pickup</b>
+      Grid → Import. Paste from Excel, or drop the .xlsx. Pick the pickup date you want — only the orders
+      under it come in.</li>
+    <li><b>Check the numbering</b>
+      #1, #2, #3 and so on, in sheet order. Move an order up or down and every tablet follows. A moved order
+      is badged on the floor so nobody misses it.</li>
+    <li><b>Set the crew</b>
+      Overview → Crew today → people per station. Without this there is no target and the TVs stay blank.</li>
+    <li><b>Read "Can we make it?"</b>
+      Person-days needed against person-days available. Act on Monday, not Thursday.</li>
+  </ol>
+
+  <h2>Every morning — 2 minutes</h2>
+  <ul>
+    <li><b>Needs attention</b> — blocked jobs and open quality issues.</li>
+    <li><b>Crew today</b> — who is actually in. It changes the targets.</li>
+    <li><b>Ready for pickup</b> — are we where we should be for the day?</li>
+  </ul>
+
+  <h2>The tabs</h2>
+  <table>
+    <tr><th style="width:24%">Tab</th><th>For</th></tr>
+    <tr><td><b>Overview</b></td><td>The day: KPIs, what needs attention, crew, can we make it.</td></tr>
+    <tr><td><b>Grid</b></td><td>Every order and every department. Import, edit, number, cancel.</td></tr>
+    <tr><td><b>Targets and TVs</b></td><td>Stations, minutes, what each TV shows, the message band.</td></tr>
+    <tr><td><b>Report</b></td><td>The weekly Excel download. Admin only.</td></tr>
+  </table>
+
+  <h2>Pulling or changing an order</h2>
+  <table>
+    <tr><td style="width:30%"><b>Whole order cancelled</b></td><td>Cancel it — it leaves every board and the counts.</td></tr>
+    <tr><td><b>Pushed to another week</b></td><td>Change the pickup date. Everything follows.</td></tr>
+    <tr><td><b>One department drops out</b><br>("Canada will do the V4T")</td><td>Remove just that department's job. The rest carries on as normal.</td></tr>
+  </table>
+
+  <div class="foot"><span>Build Tracker SOP · Coordinator</span><span>Sheet 11</span></div>
+</section>
+
+<!-- ADMIN 2 -->
+<section class="sheet">
+  <div class="kicker">Sheet 12 · Production coordinator</div>
+  <h1>Targets and stations</h1>
+  <div class="rule"></div>
+
+  <h2>Enter minutes, not rates</h2>
+  <p>For each station, enter <b>how many minutes it takes one person to make one</b>. That is what a stopwatch
+    measures. The app does the rest.</p>
+  <div class="box tip">
+    <p class="big" style="margin:0">Daily target = people × (7.5 working hours × 60 ÷ minutes for one)</p>
+    <p style="margin-top:6px">7.5 hours is 7:30 to 4:00 less the three breaks. The app never counts break time
+      or weekends against anyone.</p>
+  </div>
+
+  <h2>The columns</h2>
+  <table>
+    <tr><th style="width:24%">Column</th><th>What to put</th></tr>
+    <tr><td><b>Station</b></td><td>The step's name, in the order work flows.</td></tr>
+    <tr><td><b>Unit</b></td><td>What is counted there — vents, inserts, mods.</td></tr>
+    <tr><td><b>Minutes for one</b></td><td>One person, one unit. It shows you the per-hour rate underneath.</td></tr>
+    <tr><td><b>Per finished</b></td><td>How many of that unit make one finished thing. <b>4</b> vents per V4T insert. <b>1</b> for everything else — a 2 here halves your output.</td></tr>
+    <tr><td><b>Buffer</b></td><td>How many orders can wait after that station — the 4 carts, the 4 stations. Reference only.</td></tr>
+    <tr><td><b>Count</b></td><td>Ticked = the tablet asks for a count there. Untick the ones you do not need a number from; they still count toward the target.</td></tr>
+  </table>
+
+  <h2>Parallel lines</h2>
+  <p>V4T's vents and frames run side by side and both have to finish, so the <b>slowest station anywhere</b>
+    sets the department's output. The app names it as the <b>bottleneck</b> — that is where the next person goes.</p>
+
+  <h2>The weekly report</h2>
+  <p>Report tab → download. Eight sheets: summary, orders, department jobs, blocks, quality, people, crew and
+    the full activity log. Durations are in working hours, so an overnight block does not read as 16 hours.</p>
+
+  <div class="box warn">
+    <h3>Admin only</h3>
+    <p>The report and the names of who built what are on the admin login alone. Do not hand that login out.</p>
+  </div>
+
+  <div class="foot"><span>Build Tracker SOP · Coordinator</span><span>Sheet 12</span></div>
+</section>
+
+<!-- TROUBLE -->
+<section class="sheet">
+  <div class="kicker">Sheet 13 · Everyone</div>
+  <h1>If something is wrong</h1>
+  <div class="rule"></div>
+
+  <table>
+    <tr><th style="width:38%">What you see</th><th>Do this</th></tr>
+    <tr><td><b>"Offline — taps won't save"</b></td><td>Wifi is down. Stop tapping, wait for green <b>Live</b>, then enter what you did. Taps made while offline do not save.</td></tr>
+    <tr><td><b>A tap did not stick</b></td><td>Pull down to refresh. If it still does not, that job belongs to another department — it will say <b>View only</b>.</td></tr>
+    <tr><td><b>White or frozen screen</b></td><td>Reload. If it comes back, use <b>Clear saved app and reload</b> on the red screen.</td></tr>
+    <tr><td><b>Red "Something broke"</b></td><td>Read the message to Riz, word for word. That is the fix.</td></tr>
+    <tr><td><b>"This login isn't set up yet"</b></td><td>The login has no role. Riz has to set it.</td></tr>
+    <tr><td><b>An order is not on my tablet</b></td><td>Either your department was not ticked, or it is in another pickup week — check the week picker at the top.</td></tr>
+    <tr><td><b>Wrong order at #1</b></td><td>Tell the coordinator. Do not build out of order without saying so.</td></tr>
+    <tr><td><b>TV stuck on an old number</b></td><td>Move the mouse, then Reload.</td></tr>
+  </table>
+
+  <h2>What the words mean</h2>
+  <table>
+    <tr><td style="width:26%"><b>Build order / #</b></td><td>The order we build in, set by the coordinator. #1 first.</td></tr>
+    <tr><td><b>Pickup</b></td><td>The truck date everything on that list is going out on.</td></tr>
+    <tr><td><b>Blocked</b></td><td>Cannot be built right now, with a reason. Red.</td></tr>
+    <tr><td><b>Sent back</b></td><td>Quality found a defect; the department that built it has to fix it.</td></tr>
+    <tr><td><b>Bottleneck</b></td><td>The slowest station — what limits the whole line.</td></tr>
+    <tr><td><b>Buffer</b></td><td>How many finished orders can wait at a station before the next one.</td></tr>
+    <tr><td><b>Check-in</b></td><td>The 2-hourly count: 9:30, 11:30, 1:30, 4:00.</td></tr>
+    <tr><td><b>Paperwork ready</b></td><td>The office has the drawings and cut sheets done.</td></tr>
+  </table>
+
+  <div class="foot"><span>Build Tracker SOP · Troubleshooting</span><span>Sheet 13</span></div>
+</section>
+
+<!-- CUT-OUT CARD -->
+<section class="sheet">
+  <div class="kicker">Sheet 14 · Cut out and tape beside each tablet</div>
+  <h1>Quick card</h1>
+  <div class="rule"></div>
+
+  <div class="box" style="border-width:2.5px;border-color:var(--ink);padding:18px 20px">
+    <p class="kicker" style="margin:0">Build Tracker · the floor in 30 seconds</p>
+    <p class="big" style="font-size:22pt;margin:8px 0 12px">Work the order at the top. Tap START. Tap DONE.</p>
+    <table style="margin:0">
+      <tr><td style="width:36%"><span class="chip c-green">GREEN CARD</span></td><td class="big" style="font-size:13pt">Finished — nothing to do</td></tr>
+      <tr><td><span class="chip c-amber">AMBER · DO TODAY</span></td><td class="big" style="font-size:13pt">Must go out today</td></tr>
+      <tr><td><span class="chip c-red">RED CARD</span></td><td class="big" style="font-size:13pt">Blocked — being sorted</td></tr>
+      <tr><td><span class="chip c-grey">PLAIN CARD</span></td><td class="big" style="font-size:13pt">Later this week</td></tr>
+    </table>
+    <p style="margin:14px 0 4px"><b>Cannot build it?</b> Tap <b>⚠</b>, pick the reason, carry on with the next one.</p>
+    <p style="margin:0 0 4px"><b>Found a defect?</b> Tap <b>⚑ Quality</b>, pick the department, pick the defect.</p>
+    <p style="margin:0 0 4px"><b>Counts:</b> 9:30 · 11:30 · 1:30 · 4:00 — enter the <b>running total for the day</b>.</p>
+    <p style="margin:0"><b>Green dot = Live.</b> If it says Offline, your taps are not saving. Wait for green.</p>
+    <p style="margin:12px 0 0;font-size:9.5pt;color:var(--mute)">sunspace-production.netlify.app · problems → Riz</p>
+  </div>
+
+  <div class="cut"><span>✂ cut here</span></div>
+
+  <div class="box" style="border-width:2.5px;border-color:var(--ink);padding:18px 20px">
+    <p class="kicker" style="margin:0">V4T line · counts</p>
+    <p class="big" style="font-size:18pt;margin:6px 0 10px">At 9:30 · 11:30 · 1:30 · 4:00 walk the line and enter today's totals</p>
+    <table style="margin:0">
+      <tr><td style="width:34%" class="big">Vents</td><td>Cut → Built → <b>Glazed</b> &nbsp;(4 orders can wait)</td></tr>
+      <tr><td class="big">Frames</td><td>Cut to size → <b>Punched</b> → <b>Built</b> &nbsp;(4 carts, 4 stations)</td></tr>
+      <tr><td class="big">Assembly</td><td>Squared and checked → <b>Screened</b> → Mods</td></tr>
+    </table>
+    <p style="margin:12px 0 0"><b>Both lines have to finish.</b> The TV names the station holding us back — that is where the help goes.</p>
+  </div>
+
+  <div class="foot"><span>Build Tracker SOP · Quick card</span><span>Sheet 14</span></div>
+</section>
+
+</body>
+</html>

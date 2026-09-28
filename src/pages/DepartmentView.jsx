@@ -893,16 +893,3 @@ function laneOf(order, ownColumnIds) {
   if (worst === 1) return 'doing'
   return 'todo'
 }
-
-// The "worst" (earliest) stage across this department's columns for an order
-function worstOwnStage(order, ownColumnIds) {
-  let worst = null
-  for (const id of ownColumnIds) {
-    const cell = order.cells[id]
-    if (!cell) continue
-    const s = cell.stage
-    const rank = stageRank(s)
-    if (worst === null || rank < stageRank(worst)) worst = s
-  }
-  return worst
-}

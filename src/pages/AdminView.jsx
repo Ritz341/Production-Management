@@ -14,6 +14,7 @@ import AdminImport from './AdminImport.jsx'
 import AdminOverview from './AdminOverview.jsx'
 import AdminReports from './AdminReports.jsx'
 import AdminTVs from './AdminTVs.jsx'
+import AdminFloaters from './AdminFloaters.jsx'
 import { blockText } from '../lib/catalog'
 import { DONE_RANK, buildNumbers, byBuildOrder, stageRank, wasMovedRecently } from '../lib/schedule'
 
@@ -264,6 +265,7 @@ export default function AdminView() {
             ['import', 'Weekly Import'],
             ['reports', 'Reports'],
             ['tvs', 'Targets & TVs'],
+            ['floaters', 'Who can cover'],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -293,6 +295,8 @@ export default function AdminView() {
       {tab === 'reports' && <AdminReports />}
 
       {tab === 'tvs' && <AdminTVs />}
+
+      {tab === 'floaters' && <AdminFloaters />}
 
       {tab === 'import' && (
         <AdminImport

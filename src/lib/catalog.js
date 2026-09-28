@@ -54,9 +54,14 @@ const LEVEL_SCORE = { easy: 1, medium: 2, hard: 3 }
 
 /** The process lists we start from; admin can edit or reset to these. */
 export const RECOMMENDED_PROCESSES = {
+  // A "mod" is one modular wall. Framing makes the frames that go into
+  // a wall (2-4 of them, call it 3 on average from CNC-cut stock);
+  // the final mod is the finished wall: V4T in, caulked, panels in,
+  // screwed, vinyl fix added. Rooms are 2-4 walls, but capacity is
+  // counted in walls, which is also what the office enters per order.
   Mods: [
-    { id: 'framing', name: 'Mod frames', line: 'Mods', unit: 'mods', minutesEach: null, perFinished: 1, counted: true, buffer: 4 },
-    { id: 'staging', name: 'Final mod', line: 'Mods', unit: 'mods', minutesEach: null, perFinished: 1, counted: true },
+    { id: 'framing', name: 'Mod frames', line: 'Mods', unit: 'frames', minutesEach: null, perFinished: 3, counted: true, buffer: 4 },
+    { id: 'staging', name: 'Final mod (wall)', line: 'Mods', unit: 'mods', minutesEach: null, perFinished: 1, counted: true },
   ],
   // Two lines running in parallel that meet at the squaring rack.
   // buffer = orders that can wait between this step and the next.

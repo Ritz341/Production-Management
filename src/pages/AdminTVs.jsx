@@ -99,6 +99,7 @@ export default function AdminTVs() {
     setTimeout(() => setStatus(''), 4000)
   }
 
+  const [copied, setCopied] = useState(null)
   const boardUrl = (name) => `${window.location.origin}/?tv=${encodeURIComponent(name)}`
 
   return (
@@ -119,7 +120,31 @@ export default function AdminTVs() {
           <section key={d.id} className="rounded-2xl bg-white border border-paperDim p-5">
             <div className="flex items-baseline justify-between gap-3 flex-wrap">
               <h3 className="font-display font-bold text-2xl text-charcoal">{d.name} TV</h3>
-              <code className="text-xs bg-paper border border-paperDim rounded px-2 py-1 text-steel break-all">{boardUrl(d.name)}</code>
+              <div className="flex items-center gap-2">
+                <a
+                  href={boardUrl(d.name)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-lg bg-charcoal text-paper text-sm font-semibold px-4 py-2"
+                >
+                  Open board ↗
+                </a>
+                <button
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(boardUrl(d.name))
+                      setCopied(d.name)
+                      setTimeout(() => setCopied(null), 2500)
+                    } catch {
+                      // Clipboard blocked (http, or an old browser): show it to copy by hand.
+                      window.prompt('Copy this address for the TV PC', boardUrl(d.name))
+                    }
+                  }}
+                  className="rounded-lg border border-paperDim text-sm font-semibold px-4 py-2 text-steel hover:text-charcoal"
+                >
+                  {copied === d.name ? '✓ Copied' : 'Copy address'}
+                </button>
+              </div>
             </div>
 
             {processesFor(settings, d.name).length > 0 ? (

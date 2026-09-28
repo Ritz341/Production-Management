@@ -11,6 +11,12 @@ import { RECOMMENDED_PROCESSES, fmtQty, groupByLine, planLine, processesFor, rat
  * they're grouped rather than shown as one long chain. Everything still
  * has to be done, so the slowest station anywhere sets the output.
  */
+/** "mods" -> "mod", so a hint reads "3 frames = 1 mod". */
+function singular(unit) {
+  const u = String(unit ?? '')
+  return u.endsWith('s') && !u.endsWith('ss') ? u.slice(0, -1) : u
+}
+
 export default function ProcessEditor({ department, settings, peopleToday, onSave }) {
   const saved = processesFor(settings, department.name)
   const [rows, setRows] = useState(saved)
@@ -48,6 +54,11 @@ export default function ProcessEditor({ department, settings, peopleToday, onSav
 
   return (
     <div className="mt-3">
+      <p className="text-sm text-steelLight mb-2">
+        Enter what each station actually makes and how long <b>one</b> takes one person. If several of them go into one
+        finished piece — 3 frames in a wall, 4 vents in an insert — put that number in <b>Per finished</b> and the app
+        converts. Averages are fine: 2.5 is allowed.
+      </p>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="text-left text-xs uppercase tracking-wider text-steelLight">
@@ -116,13 +127,18 @@ export default function ProcessEditor({ department, settings, peopleToday, onSav
                       <td className="py-1.5 px-2">
                         <input
                           type="number"
-                          min="1"
-                          step="1"
+                          min="0.1"
+                          step="0.5"
                           value={r.perFinished ?? 1}
                           onChange={(e) => update(r.id, { perFinished: Number(e.target.value) || 1 })}
                           aria-label="Units per finished unit"
-                          className="w-14 rounded border border-paperDim px-2 py-1 tabular-nums"
+                          className="w-16 rounded border border-paperDim px-2 py-1 tabular-nums"
                         />
+                        {Number(r.perFinished) > 1 && (
+                          <span className="block text-xs text-steelLight">
+                            {fmtQty(r.perFinished)} {r.unit} = 1 {singular(finishedUnit)}
+                          </span>
+                        )}
                       </td>
                       <td className="py-1.5 px-2">
                         <input

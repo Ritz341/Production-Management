@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 
-// Ship date changes: full-width red banner, stays until Acknowledge is
-// tapped directly on it — too important to bury in a dropdown.
-const BANNER_TYPE = 'ship_date_changed'
+// Full-width red banner, stays until Acknowledge is tapped directly on
+// it — too important to bury in a dropdown. A ship date moving, and an
+// order being taken off the build while someone may be part-way
+// through building it, both qualify: carrying on is the wrong thing to
+// do and the floor has to be stopped, not merely informed.
+const BANNER_TYPES = ['ship_date_changed', 'orders_removed']
 // Order status changes: quieter — a bell icon with a badge count;
 // opening the dropdown and clicking an entry is what acknowledges it.
 const BELL_TYPE = 'order_status_changed'
@@ -22,7 +25,7 @@ export default function NotificationBanner() {
     supabase
       .from('bt_events')
       .select('id, message, event_type, created_at')
-      .eq('event_type', BANNER_TYPE)
+      .in('event_type', BANNER_TYPES)
       .is('acknowledged_at', null)
       .order('created_at', { ascending: true })
       .then(({ data }) => setBannerAlerts(data ?? []))
@@ -41,7 +44,7 @@ export default function NotificationBanner() {
       .channel('bt-events-global')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bt_events' }, (payload) => {
         const e = payload.new
-        if (e.event_type === BANNER_TYPE) {
+        if (BANNER_TYPES.includes(e.event_type)) {
           setBannerAlerts((prev) => [...prev, e])
         } else if (e.event_type === BELL_TYPE) {
           setBellAlerts((prev) => [e, ...prev])
@@ -115,7 +118,9 @@ export default function NotificationBanner() {
         <div className="sticky top-0 z-[70] space-y-1">
           {bannerAlerts.map((a) => (
             <div key={a.id} className="px-4 py-3 flex items-center justify-between gap-3 font-medium text-sm text-paper bg-andonRed">
-              <span>📅 {a.message}</span>
+              <span>
+                {a.event_type === 'orders_removed' ? '🚫' : '📅'} {a.message}
+              </span>
               <button
                 onClick={() => acknowledge(a.id, { fromBanner: true })}
                 className="bg-paper/90 text-charcoal text-xs font-bold px-3 py-1.5 rounded whitespace-nowrap shrink-0"

@@ -9,6 +9,7 @@ import FileModal from '../components/FileModal.jsx'
 import NotificationBanner from '../components/NotificationBanner.jsx'
 import OrderFormModal from '../components/OrderFormModal.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
+import BulkRemoveModal from '../components/BulkRemoveModal.jsx'
 import AdminImport from './AdminImport.jsx'
 import AdminOverview from './AdminOverview.jsx'
 import AdminReports from './AdminReports.jsx'
@@ -38,6 +39,11 @@ export default function AdminView() {
   const [openOrder, setOpenOrder] = useState(null)
   const [formOrder, setFormOrder] = useState(null) // null = closed, 'new' = create, order object = edit
   const [shipDateDraft, setShipDateDraft] = useState('')
+  // Orders ticked for removal. Held as ids, not rows, so a live
+  // refresh mid-selection can't leave stale copies behind.
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [removing, setRemoving] = useState(false)
+  const [notice, setNotice] = useState('')
 
   async function loadBuildWeeks() {
     // Newest ship date first — oldest scrolls to the bottom.
@@ -222,6 +228,24 @@ export default function AdminView() {
         (o.dealer ?? '').toLowerCase().includes(filter.toLowerCase()))
   )
 
+  // Only ever act on what's both ticked AND on screen: narrowing the
+  // filter after ticking rows must not remove orders the admin can no
+  // longer see.
+  const selectedOrders = visibleOrders.filter((o) => selectedIds.has(o.id))
+  const allShownSelected = visibleOrders.length > 0 && selectedOrders.length === visibleOrders.length
+
+  function toggleSelected(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  function toggleAllShown() {
+    setSelectedIds(allShownSelected ? new Set() : new Set(visibleOrders.map((o) => o.id)))
+  }
+
   // A column only earns a spot in the grid if at least one visible order
   // actually has a value in it. A blank cell on the sheet means that
   // department never applied to that order at all — not "waiting" or
@@ -333,7 +357,34 @@ export default function AdminView() {
             </button>
           </div>
 
+          {/* ── Ticked orders ──
+              A fixed bar rather than a button in the toolbar: the grid
+              scrolls a long way, and an action on a selection you made
+              200 rows ago needs to stay in sight. */}
+          {selectedOrders.length > 0 && (
+            <div className="sticky top-0 z-20 bg-charcoal text-paper px-5 py-2.5 flex items-center gap-4 flex-wrap shadow-lg">
+              <span className="font-display font-bold text-lg tabular-nums">
+                {selectedOrders.length} selected
+              </span>
+              <button onClick={() => setSelectedIds(new Set())} className="text-sm text-floorMute hover:text-paper underline">
+                Clear
+              </button>
+              <button
+                onClick={() => setRemoving(true)}
+                disabled={!live}
+                className="ml-auto bg-andonRed text-white font-display font-bold text-sm px-4 py-2 rounded disabled:opacity-40"
+              >
+                Remove selected…
+              </button>
+            </div>
+          )}
+
           <main className="p-4 overflow-x-auto">
+            {notice && (
+              <div className="bg-andonGreenBg border border-andonGreen text-andonGreen text-sm px-4 py-3 rounded mb-3">
+                {notice}
+              </div>
+            )}
             {loadError && (
               <div className="bg-andonRedBg border border-andonRed text-andonRed text-sm px-4 py-3 rounded mb-3">
                 ⚠ {loadError}
@@ -345,6 +396,16 @@ export default function AdminView() {
               <table className="min-w-full text-sm bg-white shadow-sm">
                 <thead className="bg-charcoal text-paper font-display text-base">
                   <tr>
+                    <th className="px-2 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={allShownSelected}
+                        onChange={toggleAllShown}
+                        aria-label="Select every order shown"
+                        title="Select every order shown"
+                        className="w-4 h-4 align-middle"
+                      />
+                    </th>
                     <th className="px-2 py-2 text-left sticky left-0 bg-charcoal z-10" title="Build order within the pickup">#</th>
                     <th className="px-3 py-2 text-left">Tag Name</th>
                     <th className="px-2 py-2 text-center" title="Paperwork ready (office only — not shown on the floor)">📄</th>
@@ -360,7 +421,16 @@ export default function AdminView() {
                 </thead>
                 <tbody>
                   {visibleOrders.map((o, i) => (
-                    <tr key={o.id} className={ROW_SHADES[i % ROW_SHADES.length]}>
+                    <tr key={o.id} className={selectedIds.has(o.id) ? 'bg-safety/20' : ROW_SHADES[i % ROW_SHADES.length]}>
+                      <td className="px-2 py-1 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(o.id)}
+                          onChange={() => toggleSelected(o.id)}
+                          aria-label={`Select ${o.tag_name}`}
+                          className="w-4 h-4 align-middle"
+                        />
+                      </td>
                       <td className="px-1 py-1 sticky left-0 bg-inherit whitespace-nowrap">
                         {o.status === 'active' ? (
                           <div className="flex items-center gap-1">
@@ -506,6 +576,21 @@ export default function AdminView() {
           onClose={() => setFormOrder(null)}
           onSaved={loadAll}
           allowPull
+        />
+      )}
+
+      {removing && (
+        <BulkRemoveModal
+          orders={selectedOrders}
+          onClose={() => setRemoving(false)}
+          onDone={({ count, permanent, announce }) => {
+            setSelectedIds(new Set())
+            setNotice(
+              `${count} ${count === 1 ? 'order' : 'orders'} ${permanent ? 'deleted for good' : 'cancelled'}` +
+                (announce ? ' — the floor has been told.' : ' — the floor was not notified.')
+            )
+            loadAll()
+          }}
         />
       )}
 

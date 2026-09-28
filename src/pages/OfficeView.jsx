@@ -5,6 +5,7 @@ import { useConnection } from '../lib/ConnectionContext.jsx'
 import { buildNumbers, byBuildOrder, daysUntil, relativeDay, shortDate } from '../lib/schedule'
 import { PANEL_TYPES, ROOM_SHAPES, WINDOW_TYPES, difficulty, orderPersonDays, pickupLoads, roomSize, useSettings } from '../lib/catalog'
 import WeekLoad from '../components/WeekLoad.jsx'
+import { dbErrorText } from '../lib/dbError'
 
 /**
  * Office: prints the build paperwork and enters each order's details
@@ -38,7 +39,7 @@ export default function OfficeView() {
         .is('actual_pickup_date', null),
       supabase.from('bt_departments').select('id').eq('name', 'Mods').maybeSingle(),
     ])
-    setError(err ? `Couldn't load orders: ${err.message}` : '')
+    setError(dbErrorText(err, "Couldn't load orders"))
     const numbers = buildNumbers(orderRows ?? [])
     setWeeks(weekRows ?? [])
     setOrders((orderRows ?? []).map((o) => ({ ...o, buildNo: numbers.get(o.id) })).sort(byBuildOrder))
@@ -120,7 +121,7 @@ export default function OfficeView() {
       p_walls_count: next.walls_count ?? null,
     })
     if (err) {
-      setError(`Couldn't save details for ${order.tag_name}: ${err.message}`)
+      setError(dbErrorText(err, `Couldn't save details for ${order.tag_name}`))
       load()
     }
   }

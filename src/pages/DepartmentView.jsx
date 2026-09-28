@@ -4,6 +4,7 @@ import { useAuth } from '../lib/AuthContext.jsx'
 import { WORKFLOW_STAGES } from '../lib/statusColors'
 import { blockText, defectLabel, useSettings, weekPace } from '../lib/catalog'
 import { nearestBuildWeekId, weekName, weekOptionLabel } from '../lib/dates'
+import { dbErrorText } from '../lib/dbError'
 import { DONE_RANK, buildNumbers, byBuildOrder, daysUntil, nextStageId as nextStage, relativeDay, shortDate, stageLabel, stageRank, wasMovedRecently } from '../lib/schedule'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import FileModal from '../components/FileModal.jsx'
@@ -109,7 +110,7 @@ export default function DepartmentView() {
         .eq('status', 'active')
       if (selectedWeekId !== 'all') orderQuery = orderQuery.eq('build_week_id', selectedWeekId)
       const { data: orderRows, error: ordersErr } = await orderQuery
-      if (ordersErr && active) setLoadError(`Couldn't load orders: ${ordersErr.message}`)
+      if (ordersErr && active) setLoadError(dbErrorText(ordersErr, "Couldn't load orders"))
       const orderIds = (orderRows ?? []).map((o) => o.id)
       if (orderIds.length === 0) {
         if (active) { setOrders([]); setLoading(false) }
@@ -126,7 +127,7 @@ export default function DepartmentView() {
       // A failed query here (e.g. a schema migration not yet run against
       // this database) used to fail silently and just render an empty
       // queue — say so instead.
-      if (statusErr && active) setLoadError(`Couldn't load statuses: ${statusErr.message}`)
+      if (statusErr && active) setLoadError(dbErrorText(statusErr, "Couldn't load statuses"))
       if (!statusErr && !ordersErr && active) setLoadError('')
 
       const { data: issueRows } = await supabase

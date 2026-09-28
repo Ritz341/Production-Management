@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { nearestBuildWeekId, weekOptionLabel } from '../lib/dates'
+import { dbErrorText } from '../lib/dbError'
 import { WORKFLOW_STAGES, workflowStageById, BLOCKED_CHIP_CLASS } from '../lib/statusColors'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import FileModal from '../components/FileModal.jsx'
@@ -67,7 +68,7 @@ export default function AdminView() {
     // this database) used to fail silently and just render an empty
     // grid — say so instead.
     const firstError = colsErr || ordersErr || statusErr
-    if (firstError) setLoadError(`Couldn't load the Grid: ${firstError.message}`)
+    if (firstError) setLoadError(dbErrorText(firstError, "Couldn't load the Grid"))
 
     const statusMap = new Map()
     for (const s of statusRows ?? []) {

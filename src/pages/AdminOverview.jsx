@@ -5,6 +5,7 @@ import { WORKFLOW_STAGES } from '../lib/statusColors'
 import { blockText, fmtQty, isoDate, pickupLoads, planLine, processesFor, ratePerHourOf, useSettings } from '../lib/catalog'
 import WeekLoad from '../components/WeekLoad.jsx'
 import { nearestBuildWeekId, weekName, weekOptionLabel } from '../lib/dates'
+import { dbErrorText } from '../lib/dbError'
 import { DONE_RANK, ago, buildNumbers, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
 
 // How close a pickup has to be before an unfinished order counts as at risk.
@@ -94,7 +95,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       setProcessDays(procDays ?? [])
 
       const err = oErr || sErr
-      setLoadError(err ? `Couldn't load the overview: ${err.message}` : '')
+      setLoadError(dbErrorText(err, "Couldn't load the overview"))
       const numbers = buildNumbers(orderRows ?? [])
       const byId = new Map((orderRows ?? []).map((o) => [o.id, { ...o, buildNo: numbers.get(o.id), statuses: {} }]))
       for (const s of statusRows ?? []) {

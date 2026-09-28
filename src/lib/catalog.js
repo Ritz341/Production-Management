@@ -80,12 +80,13 @@ export const RECOMMENDED_PROCESSES = {
   ],
   // Panel is one tablet over three benches that don't feed each other:
   // roof panels, the filler panels that go into a mod, and acrylic.
-  // Each is its own line, so a slow bench shows up as itself instead of
-  // dragging the other two down in the day's plan.
+  // `independent` is what says so — see planLine(). Without it the
+  // three would be read as one chain, and an acrylic bench with nobody
+  // on it would show as the thing holding up roof and filler.
   Panel: [
-    { id: 'roof_panels', name: 'Roof panels', line: 'Roof panel', unit: 'panels', minutesEach: null, perFinished: 1, counted: true },
-    { id: 'filler_panels', name: 'Mod filler panels', line: 'Filler panel', unit: 'panels', minutesEach: null, perFinished: 1, counted: true },
-    { id: 'acrylic_panels', name: 'Acrylic panels', line: 'Acrylic panel', unit: 'panels', minutesEach: null, perFinished: 1, counted: true },
+    { id: 'roof_panels', name: 'Roof panels', line: 'Roof panel', unit: 'panels', minutesEach: null, perFinished: 1, counted: true, independent: true },
+    { id: 'filler_panels', name: 'Mod filler panels', line: 'Filler panel', unit: 'panels', minutesEach: null, perFinished: 1, counted: true, independent: true },
+    { id: 'acrylic_panels', name: 'Acrylic panels', line: 'Acrylic panel', unit: 'panels', minutesEach: null, perFinished: 1, counted: true, independent: true },
   ],
 }
 
@@ -389,14 +390,32 @@ export function workingHoursPerDay(settings = DEFAULT_SETTINGS) {
 }
 
 /**
- * The day's plan for a department's line, from who's on each process:
- * each process's daily target (people × rate per hour × working hours),
- * what that means in finished units, and which process limits the line.
+ * The day's plan for a department, from who's on each process: each
+ * process's daily target (people × rate per hour × working hours), what
+ * that means in finished units, and which process is holding it up.
  *
  *   planLine(processes, { framing: 2, staging: 3 }, settings)
- *   → { steps: [{ ...process, people, daily, finished }], capacity, bottleneck }
+ *   → { steps: [{ ...process, people, daily, finished, isBottleneck }],
+ *       lines: [{ line, steps, capacity, bottleneck }],
+ *       capacity, bottleneck, independent }
  *
- * capacity / bottleneck are null until every staffed step has a rate.
+ * What counts as the bottleneck depends on how the lines relate:
+ *
+ *   Chained — V4T builds vents and frames on two lines, but both go
+ *   into assembly, so nothing gets out faster than the slowest station
+ *   anywhere. One bottleneck for the department, and capacity is that
+ *   station's output.
+ *
+ *   Independent — Panel's roof, filler and acrylic benches each make
+ *   their own thing and never touch. A quiet acrylic bench doesn't slow
+ *   roof panels down by one sheet, so each line gets its own bottleneck
+ *   and the department's capacity is the three added up. Steps say so
+ *   with `independent: true`; a department with nothing marked reads as
+ *   chained, which is how every process list behaved before.
+ *
+ * capacity is null until every step in the relevant group has both a
+ * rate and a headcount — half a line's worth of numbers would only
+ * produce a confident-looking guess.
  */
 /**
  * How many one person makes in a working hour. Entered as minutes for
@@ -415,12 +434,51 @@ export function planLine(processes, peopleByProcess, settings = DEFAULT_SETTINGS
     const rate = ratePerHourOf(p)
     const daily = people != null && rate ? people * rate * hours : null
     const finished = daily != null ? daily / (Number(p.perFinished) || 1) : null
-    return { ...p, people, daily, finished }
+    return { ...p, people, daily, finished, isBottleneck: false }
   })
-  const known = steps.filter((st) => st.finished != null)
-  const complete = known.length === steps.length && steps.length > 0
-  const bottleneck = complete ? known.reduce((a, b) => (b.finished < a.finished ? b : a)) : null
-  return { steps, capacity: bottleneck ? bottleneck.finished : null, bottleneck, hours }
+
+  // The slowest step in a group, or null if any of them is still
+  // missing a rate or a headcount.
+  const slowest = (group) => {
+    if (group.length === 0 || group.some((st) => st.finished == null)) return null
+    return group.reduce((a, b) => (b.finished < a.finished ? b : a))
+  }
+
+  const lines = groupByLine(steps).map((g) => {
+    const own = slowest(g.steps)
+    return {
+      line: g.line,
+      steps: g.steps,
+      // One step saying so is enough: a station added to Panel's roof
+      // bench without the flag shouldn't quietly re-chain the three.
+      independent: g.steps.some((st) => st.independent),
+      capacity: own ? own.finished : null,
+      bottleneck: own,
+    }
+  })
+
+  const independent = lines.length > 1 && lines.every((l) => l.independent)
+
+  let capacity = null
+  let bottleneck = null
+  if (independent) {
+    // Separate benches, separate outputs — the department makes the sum,
+    // and each bench answers for its own slowest station.
+    capacity = lines.every((l) => l.capacity != null) ? lines.reduce((sum, l) => sum + l.capacity, 0) : null
+    for (const l of lines) if (l.bottleneck) l.bottleneck.isBottleneck = true
+  } else {
+    // One chain, however many lines it runs on.
+    bottleneck = slowest(steps)
+    capacity = bottleneck ? bottleneck.finished : null
+    if (bottleneck) bottleneck.isBottleneck = true
+    // No line on a chain can get past the chain's own limit.
+    for (const l of lines) {
+      l.capacity = capacity
+      l.bottleneck = bottleneck
+    }
+  }
+
+  return { steps, lines, independent, capacity, bottleneck, hours }
 }
 
 /** Round for display: whole numbers, one decimal under 10. */

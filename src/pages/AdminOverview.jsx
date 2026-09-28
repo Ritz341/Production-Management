@@ -585,7 +585,7 @@ function ProcessCrew({ dept, processes, people, settings, live, onSave }) {
       <div className="font-display font-bold text-lg text-charcoal">{dept.name}</div>
       <div className="mt-1 grid gap-1.5">
         {plan.steps.map((st) => (
-          <div key={st.id} className={`flex items-center justify-between gap-3 text-sm ${plan.bottleneck?.id === st.id ? 'text-andonRed font-semibold' : 'text-steel'}`}>
+          <div key={st.id} className={`flex items-center justify-between gap-3 text-sm ${st.isBottleneck ? 'text-andonRed font-semibold' : 'text-steel'}`}>
             <label htmlFor={`pc-${dept.id}-${st.id}`} className="truncate">
               {st.name}
             </label>
@@ -612,9 +612,17 @@ function ProcessCrew({ dept, processes, people, settings, live, onSave }) {
         {plan.capacity != null ? (
           <>
             <b className="text-charcoal">
-              Line: {fmtQty(plan.capacity)} {unit} today
+              {plan.independent ? 'Benches' : 'Line'}: {fmtQty(plan.capacity)} {unit} today
             </b>{' '}
-            · bottleneck <b className="text-andonRed">{plan.bottleneck.name}</b>
+            {plan.independent ? (
+              // Each bench stands on its own, so naming one "the"
+              // bottleneck would point the crew at the wrong problem.
+              <>· {plan.lines.map((l) => `${l.line} ${fmtQty(l.capacity)}`).join(' · ')}</>
+            ) : (
+              <>
+                · bottleneck <b className="text-andonRed">{plan.bottleneck.name}</b>
+              </>
+            )}
           </>
         ) : (
           'Enter people per process (and minutes for one in Targets & TVs) to see the line output.'

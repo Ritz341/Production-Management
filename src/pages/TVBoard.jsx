@@ -185,16 +185,30 @@ export default function TVBoard({ department }) {
     [orders, columnIds]
   )
   // ── The week, not just the day ──
-  // How much of this pickup is prepped, and how many have to be
-  // finished today for the rest of the week to still work.
-  const readyCount = useMemo(() => orders.filter((o) => lane(o) === 'done').length, [orders, columnIds])
-  const nextWeek = useMemo(() => {
-    const dates = orders.map((o) => o.bt_build_weeks?.ship_date).filter(Boolean).sort()
-    return dates[0] ?? null
-  }, [orders])
+  // The pickup this board is working toward: the earliest one that still
+  // has this department's work in it. Orders are loaded across every
+  // week that hasn't been collected, and this used to take the earliest
+  // ship date among all of them — so a pickup the department finished
+  // last week, still waiting on its truck, dragged the whole board back
+  // to it: NEXT PICKUP 3D LATE, and every remaining order in the plant
+  // due today. Finished work is waiting on a truck, not on this crew. If
+  // an old week still has work in it, it comes first in build order and
+  // rightly takes over.
+  const focusWeekId = useMemo(() => {
+    if (queue.length) return queue[0].build_week_id
+    const upcoming = orders
+      .filter((o) => o.bt_build_weeks?.ship_date && o.bt_build_weeks.ship_date >= today)
+      .sort((a, b) => a.bt_build_weeks.ship_date.localeCompare(b.bt_build_weeks.ship_date))
+    return (upcoming[0] ?? orders[orders.length - 1])?.build_week_id ?? null
+  }, [queue, orders, today])
+  const weekOrders = useMemo(() => orders.filter((o) => o.build_week_id === focusWeekId), [orders, focusWeekId])
+  const readyCount = useMemo(() => weekOrders.filter((o) => lane(o) === 'done').length, [weekOrders, columnIds])
+  const nextWeek = weekOrders[0]?.bt_build_weeks?.ship_date ?? null
 
-  const weekProgress = weekPace(orders.length, readyCount, nextWeek, settings)
-  const dueTodayIds = new Set(queue.slice(0, weekProgress?.dueToday ?? 0).map((o) => o.id))
+  const weekProgress = weekPace(weekOrders.length, readyCount, nextWeek, settings)
+  const dueTodayIds = new Set(
+    queue.filter((o) => o.build_week_id === focusWeekId).slice(0, weekProgress?.dueToday ?? 0).map((o) => o.id)
+  )
 
   const rate = rateFor(settings, dept?.name ?? department)
   const processes = processesFor(settings, dept?.name ?? department)
@@ -205,17 +219,32 @@ export default function TVBoard({ department }) {
   // With processes, the day's number is the LAST step's count (what the
   // line actually finished) against what the bottleneck allows. Without,
   // it's the department's own count against people × daily rate.
+  //
+  // Benches that don't feed each other (Panel's roof, filler, acrylic)
+  // have no single last step: each is its own finish line. Their day is
+  // every bench's own last count added up, against every bench's own
+  // capacity added up.
+  const lastStepOf = (steps) => countedProcesses(steps).at(-1) ?? steps.at(-1)
   const target = plan
-    ? plan.capacity != null
-      ? Math.round(plan.capacity * (Number(finalStep.perFinished) || 1))
-      : null
+    ? plan.independent
+      ? plan.lines.every((l) => l.capacity != null)
+        ? Math.round(plan.lines.reduce((sum, l) => sum + l.capacity * (Number(lastStepOf(l.steps).perFinished) || 1), 0))
+        : null
+      : plan.capacity != null
+        ? Math.round(plan.capacity * (Number(finalStep.perFinished) || 1))
+        : null
     : crew != null && rate.perPerson
       ? Math.round(crew * rate.perPerson)
       : null
   // What the crew counted beats what the app can infer: orders only
   // finish in lumps, a count every two hours shows the real pace.
   const ownCounts = plan ? countsFor(finalStep.id) : countsFor(null)
-  const lastCount = ownCounts.length ? ownCounts[ownCounts.length - 1] : null
+  const lastCount = (() => {
+    if (!plan?.independent) return ownCounts.length ? ownCounts[ownCounts.length - 1] : null
+    const latest = plan.lines.map((l) => countsFor(lastStepOf(l.steps).id).at(-1)).filter(Boolean)
+    if (!latest.length) return null
+    return { count: latest.reduce((sum, c) => sum + c.count, 0), at: new Date(Math.max(...latest.map((c) => c.at.getTime()))) }
+  })()
   // Count mods only when every finished order has a mod count — one
   // without it would otherwise add nothing and the number would stall.
   // Mod counts only describe Mods' output; every other department counts orders.
@@ -231,7 +260,15 @@ export default function TVBoard({ department }) {
   shiftStart.setHours(Number(settings.shift.start.slice(0, 2)), Number(settings.shift.start.slice(3, 5)), 0, 0)
   const elapsed = Math.max(0, workingMinutesBetween(shiftStart, now, settings.shift) ?? 0)
   const dayFraction = Math.min(1, elapsed / productiveMinutesPerDay(settings.shift))
-  const expectedByNow = target != null ? target * dayFraction : null
+  // A count can be judged against the target because it's in the
+  // target's own unit, and so can Mods' mod total. Orders marked Done
+  // can't: "3 orders" against a target of 83 panels read as 41 behind
+  // and turned the board red every morning until the first check-in.
+  // Until there's a like-for-like number the board shows what it has
+  // and stays neutral.
+  const comparable = !!lastCount || useMods
+  const judgedTarget = comparable ? target : null
+  const expectedByNow = judgedTarget != null ? judgedTarget * dayFraction : null
   const pace = expectedByNow ? doneNum / Math.max(0.25, expectedByNow) : null
   const behind = expectedByNow != null ? Math.round(expectedByNow - doneNum) : null
   // Before the shift starts (and at weekends) there's nothing to be
@@ -268,7 +305,6 @@ export default function TVBoard({ department }) {
     return { ...b, entry, state }
   })
   const blocks = blocksFor(ownCounts, target)
-  const dueBlock = blocks.find((b) => b.state === 'current' || b.state === 'late')
   // One row per process: its own count, target and blocks.
   const processRows = plan
     ? countedProcesses(plan.steps).map((st) => {
@@ -276,8 +312,14 @@ export default function TVBoard({ department }) {
         return { ...st, last: list.length ? list[list.length - 1] : null, blocks: blocksFor(list, st.daily) }
       })
     : []
+  // Separate benches each owe their own check-in, so a late one on any of
+  // them is the one to name — not only the last bench in the list.
+  const dueBlock = plan?.independent
+    ? processRows.flatMap((r) => r.blocks).find((b) => b.state === 'late') ??
+      processRows.flatMap((r) => r.blocks).find((b) => b.state === 'current')
+    : blocks.find((b) => b.state === 'current' || b.state === 'late')
   const shipDays = daysUntil(nextWeek)
-  const headline = weekHeadline(nextWeek, { total: orders.length, done: readyCount })
+  const headline = weekHeadline(nextWeek, { total: weekOrders.length, done: readyCount })
 
   if (error) {
     return (
@@ -386,15 +428,15 @@ export default function TVBoard({ department }) {
                 <div className={`font-display font-extrabold leading-[0.85] tabular-nums text-[9vw] ${paceColor}`}>
                   {doneNum}
                 </div>
-                {target != null && <div className="font-display font-bold text-[3.5vw] text-floorMute leading-none pb-3">/ {target}</div>}
+                {judgedTarget != null && <div className="font-display font-bold text-[3.5vw] text-floorMute leading-none pb-3">/ {judgedTarget}</div>}
                 <div className="text-[1.6vw] text-floorMute pb-4">{unit}</div>
               </div>
-              {target != null ? (
+              {judgedTarget != null ? (
                 <>
                   <div className="relative h-4 rounded-full bg-floorLine overflow-hidden mt-3">
                     <i
                       className={`block h-full ${paceBar}`}
-                      style={{ width: `${Math.min(100, (doneNum / target) * 100)}%` }}
+                      style={{ width: `${Math.min(100, (doneNum / judgedTarget) * 100)}%` }}
                     />
                     {/* where the day itself has got to */}
                     <span className="absolute top-0 bottom-0 w-1 bg-paper/70" style={{ left: `${dayFraction * 100}%` }} />
@@ -402,15 +444,19 @@ export default function TVBoard({ department }) {
                   <div className="text-[1.3vw] text-floorMute mt-2 tabular-nums">
                     {plan ? Object.values(processPeople).reduce((a, b) => a + b, 0) : crew}{' '}
                     {(plan ? Object.values(processPeople).reduce((a, b) => a + b, 0) : crew) === 1 ? 'person' : 'people'} today ·{' '}
-                    {doneNum >= target
+                    {doneNum >= judgedTarget
                       ? 'target met'
                       : dayFraction === 0
-                        ? `${target} to build today`
+                        ? `${judgedTarget} to build today`
                         : behind > 0
-                          ? `${behind} behind for this time of day · ${target - doneNum} left`
-                          : `on pace · ${target - doneNum} left`}
+                          ? `${behind} behind for this time of day · ${judgedTarget - doneNum} left`
+                          : `on pace · ${judgedTarget - doneNum} left`}
                   </div>
                 </>
+              ) : target != null ? (
+                <div className="text-[1.3vw] text-floorMute mt-2">
+                  Today’s target is {target} {plan ? finalStep.unit : rate.unit} — judged once the crew enters a count.
+                </div>
               ) : (
                 <div className="text-[1.2vw] text-floorMute mt-2">
                   {plan
@@ -515,7 +561,11 @@ export default function TVBoard({ department }) {
             {queue.length === 0 ? (
               <div className="flex-1 grid place-items-center text-[2.2vw] font-display font-bold text-[#4CC46F]">Nothing waiting</div>
             ) : (
-              <ol className="mt-2 flex-1 flex flex-col gap-3 overflow-hidden">
+              // Column-wrapping flex: a card that doesn't fully fit wraps
+              // into a second column off to the right, which overflow
+              // hides — so the list ends on a whole card instead of half
+              // of one sliced by the panel edge, however tall the screen.
+              <ol className="mt-2 flex-1 min-h-0 flex flex-col flex-wrap content-start gap-3 overflow-hidden [&>li]:w-full">
                 {queue.slice(0, 6).map((o, i) => {
                   const l = lane(o)
                   const due = daysUntil(o.scheduled_pickup_date ?? o.bt_build_weeks?.ship_date)

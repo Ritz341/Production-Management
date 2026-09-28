@@ -13,6 +13,12 @@ import { RECOMMENDED_PROCESSES, fmtQty, groupByLine, planLine, processesFor, rat
  * vents and frames both go into assembly; Panel's three benches never
  * meet. See planLine().
  */
+/** "mods" and "Mods " are the same unit; "frames" and "mods" aren't. */
+function sameUnit(a, b) {
+  const norm = (u) => singular(String(u ?? '').trim().toLowerCase())
+  return norm(a) !== '' && norm(a) === norm(b)
+}
+
 /** "mods" -> "mod", so a hint reads "3 frames = 1 mod". */
 function singular(unit) {
   const u = String(unit ?? '')
@@ -147,10 +153,19 @@ export default function ProcessEditor({ department, settings, peopleToday, onSav
                           aria-label="Units per finished unit"
                           className="w-16 rounded border border-paperDim px-2 py-1 tabular-nums"
                         />
-                        {Number(r.perFinished) > 1 && (
-                          <span className="block text-xs text-steelLight">
-                            {fmtQty(r.perFinished)} {r.unit} = 1 {singular(finishedUnit)}
+                        {sameUnit(r.unit, finishedUnit) && Number(r.perFinished ?? 1) !== 1 ? (
+                          // A station that already makes the finished thing
+                          // can't take two of it to make one — this is how a
+                          // Mods line ended up reporting half its output.
+                          <span className="block text-xs font-semibold text-andonRed max-w-[9rem]" title={`This station already makes ${finishedUnit}, so one of them is one finished — Per finished should be 1.`}>
+                            ⚠ Should be 1 — already in {finishedUnit}
                           </span>
+                        ) : (
+                          Number(r.perFinished) > 1 && (
+                            <span className="block text-xs text-steelLight">
+                              {fmtQty(r.perFinished)} {r.unit} = 1 {singular(finishedUnit)}
+                            </span>
+                          )
                         )}
                       </td>
                       <td className="py-1.5 px-2">

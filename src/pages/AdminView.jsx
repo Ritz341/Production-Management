@@ -6,7 +6,7 @@ import { dbErrorText } from '../lib/dbError'
 import { WORKFLOW_STAGES, workflowStageById, BLOCKED_CHIP_CLASS } from '../lib/statusColors'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import FileModal from '../components/FileModal.jsx'
-import NotificationBanner from '../components/NotificationBanner.jsx'
+import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
 import OrderFormModal from '../components/OrderFormModal.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
 import BulkRemoveModal from '../components/BulkRemoveModal.jsx'
@@ -18,10 +18,11 @@ import AdminFloaters from './AdminFloaters.jsx'
 import { blockText } from '../lib/catalog'
 import { DONE_RANK, buildNumbers, byBuildOrder, stageRank, wasMovedRecently } from '../lib/schedule'
 
-// Cycled per row in the Grid tab so long lists are easier to track
-// across a wide table (25 columns) than plain white/paper zebra
-// striping. Deliberately avoids red — that's reserved for alerts.
-const ROW_SHADES = ['bg-white', 'bg-paperDim', 'bg-andonBlueBg', 'bg-andonGreenBg', 'bg-steel/10']
+// Plain two-tone zebra, so a row can be followed across 25 columns.
+// It used to cycle through blue and green as well — the same colours
+// that mean "in progress" and "done" everywhere else in the app, so a
+// row nobody had touched could read as finished at a glance.
+const ROW_SHADES = ['bg-white', 'bg-paper']
 
 export default function AdminView() {
   const { signOut } = useAuth()
@@ -276,9 +277,12 @@ export default function AdminView() {
             </button>
           ))}
         </div>
-        <button onClick={signOut} className="text-sm text-steelLight hover:text-paper">
-          Sign out
-        </button>
+        <div className="flex items-center gap-2">
+          <NotificationBell />
+          <button onClick={signOut} className="text-sm text-floorMute hover:text-paper">
+            Sign out
+          </button>
+        </div>
       </header>
 
       {tab === 'overview' && (
@@ -463,7 +467,9 @@ export default function AdminView() {
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        <span className={`font-display text-base font-semibold ${o.status === 'cancelled' ? 'text-steelLight line-through' : 'text-charcoal'}`}>
+                        {/* An identifier: broken at its hyphens it became
+                            three lines and hard to read as one tag. */}
+                        <span className={`font-display text-base font-semibold whitespace-nowrap ${o.status === 'cancelled' ? 'text-steelLight line-through' : 'text-charcoal'}`}>
                           {o.tag_name}
                         </span>
                         {o.status === 'cancelled' && (
@@ -483,7 +489,7 @@ export default function AdminView() {
                           {o.paperwork_ready_at ? '✓' : '○'}
                         </button>
                       </td>
-                      <td className="px-3 py-2 text-steelLight">{o.dealer}</td>
+                      <td className="px-3 py-2 text-steelLight min-w-[11rem]">{o.dealer}</td>
                       <td className="px-3 py-2 text-steelLight">{o.shipping_status}</td>
                       {presentColumns.map((c) => {
                         const cell = o.statuses[c.id]

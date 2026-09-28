@@ -4,7 +4,7 @@ import { useAuth } from '../lib/AuthContext.jsx'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { DEFECT_TYPES, defectLabel } from '../lib/catalog'
 import { ago, buildNumbers } from '../lib/schedule'
-import NotificationBanner from '../components/NotificationBanner.jsx'
+import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
 import QualityIssueModal, { departmentChoices } from '../components/QualityIssueModal.jsx'
 
 /**
@@ -120,9 +120,12 @@ export default function QualityView() {
             {open.length} open · {thisWeek.length} logged this week
           </p>
         </div>
-        <button onClick={signOut} className="text-sm text-steelLight hover:text-paper">
-          Sign out
-        </button>
+        <div className="flex items-center gap-2">
+          <NotificationBell />
+          <button onClick={signOut} className="text-sm text-floorMute hover:text-paper">
+            Sign out
+          </button>
+        </div>
       </header>
 
       <main className="px-4 sm:px-6 py-5 max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-4 items-start">

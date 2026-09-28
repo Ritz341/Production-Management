@@ -16,6 +16,9 @@
 -- has already been applied and an edited migration never re-runs for
 -- whoever applied the original.
 --
+-- Also carries each order's own copy of the pickup date along with the
+-- week, which had the same problem (section at the bottom).
+--
 -- Safe to re-run.
 -- ============================================================
 
@@ -57,3 +60,29 @@ drop trigger if exists bt_build_weeks_retitle on bt_build_weeks;
 create trigger bt_build_weeks_retitle
   before update on bt_build_weeks
   for each row execute function bt_build_weeks_retitle();
+
+
+-- ── Orders that copied the week's date move with it ─────────
+-- An import or Logistics writes the week's ship date onto each order
+-- as scheduled_pickup_date. Moving the week left every one of those
+-- copies behind, so Shipping and Logistics went on showing the old
+-- pickup — the same stale-date problem as the label, one table over.
+--
+-- Only orders still on the week's OLD date follow it. One someone gave
+-- its own pickup date on purpose has a different date, and keeps it.
+create or replace function bt_build_weeks_carry_orders()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.ship_date is distinct from old.ship_date and old.ship_date is not null then
+    update bt_orders
+    set scheduled_pickup_date = new.ship_date
+    where build_week_id = new.id
+      and scheduled_pickup_date = old.ship_date;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists bt_build_weeks_carry_orders on bt_build_weeks;
+create trigger bt_build_weeks_carry_orders
+  after update on bt_build_weeks
+  for each row execute function bt_build_weeks_carry_orders();

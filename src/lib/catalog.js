@@ -463,9 +463,11 @@ export function planLine(processes, peopleByProcess, settings = DEFAULT_SETTINGS
   let bottleneck = null
   if (independent) {
     // Separate benches, separate outputs — the department makes the sum,
-    // and each bench answers for its own slowest station.
+    // and each bench answers for its own slowest station. A bench of one
+    // station has nothing to be slower than, so it isn't flagged: three
+    // single benches all labelled BOTTLENECK says nothing at all.
     capacity = lines.every((l) => l.capacity != null) ? lines.reduce((sum, l) => sum + l.capacity, 0) : null
-    for (const l of lines) if (l.bottleneck) l.bottleneck.isBottleneck = true
+    for (const l of lines) if (l.bottleneck && l.steps.length > 1) l.bottleneck.isBottleneck = true
   } else {
     // One chain, however many lines it runs on.
     bottleneck = slowest(steps)

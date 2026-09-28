@@ -8,7 +8,7 @@ import { dbErrorText } from '../lib/dbError'
 import { DONE_RANK, HEADLINE_TONE_CLASS, buildNumbers, byBuildOrder, daysUntil, nextStageId as nextStage, relativeDay, shortDate, stageLabel, stageRank, wasMovedRecently, weekHeadline } from '../lib/schedule'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import FileModal from '../components/FileModal.jsx'
-import NotificationBanner from '../components/NotificationBanner.jsx'
+import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
 import QualityIssueModal, { departmentChoices } from '../components/QualityIssueModal.jsx'
 import CountBar from '../components/CountBar.jsx'
@@ -269,6 +269,7 @@ export default function DepartmentView() {
   }
   const currentWeek = useMemo(() => buildWeeks.find((w) => w.id === selectedWeekId), [buildWeeks, selectedWeekId])
   const columnById = useMemo(() => Object.fromEntries(allColumns.map((c) => [c.id, c.name])), [allColumns])
+  const columnOrder = useMemo(() => new Map(allColumns.map((c, i) => [c.id, i])), [allColumns])
 
   // Department name lookup for the cross-dept strip
   const deptByColumnId = useMemo(() => {
@@ -347,8 +348,16 @@ export default function DepartmentView() {
         return { id, name: columnById[id] ?? `Column ${id}`, total, done, blocked, mine: writableColumnIds.has(id) }
       })
       .filter((s) => s.total > 0)
-      .sort((a, b) => a.done / a.total - b.done / b.total) // furthest behind first
-  }, [orders, ownColumnIds, columnById, writableColumnIds])
+      // The plant's own column order, every time. Sorting by progress
+      // moved the benches around as work finished, so nobody could learn
+      // where Acrylic lives; the one furthest behind is marked instead.
+      .sort((a, b) => (columnOrder.get(a.id) ?? 1e9) - (columnOrder.get(b.id) ?? 1e9))
+  }, [orders, ownColumnIds, columnById, writableColumnIds, columnOrder])
+  const laggingBenchId = useMemo(() => {
+    const open = subDepts.filter((s) => s.done < s.total)
+    if (open.length < 2) return null
+    return open.reduce((a, b) => (b.done / b.total < a.done / a.total ? b : a)).id
+  }, [subDepts])
 
   const [showAllDone, setShowAllDone] = useState(false)
   const [toast, setToast] = useState(null) // { message, undo }
@@ -399,6 +408,7 @@ export default function DepartmentView() {
             <button onClick={signOut} className="text-floorMute hover:text-paper">
               Sign out
             </button>
+            <NotificationBell />
           </div>
           <h1 className="font-display font-extrabold uppercase text-5xl sm:text-6xl leading-[0.9] mt-1 break-words">
             {currentDeptName}
@@ -435,8 +445,12 @@ export default function DepartmentView() {
           <CountBar departments={departments.filter((d) => profile?.combinedDepartmentIds?.includes(d.id))} live={live} />
         </div>
 
+        {/* When the truck comes and how far along this pickup is sit
+            together: they answer the same question. The pace used to be a
+            full-width card of its own under the header, and with it the
+            first job card on a landscape tablet landed below the fold. */}
         {currentWeek?.ship_date && (
-          <div className="sm:text-right">
+          <div className="sm:text-right sm:min-w-[300px]">
             <div className="text-[11px] tracking-[0.14em] uppercase text-floorMute">This week ships</div>
             <div className={`font-display font-extrabold text-5xl leading-none tabular-nums ${HEADLINE_TONE_CLASS[headline.tone]}`}>
               {headline.text}
@@ -446,6 +460,39 @@ export default function DepartmentView() {
               {headline.tone === 'done' && ` · ${relativeDay(shipDays)}`}
               {weekName(currentWeek) && ` · ${weekName(currentWeek)}`}
             </div>
+            {!loading && pace && (
+              <div className="mt-2.5">
+                <div className="flex items-baseline sm:justify-end gap-2 text-sm">
+                  <span className="font-display font-extrabold text-xl tabular-nums">
+                    <span className="text-[#7FD49A]">{pace.done}</span>
+                    <span className="text-floorMute"> / {pace.total}</span>
+                  </span>
+                  <span className="text-floorMute">ready for pickup</span>
+                </div>
+                <div className="relative h-2 rounded-full bg-floorLine overflow-hidden mt-1">
+                  <i className="block h-full bg-[#4CC46F] transition-[width] duration-500" style={{ width: `${pace.pct}%` }} />
+                  {/* where today's share should take it */}
+                  <span
+                    className="absolute top-0 bottom-0 w-[3px] bg-safety"
+                    style={{ left: `${Math.min(100, ((pace.done + pace.dueToday) / pace.total) * 100)}%` }}
+                    title="Where today should finish"
+                  />
+                </div>
+                <div className="text-sm mt-1">
+                  {pace.left === 0 ? (
+                    <span className="text-[#7FD49A] font-bold">All prepped for this pickup</span>
+                  ) : (
+                    <>
+                      <span className="text-safety font-bold">{pace.dueToday} to finish today</span>
+                      <span className="text-floorMute">
+                        {' '}
+                        · {pace.left} left over {pace.days} {pace.days === 1 ? 'day' : 'days'}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </header>
@@ -455,74 +502,40 @@ export default function DepartmentView() {
           <div className="mt-3 bg-andonRedBg text-andonRed text-sm px-4 py-3 rounded-lg">⚠ {loadError}</div>
         )}
 
-        {/* ── The week, at a glance ── */}
-        {!loading && pace && (
-          <section className="mt-4 rounded-2xl border border-floorLine bg-floorCard px-4 sm:px-5 py-3.5">
-            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-              <div className="text-[11px] tracking-[0.14em] uppercase font-bold text-floorMute">
-                Ready for pickup
-              </div>
-              <div className="font-display font-extrabold text-2xl tabular-nums">
-                <span className="text-[#7FD49A]">{pace.done}</span>
-                <span className="text-floorMute"> / {pace.total}</span>
-                <span className="text-floorMute text-base font-bold"> · {pace.pct}%</span>
-              </div>
-            </div>
-            <div className="relative h-3 rounded-full bg-floorLine overflow-hidden mt-2">
-              <i className="block h-full bg-[#4CC46F] transition-[width] duration-500" style={{ width: `${pace.pct}%` }} />
-              {/* what today's share would take it to */}
-              <span
-                className="absolute top-0 bottom-0 w-[3px] bg-safety"
-                style={{ left: `${Math.min(100, ((pace.done + pace.dueToday) / pace.total) * 100)}%` }}
-                title="Where today should finish"
-              />
-            </div>
-            <div className="text-sm mt-2">
-              {pace.left === 0 ? (
-                <span className="text-[#7FD49A] font-bold">Everything here is prepped for this pickup 🎉</span>
-              ) : (
-                <>
-                  <span className="text-safety font-bold">{pace.dueToday} to finish today</span>
-                  <span className="text-floorMute">
-                    {' '}
-                    to stay on pace · {pace.left} left over {pace.days} {pace.days === 1 ? 'day' : 'days'}
-                  </span>
-                </>
-              )}
-            </div>
-          </section>
-        )}
-
         {/* ── Each bench on this tablet ── */}
         {!loading && subDepts.length > 1 && (
-          <section className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <section className="mt-3 flex gap-2 overflow-x-auto pb-1" aria-label="Each bench on this tablet">
             {subDepts.map((s) => {
               const pct = Math.round((s.done / s.total) * 100)
+              const lagging = s.id === laggingBenchId
               return (
                 <div
                   key={s.id}
-                  className={`rounded-xl border px-3.5 py-2.5 ${
-                    s.blocked ? 'border-andonRed bg-blockedCard' : pct === 100 ? 'border-[#4CC46F] bg-[#16301F]' : 'border-floorLine bg-floorCard'
+                  title={lagging ? 'Furthest behind on this tablet' : undefined}
+                  className={`flex-1 min-w-[150px] rounded-xl border px-3 py-2 ${
+                    s.blocked
+                      ? 'border-andonRed bg-blockedCard'
+                      : pct === 100
+                        ? 'border-[#4CC46F] bg-[#16301F]'
+                        : lagging
+                          ? 'border-safety bg-floorCard'
+                          : 'border-floorLine bg-floorCard'
                   }`}
                 >
                   <div className="flex items-baseline justify-between gap-2">
-                    <div className="font-display font-bold uppercase tracking-wide truncate">
+                    <div className="font-display font-bold uppercase tracking-wide text-sm truncate">
                       {s.name}
-                      {!s.mine && <span className="ml-1.5 text-xs font-normal normal-case text-floorMute">view only</span>}
+                      {!s.mine && <span className="ml-1.5 text-[11px] font-normal normal-case text-floorMute">view only</span>}
                     </div>
                     <div className="font-display font-extrabold tabular-nums whitespace-nowrap">
                       <span className={pct === 100 ? 'text-[#4CC46F]' : 'text-paper'}>{s.done}</span>
                       <span className="text-floorMute"> / {s.total}</span>
                     </div>
                   </div>
-                  <div className="relative h-2 rounded-full bg-floorLine overflow-hidden mt-2">
+                  <div className="relative h-1.5 rounded-full bg-floorLine overflow-hidden mt-1.5">
                     <i className="block h-full bg-[#4CC46F] transition-[width] duration-500" style={{ width: `${pct}%` }} />
                   </div>
-                  {s.blocked > 0 && (
-                    <div className="text-xs font-bold text-[#FF8A8A] mt-1.5">
-                      {s.blocked} blocked — needs a hand
-                    </div>
-                  )}
+                  {s.blocked > 0 && <div className="text-[11px] font-bold text-[#FF8A8A] mt-1">{s.blocked} blocked</div>}
                 </div>
               )
             })}
@@ -629,7 +642,11 @@ export default function DepartmentView() {
 
   function renderCard(o) {
     const own = ownColumnIds.filter((id) => o.cells[id] != null)
-    const others = Object.keys(o.cells).map(Number).filter((id) => !ownColumnIds.includes(id))
+    // One chip per other department, not per column. Panel alone has four
+    // columns, so a card used to read PANEL PANEL PANEL — three chips that
+    // look identical and could each be a different state. A department is
+    // shown at its least-finished job: it's only ✓ when all of it is.
+    const others = otherDepartments(o, ownColumnIds, deptByColumnId, columnById)
     const isBlocked = own.some((id) => o.cells[id].blocked)
     const isDone = own.length > 0 && own.every((id) => stageRank(o.cells[id].stage) >= DONE_RANK)
     // Amber = this one is part of today's share; leaving it makes
@@ -697,10 +714,12 @@ export default function DepartmentView() {
           return (
             <div key={id} className={`grid grid-cols-[1fr_auto] gap-2 items-center ${i > 0 ? 'border-t border-floorLine pt-2.5' : ''}`}>
               <div className="min-w-0">
+                {/* Bench name on its own line: beside the state it wrapped
+                    ("Roof / Panels") in a four-lane layout. */}
+                {own.length > 1 && <div className="font-bold text-sm truncate">{columnById[id]}</div>}
                 <div className="flex items-baseline gap-2 text-sm">
-                  {own.length > 1 && <span className="font-bold">{columnById[id]}</span>}
-                  <span className={cell.blocked ? 'text-[#FF9A9A]' : 'text-floorMute'}>
-                    {cell.blocked ? `Blocked — ${blockText(cell)}` : stageLabel(cell.stage)}
+                  <span className={cell.blocked ? 'text-[#FF9A9A] font-semibold' : rank >= DONE_RANK ? 'text-[#7FD49A]' : 'text-floorMute'}>
+                    {cell.blocked ? 'Blocked' : stageLabel(cell.stage)}
                   </span>
                 </div>
                 <StageSteps rank={rank} blocked={cell.blocked} />
@@ -732,9 +751,7 @@ export default function DepartmentView() {
                   >
                     {STAGE_VERB[next]}
                   </button>
-                ) : (
-                  <span className="text-sm font-bold text-[#7FD49A] px-1">✓ Done</span>
-                )}
+                ) : null /* done: the label on the left already says so */}
                 {!cell.blocked && next && (
                   <button
                     onClick={() => requestToggleBlocked(o.id, id, false)}
@@ -768,23 +785,27 @@ export default function DepartmentView() {
                 </span>
               </div>
               )}
+              {/* Full card width, under the row: the reason is what the next
+                  person needs, and beside the button it wrapped four lines deep. */}
+              {cell.blocked && (
+                <p className="col-span-2 -mt-0.5 rounded-lg bg-andonRed/15 px-2.5 py-1.5 text-sm leading-snug text-[#FFB3B3]">
+                  {blockText(cell)}
+                </p>
+              )}
             </div>
           )
         })}
 
         <div className="flex justify-between items-center gap-2">
           <div className="flex flex-wrap gap-1" aria-label="Other departments on this order">
-            {others.map((id) => {
-              const c = o.cells[id]
-              const name = deptByColumnId[id] ?? columnById[id]
-              const rank = stageRank(c.stage)
+            {others.map(({ name, rank, blocked, jobs, doneJobs }) => {
               const done = rank >= DONE_RANK
               return (
                 <span
-                  key={id}
-                  title={`${name}: ${c.blocked ? 'Blocked' : stageLabel(c.stage)}`}
+                  key={name}
+                  title={`${name}: ${blocked ? 'Blocked' : stageLabel(rank === 1 ? 'started' : done ? 'completed' : null)}${jobs > 1 ? ` (${doneJobs} of ${jobs} done)` : ''}`}
                   className={`rounded px-1.5 py-[1px] text-[11px] font-semibold uppercase tracking-wide leading-tight border ${
-                    c.blocked
+                    blocked
                       ? 'bg-andonRed/20 border-andonRed text-[#FF8A8A]'
                       : done
                         ? 'bg-[#16301F] border-[#4CC46F] text-[#7FD49A]'
@@ -793,7 +814,7 @@ export default function DepartmentView() {
                           : 'border-[#343A41] text-[#6B747E]'
                   }`}
                 >
-                  {done ? '✓ ' : c.blocked ? '⚑ ' : ''}
+                  {done ? '✓ ' : blocked ? '⚑ ' : ''}
                   {shortDept(name)}
                 </span>
               )
@@ -822,6 +843,30 @@ export default function DepartmentView() {
 const STAGE_VERB = {
   started: 'Start',
   completed: 'Done',
+}
+
+/**
+ * The departments other than this tablet's on an order, one entry each,
+ * at the state of their least-finished job. A column with no department
+ * (Glass, Rail — tracked but not yet anyone's tablet) keeps its own name.
+ */
+function otherDepartments(order, ownColumnIds, deptByColumnId, columnById) {
+  const byName = new Map()
+  for (const id of Object.keys(order.cells).map(Number)) {
+    if (ownColumnIds.includes(id)) continue
+    const c = order.cells[id]
+    const name = deptByColumnId[id] ?? columnById[id] ?? `Column ${id}`
+    const rank = stageRank(c.stage)
+    const prev = byName.get(name)
+    if (!prev) byName.set(name, { name, rank, blocked: !!c.blocked, jobs: 1, doneJobs: rank >= DONE_RANK ? 1 : 0 })
+    else {
+      prev.rank = Math.min(prev.rank, rank)
+      prev.blocked ||= !!c.blocked
+      prev.jobs++
+      if (rank >= DONE_RANK) prev.doneJobs++
+    }
+  }
+  return [...byName.values()]
 }
 
 // Other departments on the card are named, not just coloured — a colour

@@ -83,10 +83,7 @@ export default function CountBar({ departments, live }) {
           >
             <span className="font-display font-extrabold text-3xl leading-none tabular-nums">{last ? last.count : '—'}</span>
             <span className="leading-tight">
-              <span className="block text-sm font-semibold">
-                {t.label ? `${t.label}: ` : ''}
-                {t.unit} done today
-              </span>
+              <span className="block text-sm font-semibold">{countLabel(t)}</span>
               <span className={`block text-xs ${due ? 'font-bold' : 'text-floorMute'}`}>
                 {due
                   ? `Tap to update — was due ${clockLabel(`${String(dueAt.getHours()).padStart(2, '0')}:${String(dueAt.getMinutes()).padStart(2, '0')}`)}`
@@ -109,6 +106,16 @@ export default function CountBar({ departments, live }) {
       )}
     </div>
   )
+}
+
+/**
+ * "Roof panels done today", not "Roof panels: panels done today" — when
+ * the station's name already says what it makes, the unit is an echo.
+ */
+function countLabel({ label, unit }) {
+  if (!label) return `${unit} done today`
+  const stem = String(unit ?? '').toLowerCase().replace(/s$/, '')
+  return stem && label.toLowerCase().includes(stem) ? `${label} done today` : `${label}: ${unit} done today`
 }
 
 function CountModal({ target, current, today, onClose }) {

@@ -5,7 +5,7 @@ import { WORKFLOW_STAGES } from '../lib/statusColors'
 import { blockText, defectLabel, useSettings, weekPace } from '../lib/catalog'
 import { nearestBuildWeekId, weekName, weekOptionLabel } from '../lib/dates'
 import { dbErrorText } from '../lib/dbError'
-import { DONE_RANK, buildNumbers, byBuildOrder, daysUntil, nextStageId as nextStage, relativeDay, shortDate, stageLabel, stageRank, wasMovedRecently } from '../lib/schedule'
+import { DONE_RANK, HEADLINE_TONE_CLASS, buildNumbers, byBuildOrder, daysUntil, nextStageId as nextStage, relativeDay, shortDate, stageLabel, stageRank, wasMovedRecently, weekHeadline } from '../lib/schedule'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import FileModal from '../components/FileModal.jsx'
 import NotificationBanner from '../components/NotificationBanner.jsx'
@@ -380,6 +380,9 @@ export default function DepartmentView() {
   }
 
   const shipDays = daysUntil(currentWeek?.ship_date)
+  // This tablet's own work, so ALL BUILT here means this department
+  // is finished for the week — not that the order is ready to ship.
+  const headline = weekHeadline(currentWeek?.ship_date, { total: orders.length, done: lanes.done.length })
 
   return (
     <div className="min-h-full bg-floor text-paper">
@@ -435,11 +438,12 @@ export default function DepartmentView() {
         {currentWeek?.ship_date && (
           <div className="sm:text-right">
             <div className="text-[11px] tracking-[0.14em] uppercase text-floorMute">This week ships</div>
-            <div className={`font-display font-extrabold text-5xl leading-none tabular-nums ${shipDays <= 2 ? 'text-[#FF6B6B]' : 'text-safety'}`}>
-              {relativeDay(shipDays).toUpperCase()}
+            <div className={`font-display font-extrabold text-5xl leading-none tabular-nums ${HEADLINE_TONE_CLASS[headline.tone]}`}>
+              {headline.text}
             </div>
             <div className="text-sm text-floorMute">
               {shortDate(currentWeek.ship_date)}
+              {headline.tone === 'done' && ` · ${relativeDay(shipDays)}`}
               {weekName(currentWeek) && ` · ${weekName(currentWeek)}`}
             </div>
           </div>

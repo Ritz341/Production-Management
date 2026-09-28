@@ -6,7 +6,7 @@ import { blockText, fmtQty, isoDate, pickupLoads, planLine, processesFor, ratePe
 import WeekLoad from '../components/WeekLoad.jsx'
 import { nearestBuildWeekId, weekName, weekOptionLabel } from '../lib/dates'
 import { dbErrorText } from '../lib/dbError'
-import { DONE_RANK, ago, buildNumbers, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
+import { DONE_RANK, HEADLINE_TONE_CLASS, ago, buildNumbers, daysUntil, relativeDay, shortDate, stageRank, weekHeadline } from '../lib/schedule'
 
 // How close a pickup has to be before an unfinished order counts as at risk.
 const AT_RISK_DAYS = 3
@@ -289,6 +289,9 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
   }, [buildWeeks])
 
   const shipDays = daysUntil(week?.ship_date)
+  // Counted in orders, not department jobs: the tile is about whether
+  // this week still owes the yard anything.
+  const headline = weekHeadline(week?.ship_date, { total: weekOrders.length, done: weekStats.ordersDone })
   const pct = weekStats.total ? Math.round((weekStats.done / weekStats.total) * 100) : 0
 
   return (
@@ -347,10 +350,15 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
           <div className="text-[11px] uppercase tracking-[0.12em] text-floorMute font-semibold">
             {weekName(week) || 'This build week'} ships
           </div>
-          <div className={`font-display font-extrabold text-5xl leading-none mt-1.5 tabular-nums ${shipDays != null && shipDays <= 2 ? 'text-[#FF6B6B]' : 'text-safety'}`}>
-            {week?.ship_date ? relativeDay(shipDays).toUpperCase() : 'NO DATE'}
+          <div className={`font-display font-extrabold text-5xl leading-none mt-1.5 tabular-nums ${HEADLINE_TONE_CLASS[headline.tone]}`}>
+            {headline.text}
           </div>
-          <div className="text-sm text-floorMute mt-1">{week?.ship_date ? shortDate(week.ship_date) : 'Set a ship date below'}</div>
+          <div className="text-sm text-floorMute mt-1">
+            {week?.ship_date ? shortDate(week.ship_date) : 'Set a ship date below'}
+            {/* Still say where the date sits — finished early and finished
+                late are different facts, they're just not alarms. */}
+            {headline.tone === 'done' && shipDays != null && ` · ${relativeDay(shipDays)}`}
+          </div>
           {week && (
             <div className="flex items-center gap-2 mt-3">
               <input

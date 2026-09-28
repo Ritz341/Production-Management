@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { useAuth } from '../lib/AuthContext.jsx'
-import { DONE_RANK, buildNumbers, byBuildOrder, daysUntil, relativeDay, stageRank } from '../lib/schedule'
+import { DONE_RANK, HEADLINE_TONE_CLASS, buildNumbers, byBuildOrder, daysUntil, relativeDay, stageRank, weekHeadline } from '../lib/schedule'
 import { blockText, checkinBlocks, clockLabel, countedProcesses, fmtQty, isoDate, planLine, processesFor, productiveMinutesPerDay, rateFor, ratePerHourOf, useSettings, weekPace, workingMinutesBetween } from '../lib/catalog'
 
 /**
@@ -277,6 +277,7 @@ export default function TVBoard({ department }) {
       })
     : []
   const shipDays = daysUntil(nextWeek)
+  const headline = weekHeadline(nextWeek, { total: orders.length, done: readyCount })
 
   if (error) {
     return (
@@ -324,8 +325,8 @@ export default function TVBoard({ department }) {
           {nextWeek && (
             <div className="text-right">
               <div className="text-[1vw] tracking-[0.2em] uppercase text-floorMute">Next pickup</div>
-              <div className={`font-display font-extrabold text-[3vw] leading-none ${shipDays <= 2 ? 'text-[#FF6B6B]' : 'text-safety'}`}>
-                {relativeDay(shipDays).toUpperCase()}
+              <div className={`font-display font-extrabold text-[3vw] leading-none ${HEADLINE_TONE_CLASS[headline.tone]}`}>
+                {headline.text}
               </div>
             </div>
           )}

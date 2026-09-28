@@ -4,7 +4,8 @@ import { useConnection } from '../lib/ConnectionContext.jsx'
 import { WORKFLOW_STAGES } from '../lib/statusColors'
 import { blockText, fmtQty, isoDate, pickupLoads, planLine, processesFor, ratePerHourOf, useSettings } from '../lib/catalog'
 import WeekLoad from '../components/WeekLoad.jsx'
-import { nearestBuildWeekId } from '../lib/dates'
+import { nearestBuildWeekId, weekName, weekOptionLabel } from '../lib/dates'
+import { dbErrorText } from '../lib/dbError'
 import { DONE_RANK, ago, buildNumbers, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
 
 // How close a pickup has to be before an unfinished order counts as at risk.
@@ -68,7 +69,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       // picked up it no longer needs the coordinator's attention.
       const { data: orderRows, error: oErr } = await supabase
         .from('bt_orders')
-        .select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, created_at, notes, sequence, status, cancel_reason, mods_count, room_shape, window_type, panel_type')
+        .select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, created_at, notes, sequence, status, cancel_reason, mods_count, walls_count, room_shape, window_type, panel_type')
         .is('actual_pickup_date', null)
         .eq('status', 'active')
       const ids = (orderRows ?? []).map((o) => o.id)
@@ -94,7 +95,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       setProcessDays(procDays ?? [])
 
       const err = oErr || sErr
-      setLoadError(err ? `Couldn't load the overview: ${err.message}` : '')
+      setLoadError(dbErrorText(err, "Couldn't load the overview"))
       const numbers = buildNumbers(orderRows ?? [])
       const byId = new Map((orderRows ?? []).map((o) => [o.id, { ...o, buildNo: numbers.get(o.id), statuses: {} }]))
       for (const s of statusRows ?? []) {
@@ -209,7 +210,9 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       return
     }
     onWeeksChanged()
-    setToast(`${week.label} now ships ${shortDate(shipDraft)} — every tablet has been updated`)
+    setToast(
+      `Now ships ${shortDate(shipDraft)}${week.ship_date ? `, moved from ${shortDate(week.ship_date)}` : ''} — every tablet has been updated`
+    )
   }
 
   async function clearBlock(o, colId) {
@@ -300,9 +303,13 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
               aria-pressed={w.id === weekId}
               className={`text-left rounded-xl border px-3 py-2 bg-white ${w.id === weekId ? 'border-charcoal ring-1 ring-charcoal' : 'border-paperDim'}`}
             >
-              <div className="font-display font-bold text-lg leading-tight text-charcoal">{w.label}</div>
+              {/* The ship date is the week's name. The stored label is
+                  the sheet's banner and carries a date of its own, so
+                  leading with it puts a second, staler date on screen. */}
+              <div className="font-display font-bold text-lg leading-tight text-charcoal">{shortDate(w.ship_date)}</div>
               <div className={`text-xs ${daysUntil(w.ship_date) < 0 ? 'text-andonRed' : 'text-steelLight'}`}>
-                {shortDate(w.ship_date)} · {relativeDay(daysUntil(w.ship_date))}
+                {relativeDay(daysUntil(w.ship_date))}
+                {weekName(w) && ` · ${weekName(w)}`}
               </div>
             </button>
           ))}
@@ -316,8 +323,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
               <option value="">Other weeks…</option>
               {buildWeeks.map((w) => (
                 <option key={w.id} value={w.id}>
-                  {w.label}
-                  {w.ship_date ? ` — ${shortDate(w.ship_date)}` : ''}
+                  {weekOptionLabel(w)}
                 </option>
               ))}
             </select>
@@ -338,7 +344,9 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       {/* ── KPIs ── */}
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.3fr_1fr_1fr_1fr] gap-3">
         <div className="rounded-2xl bg-charcoal text-paper p-4">
-          <div className="text-[11px] uppercase tracking-[0.12em] text-floorMute font-semibold">{week?.label ?? 'Build week'} ships</div>
+          <div className="text-[11px] uppercase tracking-[0.12em] text-floorMute font-semibold">
+            {weekName(week) || 'This build week'} ships
+          </div>
           <div className={`font-display font-extrabold text-5xl leading-none mt-1.5 tabular-nums ${shipDays != null && shipDays <= 2 ? 'text-[#FF6B6B]' : 'text-safety'}`}>
             {week?.ship_date ? relativeDay(shipDays).toUpperCase() : 'NO DATE'}
           </div>
@@ -448,7 +456,8 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
             <section className="rounded-2xl bg-white border border-paperDim p-4">
               <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">Can we make it?</h2>
               <p className="text-sm text-steelLight mb-2">
-                Mods work left for {week?.label} and every pickup before it, against the crew until it ships.
+                Mods work left for {week?.ship_date ? shortDate(week.ship_date) : 'this week'} and every pickup before it,
+                against the crew until it ships.
               </p>
               <WeekLoad load={loads.get(weekId)} settings={settings} />
             </section>
@@ -577,7 +586,7 @@ function ProcessCrew({ dept, processes, people, settings, live, onSave }) {
       <div className="font-display font-bold text-lg text-charcoal">{dept.name}</div>
       <div className="mt-1 grid gap-1.5">
         {plan.steps.map((st) => (
-          <div key={st.id} className={`flex items-center justify-between gap-3 text-sm ${plan.bottleneck?.id === st.id ? 'text-andonRed font-semibold' : 'text-steel'}`}>
+          <div key={st.id} className={`flex items-center justify-between gap-3 text-sm ${st.isBottleneck ? 'text-andonRed font-semibold' : 'text-steel'}`}>
             <label htmlFor={`pc-${dept.id}-${st.id}`} className="truncate">
               {st.name}
             </label>
@@ -604,9 +613,17 @@ function ProcessCrew({ dept, processes, people, settings, live, onSave }) {
         {plan.capacity != null ? (
           <>
             <b className="text-charcoal">
-              Line: {fmtQty(plan.capacity)} {unit} today
+              {plan.independent ? 'Benches' : 'Line'}: {fmtQty(plan.capacity)} {unit} today
             </b>{' '}
-            · bottleneck <b className="text-andonRed">{plan.bottleneck.name}</b>
+            {plan.independent ? (
+              // Each bench stands on its own, so naming one "the"
+              // bottleneck would point the crew at the wrong problem.
+              <>· {plan.lines.map((l) => `${l.line} ${fmtQty(l.capacity)}`).join(' · ')}</>
+            ) : (
+              <>
+                · bottleneck <b className="text-andonRed">{plan.bottleneck.name}</b>
+              </>
+            )}
           </>
         ) : (
           'Enter people per process (and minutes for one in Targets & TVs) to see the line output.'

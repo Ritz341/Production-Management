@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { nearestBuildWeekId, weekOptionLabel } from '../lib/dates'
+import { dbErrorText } from '../lib/dbError'
 import { WORKFLOW_STAGES, workflowStageById, BLOCKED_CHIP_CLASS } from '../lib/statusColors'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import FileModal from '../components/FileModal.jsx'
@@ -55,7 +56,7 @@ export default function AdminView() {
     const { data: cols, error: colsErr } = await supabase.from('bt_status_columns').select('id, name').order('sort_order')
     setColumns(cols ?? [])
 
-    let query = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, notes, sequence, moved_at, moved_direction, status, cancel_reason, paperwork_ready_at, mods_count, room_shape, window_type, panel_type, bt_build_weeks(ship_date)')
+    let query = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, notes, sequence, moved_at, moved_direction, status, cancel_reason, paperwork_ready_at, mods_count, walls_count, room_shape, window_type, panel_type, bt_build_weeks(ship_date)')
     if (selectedWeekId !== 'all') query = query.eq('build_week_id', selectedWeekId)
     const { data: orderRows, error: ordersErr } = await query
 
@@ -67,7 +68,7 @@ export default function AdminView() {
     // this database) used to fail silently and just render an empty
     // grid — say so instead.
     const firstError = colsErr || ordersErr || statusErr
-    if (firstError) setLoadError(`Couldn't load the Grid: ${firstError.message}`)
+    if (firstError) setLoadError(dbErrorText(firstError, "Couldn't load the Grid"))
 
     const statusMap = new Map()
     for (const s of statusRows ?? []) {

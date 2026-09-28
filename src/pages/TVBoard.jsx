@@ -426,9 +426,9 @@ export default function TVBoard({ department }) {
                 <div className="mt-4 grid gap-2">
                   {processRows.map((st) => (
                     <div key={st.id} className="grid grid-cols-[minmax(0,11vw)_minmax(0,7vw)_1fr] items-center gap-3">
-                      <div className={`font-display font-bold text-[1.4vw] leading-tight truncate ${plan.bottleneck?.id === st.id ? 'text-[#FF8A8A]' : ''}`}>
+                      <div className={`font-display font-bold text-[1.4vw] leading-tight truncate ${st.isBottleneck ? 'text-[#FF8A8A]' : ''}`}>
                         {st.name}
-                        {plan.bottleneck?.id === st.id && <span className="block text-[0.8vw] tracking-wider uppercase">bottleneck</span>}
+                        {st.isBottleneck && <span className="block text-[0.8vw] tracking-wider uppercase">bottleneck</span>}
                       </div>
                       <div className="font-display font-extrabold text-[1.8vw] tabular-nums leading-none">
                         {st.last ? fmtQty(st.last.count) : '—'}
@@ -466,7 +466,10 @@ export default function TVBoard({ department }) {
               <div className="text-[1.1vw] text-floorMute mt-2">
                 {plan?.capacity != null && (
                   <span>
-                    Line can finish {fmtQty(plan.capacity)} {finalStep.unit} today · bottleneck {plan.bottleneck.name} ·{' '}
+                    {plan.independent
+                      ? `${plan.lines.length} benches can finish ${fmtQty(plan.capacity)} ${finalStep.unit} today`
+                      : `Line can finish ${fmtQty(plan.capacity)} ${finalStep.unit} today · bottleneck ${plan.bottleneck.name}`}
+                    {' · '}
                   </span>
                 )}
                 {lastCount

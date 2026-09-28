@@ -7,9 +7,11 @@ import { RECOMMENDED_PROCESSES, fmtQty, groupByLine, planLine, processesFor, rat
  * counts it — with the day's plan worked out underneath: target per
  * station, and the bottleneck that limits the whole line.
  *
- * Lines run in parallel (V4T builds vents and frames side by side), so
- * they're grouped rather than shown as one long chain. Everything still
- * has to be done, so the slowest station anywhere sets the output.
+ * Lines are grouped rather than shown as one long chain. Whether the
+ * slowest station anywhere sets the output, or each line answers only
+ * for itself, depends on whether the lines feed each other — V4T's
+ * vents and frames both go into assembly; Panel's three benches never
+ * meet. See planLine().
  */
 /** "mods" -> "mod", so a hint reads "3 frames = 1 mod". */
 function singular(unit) {
@@ -47,7 +49,18 @@ export default function ProcessEditor({ department, settings, peopleToday, onSav
   function add(line) {
     setRows((prev) => [
       ...prev,
-      { id: `step_${Date.now()}`, name: 'New step', line: line ?? 'Line', unit: finishedUnit, minutesEach: null, perFinished: 1, counted: true },
+      {
+        id: `step_${Date.now()}`,
+        name: 'New step',
+        line: line ?? 'Line',
+        unit: finishedUnit,
+        minutesEach: null,
+        perFinished: 1,
+        counted: true,
+        // Inherit it, or a station added to a department of standalone
+        // benches would read as a chain and re-link all of them.
+        independent: prev[prev.length - 1]?.independent,
+      },
     ])
     setDirty(true)
   }
@@ -99,7 +112,7 @@ export default function ProcessEditor({ department, settings, peopleToday, onSav
                 {group.steps.map((r) => {
                   const st = stepById[r.id] ?? r
                   return (
-                    <tr key={r.id} className={plan.bottleneck?.id === r.id ? 'bg-andonRedBg' : ''}>
+                    <tr key={r.id} className={st.isBottleneck ? 'bg-andonRedBg' : ''}>
                       <td className="py-1.5 pr-2">
                         <input
                           value={r.name}
@@ -239,16 +252,38 @@ export default function ProcessEditor({ department, settings, peopleToday, onSav
       {/* ── The day, worked out ── */}
       <div className="mt-3 rounded-lg bg-paper border border-paperDim px-3 py-2 text-sm">
         {plan.capacity != null ? (
-          <>
-            <b className="text-charcoal">
-              Line can finish {fmtQty(plan.capacity)} {finishedUnit} today
-            </b>{' '}
-            — <span className="text-andonRed font-semibold">{plan.bottleneck.name}</span> is the bottleneck.
-            <span className="block text-xs text-steelLight mt-0.5">
-              Every station has to be done, so the slowest one sets the output — whichever line it's on. Daily target = people ×
-              ({fmtQty(workingHoursPerDay(settings))} working hours × 60 ÷ minutes for one). People are set on the Overview → Crew today.
-            </span>
-          </>
+          plan.independent ? (
+            <>
+              <b className="text-charcoal">
+                {plan.lines.length} benches can finish {fmtQty(plan.capacity)} {finishedUnit} today
+              </b>
+              <span className="block text-xs text-charcoal mt-1">
+                {plan.lines
+                  .map(
+                    (l) =>
+                      `${l.line}: ${fmtQty(l.capacity)}` +
+                      (l.steps.length > 1 ? ` (${l.bottleneck.name} is slowest)` : '')
+                  )
+                  .join(' · ')}
+              </span>
+              <span className="block text-xs text-steelLight mt-0.5">
+                These benches don’t feed each other, so each one’s slowest station holds up only itself — nobody waits on
+                the others. Daily target = people × ({fmtQty(workingHoursPerDay(settings))} working hours × 60 ÷ minutes
+                for one). People are set on the Overview → Crew today.
+              </span>
+            </>
+          ) : (
+            <>
+              <b className="text-charcoal">
+                Line can finish {fmtQty(plan.capacity)} {finishedUnit} today
+              </b>{' '}
+              — <span className="text-andonRed font-semibold">{plan.bottleneck.name}</span> is the bottleneck.
+              <span className="block text-xs text-steelLight mt-0.5">
+                Every station has to be done, so the slowest one sets the output — whichever line it's on. Daily target = people ×
+                ({fmtQty(workingHoursPerDay(settings))} working hours × 60 ÷ minutes for one). People are set on the Overview → Crew today.
+              </span>
+            </>
+          )
         ) : (
           <span className="text-steelLight">
             {rows.some((r) => !ratePerHourOf(r))

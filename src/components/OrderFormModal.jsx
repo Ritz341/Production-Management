@@ -22,6 +22,7 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
   const [scheduledPickupDate, setScheduledPickupDate] = useState(order?.scheduled_pickup_date ?? '')
   const [selectedColumnIds, setSelectedColumnIds] = useState(new Set(existingColumnIds))
   const [modsCount, setModsCount] = useState(order?.mods_count ?? '')
+  const [wallsCount, setWallsCount] = useState(order?.walls_count ?? '')
   const [roomShape, setRoomShape] = useState(order?.room_shape ?? '')
   const [windowType, setWindowType] = useState(order?.window_type ?? '')
   const [panelType, setPanelType] = useState(order?.panel_type ?? '')
@@ -93,6 +94,7 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
         build_week_id: buildWeekId || null,
         scheduled_pickup_date: scheduledPickupDate || null,
         mods_count: modsCount === '' ? null : Number(modsCount),
+        walls_count: wallsCount === '' ? null : Number(wallsCount),
         room_shape: roomShape || null,
         window_type: windowType || null,
         panel_type: panelType || null,
@@ -227,15 +229,30 @@ export default function OrderFormModal({ order, columns, buildWeeks, onClose, on
             />
           </div>
 
-          <fieldset className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <legend className="text-sm font-medium text-steel mb-1 col-span-full">From the order confirmation (for the estimate)</legend>
+          <fieldset className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <legend className="text-sm font-medium text-steel mb-1 col-span-full">
+              From the order confirmation (for the estimate)
+              <span className="block font-normal text-xs text-steelLight">
+                The drawing splits each wall into mods — wall 1 into 2, wall 2 into 3 means 5 mods over 2 walls.
+              </span>
+            </legend>
             <label className="text-xs text-steelLight">
-              Mods
+              Mods <span className="text-steelLight/70">(total)</span>
               <input
                 type="number"
                 min="0"
                 value={modsCount}
                 onChange={(e) => setModsCount(e.target.value)}
+                className="mt-0.5 w-full border border-paperDim rounded px-2 py-2 text-sm text-charcoal"
+              />
+            </label>
+            <label className="text-xs text-steelLight">
+              Walls
+              <input
+                type="number"
+                min="0"
+                value={wallsCount}
+                onChange={(e) => setWallsCount(e.target.value)}
                 className="mt-0.5 w-full border border-paperDim rounded px-2 py-2 text-sm text-charcoal"
               />
             </label>

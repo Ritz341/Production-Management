@@ -32,7 +32,7 @@ export default function OfficeView() {
       supabase
         .from('bt_orders')
         .select(
-          'id, tag_name, dealer, build_week_id, scheduled_pickup_date, sequence, status, paperwork_ready_at, actual_pickup_date, mods_count, room_shape, window_type, panel_type, bt_build_weeks(ship_date)'
+          'id, tag_name, dealer, build_week_id, scheduled_pickup_date, sequence, status, paperwork_ready_at, actual_pickup_date, mods_count, walls_count, room_shape, window_type, panel_type, bt_build_weeks(ship_date)'
         )
         .eq('status', 'active')
         .is('actual_pickup_date', null),
@@ -117,6 +117,7 @@ export default function OfficeView() {
       p_room_shape: next.room_shape ?? null,
       p_window_type: next.window_type ?? null,
       p_panel_type: next.panel_type ?? null,
+      p_walls_count: next.walls_count ?? null,
     })
     if (err) {
       setError(`Couldn't save details for ${order.tag_name}: ${err.message}`)
@@ -161,7 +162,9 @@ export default function OfficeView() {
             <section key={week?.id ?? 'none'} className="rounded-2xl bg-white border border-paperDim overflow-hidden">
               <div className="flex items-start justify-between gap-4 px-4 py-3 border-b border-paperDim flex-wrap">
                 <div>
-                  <h2 className="font-display font-bold text-2xl text-charcoal leading-tight">{week?.label ?? 'No pickup date'}</h2>
+                  <h2 className="font-display font-bold text-2xl text-charcoal leading-tight">
+                    {week?.ship_date ? shortDate(week.ship_date) : week?.label ?? 'No pickup date'}
+                  </h2>
                   {week?.ship_date && (
                     <p className="text-sm text-steelLight">
                       {shortDate(week.ship_date)} · {relativeDay(daysUntil(week.ship_date))} · paperwork {list.length - open.length}/
@@ -190,7 +193,7 @@ export default function OfficeView() {
                       <th className="px-4 py-2 font-semibold">Paperwork</th>
                       <th className="px-2 py-2 font-semibold">#</th>
                       <th className="px-2 py-2 font-semibold">Order</th>
-                      <th className="px-2 py-2 font-semibold">Mods</th>
+                      <th className="px-2 py-2 font-semibold">Mods · walls</th>
                       <th className="px-2 py-2 font-semibold">Room</th>
                       <th className="px-2 py-2 font-semibold">Windows</th>
                       <th className="px-2 py-2 font-semibold">Panels</th>
@@ -236,6 +239,24 @@ export default function OfficeView() {
                               }}
                               aria-label={`Mods for ${o.tag_name}`}
                               className={`w-16 rounded border px-2 py-1.5 tabular-nums ${o.mods_count ? 'border-paperDim' : 'border-safety bg-safety/10'}`}
+                            />
+                            {/* How the drawing splits those mods up.
+                                Optional — the estimate runs off the
+                                total, this is for the floor. */}
+                            <input
+                              type="number"
+                              min="0"
+                              max="50"
+                              defaultValue={o.walls_count ?? ''}
+                              key={`${o.id}-walls-${o.walls_count}`}
+                              disabled={!live}
+                              onBlur={(e) => {
+                                const v = e.target.value === '' ? null : Number(e.target.value)
+                                if (v !== (o.walls_count ?? null)) saveDetails(o, { walls_count: v })
+                              }}
+                              placeholder="walls"
+                              aria-label={`Walls for ${o.tag_name}`}
+                              className="ml-1.5 w-16 rounded border border-paperDim px-2 py-1.5 tabular-nums"
                             />
                           </td>
                           <DetailSelect order={o} field="room_shape" options={ROOM_SHAPES} onSave={saveDetails} disabled={!live} />

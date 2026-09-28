@@ -58,6 +58,26 @@ export function weekOptionLabel(w) {
   return `${nice} (${w.label})`
 }
 
+/**
+ * What to call a build week on a screen someone makes decisions from.
+ *
+ * The label is the sheet's banner text ('PICK UP 9/15'), so it carries
+ * a date of its own — and that date was right on import day and never
+ * again. Printing it beside the real ship date is how a tablet ends up
+ * reading "Mon Sep 22 · PICK UP 9/15" after a week gets moved: two
+ * dates, one of them wrong, and no way to tell which. So the label is
+ * shown only when it says something the date doesn't. Migration v17
+ * keeps the stored label in step as well; this covers weeks moved
+ * before it was applied.
+ */
+export function weekName(w) {
+  if (!w) return ''
+  if (!w.ship_date) return w.label ?? ''
+  const own = String(w.label ?? '').replace(/\d{1,2}\/\d{1,2}(\/\d{2,4})?/g, '').replace(/\s+/g, ' ').trim()
+  // 'PICK UP' on its own adds nothing next to a ship date.
+  return /^(pick ?up|pu)?$/i.test(own) ? '' : own
+}
+
 export function nearestBuildWeekId(weeks) {
   if (!weeks || weeks.length === 0) return null
   const today = new Date().toISOString().slice(0, 10)

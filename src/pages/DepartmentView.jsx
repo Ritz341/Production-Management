@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { WORKFLOW_STAGES } from '../lib/statusColors'
 import { blockText, defectLabel, useSettings, weekPace } from '../lib/catalog'
-import { nearestBuildWeekId, weekOptionLabel } from '../lib/dates'
+import { nearestBuildWeekId, weekName, weekOptionLabel } from '../lib/dates'
 import { DONE_RANK, buildNumbers, byBuildOrder, daysUntil, nextStageId as nextStage, relativeDay, shortDate, stageLabel, stageRank, wasMovedRecently } from '../lib/schedule'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import FileModal from '../components/FileModal.jsx'
@@ -67,9 +67,22 @@ export default function DepartmentView() {
 
     // Admin moving a ship date mid-week has to reach the header on every
     // tablet, not just raise the alert banner.
+    //
+    // Listened for two ways on purpose. bt_build_weeks is the direct
+    // signal, but it only arrives if that table is in the realtime
+    // publication (schema_v6) — and a database that missed that
+    // migration is exactly the one where the banner fires and the
+    // header underneath it stays on the old date. bt_events carries the
+    // same change and must be live for the banner to appear at all, so
+    // it's the one that can't silently be missing.
     const channel = supabase
       .channel('dept-build-weeks')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_build_weeks' }, () => loadWeeks(false))
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'bt_events', filter: 'event_type=eq.ship_date_changed' },
+        () => loadWeeks(false)
+      )
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [])
@@ -92,7 +105,7 @@ export default function DepartmentView() {
     setLoading(true)
 
     async function load() {
-      let orderQuery = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, sequence, moved_at, moved_direction, bt_build_weeks(ship_date)')
+      let orderQuery = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, sequence, moved_at, moved_direction, mods_count, walls_count, bt_build_weeks(ship_date)')
         .eq('status', 'active')
       if (selectedWeekId !== 'all') orderQuery = orderQuery.eq('build_week_id', selectedWeekId)
       const { data: orderRows, error: ordersErr } = await orderQuery
@@ -308,6 +321,34 @@ export default function DepartmentView() {
     return new Set(open.slice(0, pace.dueToday).map((o) => o.id))
   }, [lanes, pace])
 
+  // ── Sub-departments ──
+  // A tablet that covers more than one column is really covering
+  // several benches: Panel is roof panels, mod filler panels and
+  // acrylic. Without this the only way to tell which of the three is
+  // behind is to read every card, because the lanes above mix all
+  // three together — an order sits in "To do" if ANY bench still has
+  // work on it. One row per bench, so a bench that's dragging is
+  // visible from across the shop.
+  const subDepts = useMemo(() => {
+    if (ownColumnIds.length < 2) return []
+    return ownColumnIds
+      .map((id) => {
+        let total = 0
+        let done = 0
+        let blocked = 0
+        for (const o of orders) {
+          const c = o.cells[id]
+          if (!c) continue
+          total++
+          if (c.blocked) blocked++
+          else if (stageRank(c.stage) >= DONE_RANK) done++
+        }
+        return { id, name: columnById[id] ?? `Column ${id}`, total, done, blocked, mine: writableColumnIds.has(id) }
+      })
+      .filter((s) => s.total > 0)
+      .sort((a, b) => a.done / a.total - b.done / b.total) // furthest behind first
+  }, [orders, ownColumnIds, columnById, writableColumnIds])
+
   const [showAllDone, setShowAllDone] = useState(false)
   const [toast, setToast] = useState(null) // { message, undo }
   useEffect(() => {
@@ -397,7 +438,8 @@ export default function DepartmentView() {
               {relativeDay(shipDays).toUpperCase()}
             </div>
             <div className="text-sm text-floorMute">
-              {shortDate(currentWeek.ship_date)} · {currentWeek.label}
+              {shortDate(currentWeek.ship_date)}
+              {weekName(currentWeek) && ` · ${weekName(currentWeek)}`}
             </div>
           </div>
         )}
@@ -443,6 +485,42 @@ export default function DepartmentView() {
                 </>
               )}
             </div>
+          </section>
+        )}
+
+        {/* ── Each bench on this tablet ── */}
+        {!loading && subDepts.length > 1 && (
+          <section className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {subDepts.map((s) => {
+              const pct = Math.round((s.done / s.total) * 100)
+              return (
+                <div
+                  key={s.id}
+                  className={`rounded-xl border px-3.5 py-2.5 ${
+                    s.blocked ? 'border-andonRed bg-blockedCard' : pct === 100 ? 'border-[#4CC46F] bg-[#16301F]' : 'border-floorLine bg-floorCard'
+                  }`}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div className="font-display font-bold uppercase tracking-wide truncate">
+                      {s.name}
+                      {!s.mine && <span className="ml-1.5 text-xs font-normal normal-case text-floorMute">view only</span>}
+                    </div>
+                    <div className="font-display font-extrabold tabular-nums whitespace-nowrap">
+                      <span className={pct === 100 ? 'text-[#4CC46F]' : 'text-paper'}>{s.done}</span>
+                      <span className="text-floorMute"> / {s.total}</span>
+                    </div>
+                  </div>
+                  <div className="relative h-2 rounded-full bg-floorLine overflow-hidden mt-2">
+                    <i className="block h-full bg-[#4CC46F] transition-[width] duration-500" style={{ width: `${pct}%` }} />
+                  </div>
+                  {s.blocked > 0 && (
+                    <div className="text-xs font-bold text-[#FF8A8A] mt-1.5">
+                      {s.blocked} blocked — needs a hand
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </section>
         )}
 
@@ -572,7 +650,18 @@ export default function DepartmentView() {
             <div className={`font-display font-bold text-xl leading-tight break-words ${isDone ? 'text-[#B7ECC5]' : ''}`}>
               <span className={isDone ? 'text-[#4CC46F]' : 'text-safety'}>#{o.buildNo}</span> {o.tag_name}
             </div>
-            <div className={`text-xs mt-0.5 ${isDone ? 'text-[#7FD49A]' : 'text-floorMute'}`}>{o.dealer}</div>
+            <div className={`text-xs mt-0.5 ${isDone ? 'text-[#7FD49A]' : 'text-floorMute'}`}>
+              {o.dealer}
+              {/* How big the job is, from the order confirmation: the
+                  mods total, and how many walls they're split across. */}
+              {o.mods_count ? (
+                <>
+                  {' · '}
+                  <span className="font-semibold text-paper tabular-nums">{o.mods_count} mods</span>
+                  {o.walls_count ? ` over ${o.walls_count} walls` : ''}
+                </>
+              ) : null}
+            </div>
             {isDueToday && (
               <div className="inline-block mt-1.5 rounded-md bg-safety text-charcoal px-2 py-0.5 text-xs font-bold uppercase tracking-wide">
                 Do today

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { DONE_RANK, ago, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
+import { weekName } from '../lib/dates'
 import NotificationBanner from '../components/NotificationBanner.jsx'
 import FileModal from '../components/FileModal.jsx'
 import OrderFormModal from '../components/OrderFormModal.jsx'
@@ -54,7 +55,7 @@ export default function LogisticsView() {
   async function loadOrders() {
     const { data: rows } = await supabase
       .from('bt_orders')
-      .select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, created_at, created_by, actual_pickup_date, status, cancel_reason, mods_count, room_shape, window_type, panel_type')
+      .select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, created_at, created_by, actual_pickup_date, status, cancel_reason, mods_count, walls_count, room_shape, window_type, panel_type')
       .order('created_at', { ascending: false })
       .limit(300)
     const ids = (rows ?? []).map((o) => o.id)
@@ -270,8 +271,10 @@ export default function LogisticsView() {
                   aria-pressed={weekId === w.id}
                   className={`rounded-lg border px-3 py-2 text-left ${weekId === w.id ? 'border-charcoal bg-charcoal text-paper' : 'border-paperDim bg-white text-charcoal'}`}
                 >
-                  <div className="font-display font-bold leading-tight">{w.label}</div>
-                  <div className={`text-xs ${weekId === w.id ? 'text-floorMute' : 'text-steelLight'}`}>{shortDate(w.ship_date)}</div>
+                  <div className="font-display font-bold leading-tight">{shortDate(w.ship_date)}</div>
+                  <div className={`text-xs ${weekId === w.id ? 'text-floorMute' : 'text-steelLight'}`}>
+                    {weekName(w) || relativeDay(daysUntil(w.ship_date))}
+                  </div>
                 </button>
               ))}
               <button

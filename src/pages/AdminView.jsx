@@ -55,7 +55,7 @@ export default function AdminView() {
     const { data: cols, error: colsErr } = await supabase.from('bt_status_columns').select('id, name').order('sort_order')
     setColumns(cols ?? [])
 
-    let query = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, notes, sequence, moved_at, moved_direction, status, cancel_reason, paperwork_ready_at, mods_count, room_shape, window_type, panel_type, bt_build_weeks(ship_date)')
+    let query = supabase.from('bt_orders').select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, notes, sequence, moved_at, moved_direction, status, cancel_reason, paperwork_ready_at, mods_count, walls_count, room_shape, window_type, panel_type, bt_build_weeks(ship_date)')
     if (selectedWeekId !== 'all') query = query.eq('build_week_id', selectedWeekId)
     const { data: orderRows, error: ordersErr } = await query
 

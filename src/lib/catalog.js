@@ -54,14 +54,17 @@ const LEVEL_SCORE = { easy: 1, medium: 2, hard: 3 }
 
 /** The process lists we start from; admin can edit or reset to these. */
 export const RECOMMENDED_PROCESSES = {
-  // A "mod" is one modular wall. Framing makes the frames that go into
-  // a wall (2-4 of them, call it 3 on average from CNC-cut stock);
-  // the final mod is the finished wall: V4T in, caulked, panels in,
-  // screwed, vinyl fix added. Rooms are 2-4 walls, but capacity is
-  // counted in walls, which is also what the office enters per order.
+  // Straight off the order confirmation: a room is 2-4 walls, and the
+  // drawing splits each wall into mods — wall 1 into 2, wall 2 into 3,
+  // so that room is 5 mods. A mod is the section, not the whole wall.
+  // Framing makes the frames one mod is built from (2-4 of them, call
+  // it 3 on average from CNC-cut stock); the final mod is that section
+  // finished: V4T in, caulked, panels in, screwed, vinyl fix added.
+  // Capacity is counted in mods, which is what the office enters per
+  // order; walls_count is only how those mods are grouped.
   Mods: [
     { id: 'framing', name: 'Mod frames', line: 'Mods', unit: 'frames', minutesEach: null, perFinished: 3, counted: true, buffer: 4 },
-    { id: 'staging', name: 'Final mod (wall)', line: 'Mods', unit: 'mods', minutesEach: null, perFinished: 1, counted: true },
+    { id: 'staging', name: 'Final mod', line: 'Mods', unit: 'mods', minutesEach: null, perFinished: 1, counted: true },
   ],
   // Two lines running in parallel that meet at the squaring rack.
   // buffer = orders that can wait between this step and the next.
@@ -74,6 +77,15 @@ export const RECOMMENDED_PROCESSES = {
     { id: 'frames_built', name: 'Frames built', line: 'Frames', unit: 'inserts', minutesEach: null, perFinished: 1, counted: true, buffer: 4 },
     { id: 'assembled', name: 'Vents into frame · squared & checked', line: 'Assembly', unit: 'inserts', minutesEach: null, perFinished: 1, counted: true },
     { id: 'screened', name: 'Screened · ready for Mods', line: 'Assembly', unit: 'inserts', minutesEach: null, perFinished: 1, counted: true },
+  ],
+  // Panel is one tablet over three benches that don't feed each other:
+  // roof panels, the filler panels that go into a mod, and acrylic.
+  // Each is its own line, so a slow bench shows up as itself instead of
+  // dragging the other two down in the day's plan.
+  Panel: [
+    { id: 'roof_panels', name: 'Roof panels', line: 'Roof panel', unit: 'panels', minutesEach: null, perFinished: 1, counted: true },
+    { id: 'filler_panels', name: 'Mod filler panels', line: 'Filler panel', unit: 'panels', minutesEach: null, perFinished: 1, counted: true },
+    { id: 'acrylic_panels', name: 'Acrylic panels', line: 'Acrylic panel', unit: 'panels', minutesEach: null, perFinished: 1, counted: true },
   ],
 }
 

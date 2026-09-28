@@ -9,6 +9,7 @@ import NoRoleView from './pages/NoRoleView.jsx'
 import { useEffect, useState } from 'react'
 import OfficeView from './pages/OfficeView.jsx'
 import QualityView from './pages/QualityView.jsx'
+import CrossDeptFloatBoard from './pages/CrossDeptFloatBoard.jsx'
 
 export default function App() {
   const { session, profile, loading, signOut } = useAuth()
@@ -19,8 +20,12 @@ export default function App() {
 
   // A shop-floor TV: any signed-in login can show a board, because it
   // only reads. Opened as ?tv=Mods on that PC.
-  const tvDepartment = new URLSearchParams(window.location.search).get('tv')
+  const params = new URLSearchParams(window.location.search)
+  const tvDepartment = params.get('tv')
   if (tvDepartment) return <TVBoard department={tvDepartment} />
+
+  // Cross-department float board: opened as ?float=1 on a supervisor tablet.
+  if (params.get('float')) return <CrossDeptFloatBoard />
 
   if (!profile) return <NoRoleView />
 

@@ -13,6 +13,7 @@ import AdminImport from './AdminImport.jsx'
 import AdminOverview from './AdminOverview.jsx'
 import AdminReports from './AdminReports.jsx'
 import AdminTVs from './AdminTVs.jsx'
+import AdminSkillMatrix from './AdminSkillMatrix.jsx'
 import { blockText } from '../lib/catalog'
 import { DONE_RANK, buildNumbers, byBuildOrder, stageRank, wasMovedRecently } from '../lib/schedule'
 
@@ -240,6 +241,7 @@ export default function AdminView() {
             ['import', 'Weekly Import'],
             ['reports', 'Reports'],
             ['tvs', 'Targets & TVs'],
+            ['skills', 'Skills Matrix'],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -269,6 +271,8 @@ export default function AdminView() {
       {tab === 'reports' && <AdminReports />}
 
       {tab === 'tvs' && <AdminTVs />}
+
+      {tab === 'skills' && <AdminSkillMatrix />}
 
       {tab === 'import' && (
         <AdminImport

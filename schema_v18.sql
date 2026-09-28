@@ -1,127 +1,232 @@
 -- ============================================================
 -- Migration v18 — run AFTER schema_v17.sql
 --
--- Taking several orders off the build in one go, which until now meant
--- opening each one and cancelling it, or a SQL delete.
+-- Skill Matrix & Cross-Department Floating
 --
--- Admin picks two things independently:
---
---   Reversible or permanent. Cancelling hides the order from every
---   tablet and keeps it (restorable, with its history). Deleting is
---   forever: bt_order_status, bt_files, bt_activity, bt_quality_issues
---   and bt_events all cascade off bt_orders, so an order's entire
---   record goes with it.
---
---   Quiet or announced. A duplicate row from a bad import should go
---   without a word. An order a crew is part-way through building must
---   not — they need to stop, so it raises the same red banner a ship
---   date change does, and stays until someone acknowledges it.
+-- Adds employee tracking (separate from auth logins in bt_profiles),
+-- a department-level skill system with Cutting/Assembly functional
+-- tracks, Lead tier assignments, and a cross-department floater view
+-- for supervisors to reallocate qualified leads during bottlenecks.
 --
 -- Safe to re-run.
 -- ============================================================
 
-
--- ── 1. The floor alert ─────────────────────────────────────
-alter table bt_events drop constraint if exists bt_events_event_type_check;
-alter table bt_events add constraint bt_events_event_type_check
-  check (event_type in (
-    'ship_date_changed', 'column_completed', 'order_picked_up', 'column_started',
-    'order_status_changed', 'order_added', 'quality_issue', 'orders_removed'
-  ));
-
-
--- ── 2. What survives a permanent delete ────────────────────
--- Deliberately no foreign key to bt_orders: the whole point is that
--- this row outlives the order. Without it a bulk delete leaves nothing
--- at all behind — no way to answer "where did that tag go?" a week
--- later, which is exactly when it gets asked.
-create table if not exists bt_deletions (
-  id                bigint generated always as identity primary key,
-  at                timestamptz not null default now(),
-  order_id          bigint,
-  tag_name          text not null,
-  dealer            text,
-  build_week_label  text,
-  ship_date         date,
-  removed_by        uuid references auth.users(id),
-  reason            text,
-  announced         boolean not null default false
+-- ── Employees ────────────────────────────────────────────────
+-- One row per floor worker. Separate from bt_profiles (auth logins)
+-- because one tablet login is shared by multiple people, and an
+-- employee may not have their own login at all.
+create table if not exists bt_employees (
+  id              bigint generated always as identity primary key,
+  name            text not null,
+  employee_id     text unique,                    -- badge / payroll ID, nullable
+  primary_dept_id bigint references bt_departments(id) on delete set null,
+  shift           text default 'Day',             -- 'Day', 'Night', 'Swing'
+  lead_level      text not null default 'NONE'
+                  check (lead_level in ('NONE', 'LEAD_1', 'LEAD_2', 'LEAD_3')),
+  is_active       boolean not null default true,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
 );
 
-alter table bt_deletions enable row level security;
-drop policy if exists "admin read deletions" on bt_deletions;
-create policy "admin read deletions" on bt_deletions for select using (
+-- ── Skills catalog ───────────────────────────────────────────
+-- Each department's teachable skills, split into functional tracks.
+create table if not exists bt_skills (
+  id                bigint generated always as identity primary key,
+  department_id     bigint not null references bt_departments(id) on delete cascade,
+  name              text not null,                -- e.g. 'Double-Miter Saw', 'Frame Welding'
+  function_category text not null default 'ASSEMBLY'
+                    check (function_category in ('CUTTING', 'ASSEMBLY', 'QC', 'STAGING')),
+  sort_order        integer not null default 0,
+  created_at        timestamptz not null default now(),
+  unique (department_id, name)
+);
+
+-- ── Employee × Skill ratings ─────────────────────────────────
+-- Rating 1–4 per the matrix scale:
+--   1 = Learning / Trainee
+--   2 = Autonomous Operator
+--   3 = Specialist / Lead 1 Level
+--   4 = Master / Trainer / Lead 2-3 Level
+create table if not exists bt_employee_skills (
+  id              bigint generated always as identity primary key,
+  employee_id     bigint not null references bt_employees(id) on delete cascade,
+  skill_id        bigint not null references bt_skills(id) on delete cascade,
+  rating          smallint not null default 1
+                  check (rating between 1 and 4),
+  rated_at        timestamptz not null default now(),
+  rated_by        uuid references auth.users(id),
+  unique (employee_id, skill_id)
+);
+
+-- ── Temporary reassignments ──────────────────────────────────
+-- When a supervisor floats someone to another department, this
+-- records the active reassignment so the floor knows where they are.
+create table if not exists bt_float_assignments (
+  id              bigint generated always as identity primary key,
+  employee_id     bigint not null references bt_employees(id) on delete cascade,
+  from_dept_id    bigint not null references bt_departments(id) on delete cascade,
+  to_dept_id      bigint not null references bt_departments(id) on delete cascade,
+  assigned_by     uuid references auth.users(id),
+  assigned_at     timestamptz not null default now(),
+  expected_end    timestamptz,                    -- when the float is meant to end
+  ended_at        timestamptz,                    -- null while active
+  note            text
+);
+
+-- The floater board reads these by employee and by department on every
+-- refresh; without indexes each one is a sequential scan.
+create index if not exists bt_employee_skills_skill on bt_employee_skills (skill_id);
+create index if not exists bt_skills_dept on bt_skills (department_id);
+create index if not exists bt_float_active on bt_float_assignments (employee_id) where ended_at is null;
+
+-- ── Cross-Department Floater View ────────────────────────────
+-- Shows employees qualified (rating 3+) in departments outside
+-- their primary assignment. Used by the CrossDeptFloatBoard.
+create or replace view v_cross_dept_floaters as
+select
+  e.id              as employee_id,
+  e.name            as employee_name,
+  e.employee_id     as badge_id,
+  e.lead_level,
+  e.shift,
+  e.is_active,
+  pd.name           as primary_dept,
+  e.primary_dept_id,
+  d.id              as qualified_dept_id,
+  d.name            as qualified_dept,
+  s.function_category,
+  max(es.rating)    as max_rating,
+  -- Is there an active float right now? Newest first, so two open rows
+  -- for one person (a float ended without ended_at being set, say)
+  -- report the current one rather than an arbitrary one.
+  (select fa.id from bt_float_assignments fa
+   where fa.employee_id = e.id and fa.ended_at is null
+   order by fa.assigned_at desc
+   limit 1)         as active_float_id,
+  (select fd.name from bt_float_assignments fa
+   join bt_departments fd on fd.id = fa.to_dept_id
+   where fa.employee_id = e.id and fa.ended_at is null
+   order by fa.assigned_at desc
+   limit 1)         as currently_floated_to
+from bt_employees e
+join bt_employee_skills es on es.employee_id = e.id
+join bt_skills s           on s.id = es.skill_id
+join bt_departments d      on d.id = s.department_id
+left join bt_departments pd on pd.id = e.primary_dept_id
+where es.rating >= 3
+  and e.is_active = true
+  and (e.primary_dept_id is null or s.department_id <> e.primary_dept_id)
+group by e.id, e.name, e.employee_id, e.lead_level, e.shift, e.is_active,
+         pd.name, e.primary_dept_id, d.id, d.name, s.function_category;
+
+-- ── Versatility summary per employee ─────────────────────────
+-- Counts how many departments an employee is rated 2+ in.
+create or replace view v_employee_versatility as
+select
+  e.id              as employee_id,
+  e.name,
+  e.lead_level,
+  e.primary_dept_id,
+  pd.name           as primary_dept,
+  count(distinct s.department_id) as versatility_index,
+  string_agg(distinct d.name, ', ' order by d.name)
+    filter (where es.rating >= 3 and s.department_id <> e.primary_dept_id)
+    as cross_float_depts
+from bt_employees e
+join bt_employee_skills es on es.employee_id = e.id
+join bt_skills s           on s.id = es.skill_id
+join bt_departments d      on d.id = s.department_id
+left join bt_departments pd on pd.id = e.primary_dept_id
+where es.rating >= 2
+  and e.is_active = true
+group by e.id, e.name, e.lead_level, e.primary_dept_id, pd.name;
+
+-- A view runs as its OWNER unless told otherwise, which means it reads
+-- straight past the row-level security on the tables underneath it.
+-- These two carry people's names, badge numbers and skill ratings, and
+-- PostgREST will serve any view in the public schema — so without this
+-- they are readable by a caller holding nothing but the anon key.
+-- security_invoker makes them obey the policies below instead.
+alter view v_cross_dept_floaters set (security_invoker = on);
+alter view v_employee_versatility set (security_invoker = on);
+
+-- ── Triggers ─────────────────────────────────────────────────
+drop trigger if exists bt_employees_set_updated_at on bt_employees;
+create trigger bt_employees_set_updated_at
+  before update on bt_employees
+  for each row execute function bt_set_updated_at();
+
+-- ── Row Level Security ───────────────────────────────────────
+alter table bt_employees enable row level security;
+alter table bt_skills enable row level security;
+alter table bt_employee_skills enable row level security;
+alter table bt_float_assignments enable row level security;
+
+-- Every policy is dropped first so the whole file can be re-run — a
+-- bare create policy raises "already exists" on the second pass, which
+-- would leave the rest of the migration unapplied.
+-- Everyone authenticated can read (tablets need to see the floater board)
+drop policy if exists "authenticated read" on bt_employees;
+create policy "authenticated read" on bt_employees for select
+  using (auth.role() = 'authenticated');
+drop policy if exists "authenticated read" on bt_skills;
+create policy "authenticated read" on bt_skills for select
+  using (auth.role() = 'authenticated');
+drop policy if exists "authenticated read" on bt_employee_skills;
+create policy "authenticated read" on bt_employee_skills for select
+  using (auth.role() = 'authenticated');
+drop policy if exists "authenticated read" on bt_float_assignments;
+create policy "authenticated read" on bt_float_assignments for select
+  using (auth.role() = 'authenticated');
+
+-- Only admin can write employees, skills, and ratings
+drop policy if exists "admin write employees" on bt_employees;
+create policy "admin write employees" on bt_employees for all using (
   exists (select 1 from bt_profiles p where p.user_id = auth.uid() and p.role = 'admin')
 );
--- Written only through bt_remove_orders() below, which is security definer.
+drop policy if exists "admin write skills" on bt_skills;
+create policy "admin write skills" on bt_skills for all using (
+  exists (select 1 from bt_profiles p where p.user_id = auth.uid() and p.role = 'admin')
+);
+drop policy if exists "admin write employee_skills" on bt_employee_skills;
+create policy "admin write employee_skills" on bt_employee_skills for all using (
+  exists (select 1 from bt_profiles p where p.user_id = auth.uid() and p.role = 'admin')
+);
+-- Admin and crew leads can write float assignments (crew needs to
+-- end their own float when they return).
+--
+-- Note what this does and doesn't stop: a crew login can create and
+-- edit ANY float row, not only its own — RLS can't compare the old row
+-- to the new one, so "only set ended_at" isn't expressible here. It
+-- would take a security-definer function to hold that line. Fine for a
+-- floor where every tablet is trusted; not if that changes.
+drop policy if exists "admin write float_assignments" on bt_float_assignments;
+create policy "admin write float_assignments" on bt_float_assignments for all using (
+  exists (select 1 from bt_profiles p where p.user_id = auth.uid() and p.role = 'admin')
+);
+drop policy if exists "crew insert float_assignments" on bt_float_assignments;
+create policy "crew insert float_assignments" on bt_float_assignments for insert with check (
+  exists (select 1 from bt_profiles p where p.user_id = auth.uid() and p.role = 'crew')
+);
+drop policy if exists "crew update float_assignments" on bt_float_assignments;
+create policy "crew update float_assignments" on bt_float_assignments for update using (
+  exists (select 1 from bt_profiles p where p.user_id = auth.uid() and p.role = 'crew')
+) with check (
+  -- Without this a crew login passes the USING check on the old row and
+  -- can then write anything at all into the new one.
+  exists (select 1 from bt_profiles p where p.user_id = auth.uid() and p.role = 'crew')
+);
 
-create index if not exists bt_deletions_at on bt_deletions (at desc);
-
-
--- ── 3. Remove a batch of orders ────────────────────────────
--- One function rather than the app firing a delete and an insert
--- separately, so the record and the alert can't survive a removal that
--- failed, or go missing from one that worked.
-create or replace function bt_remove_orders(
-  p_order_ids  bigint[],
-  p_permanent  boolean default false,
-  p_announce   boolean default false,
-  p_reason     text default null
-) returns integer
-language plpgsql security definer set search_path = public as $$
-declare
-  v_names   text[];
-  v_reason  text := nullif(btrim(p_reason), '');
-  v_count   integer;
+-- ── Realtime ─────────────────────────────────────────────────
+do $$
 begin
-  if not exists (select 1 from bt_profiles where user_id = auth.uid() and role = 'admin') then
-    raise exception 'Only an admin can remove orders';
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'bt_employees') then
+    alter publication supabase_realtime add table bt_employees;
   end if;
-
-  if p_order_ids is null or array_length(p_order_ids, 1) is null then
-    return 0;
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'bt_employee_skills') then
+    alter publication supabase_realtime add table bt_employee_skills;
   end if;
-
-  -- Names are read up front: after a permanent delete there is nothing
-  -- left to name the order by.
-  select array_agg(tag_name order by tag_name) into v_names
-  from bt_orders
-  where id = any (p_order_ids)
-    and (p_permanent or status <> 'cancelled');  -- cancelling an already-cancelled order is a no-op
-
-  v_count := coalesce(array_length(v_names, 1), 0);
-  if v_count = 0 then
-    return 0;
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'bt_float_assignments') then
+    alter publication supabase_realtime add table bt_float_assignments;
   end if;
-
-  -- Written before the delete, or the cascade takes the alert with the
-  -- order. order_id stays null on purpose: one row covers the whole
-  -- batch, and nothing cascades from it.
-  if p_announce then
-    insert into bt_events (event_type, message)
-    values (
-      'orders_removed',
-      case
-        when v_count = 1 then v_names[1] || ' has been taken off the build'
-        else v_count || ' orders have been taken off the build: ' || array_to_string(v_names, ', ')
-      end
-      || coalesce(' — ' || v_reason, '')
-    );
-  end if;
-
-  if p_permanent then
-    insert into bt_deletions (order_id, tag_name, dealer, build_week_label, ship_date, removed_by, reason, announced)
-    select o.id, o.tag_name, o.dealer, w.label, w.ship_date, auth.uid(), v_reason, p_announce
-    from bt_orders o
-    left join bt_build_weeks w on w.id = o.build_week_id
-    where o.id = any (p_order_ids);
-
-    delete from bt_orders where id = any (p_order_ids);
-  else
-    update bt_orders
-    set status = 'cancelled', cancelled_at = now(), cancel_reason = v_reason
-    where id = any (p_order_ids) and status <> 'cancelled';
-  end if;
-
-  return v_count;
 end $$;

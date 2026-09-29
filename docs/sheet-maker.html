@@ -126,14 +126,19 @@
   .sheet th{background:var(--ink);color:#fff;font-weight:600;font-size:7.8pt;text-transform:uppercase;letter-spacing:.03em;padding:3px;line-height:1.1;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .sheet th.job{border-left:2.5px solid #fff}
   .sheet th.sub{background:#3C434B;font-size:7pt;padding:2px}
-  .orders td{height:0.285in;padding:0 4px;font-size:8.5pt}
+  .orders{table-layout:fixed}
+  .orders td{height:0.355in;padding:0 4px;font-size:8.5pt}
+  .sheet th.sub i{display:block;font-style:normal;font-weight:400;text-transform:none;letter-spacing:0;color:#C9CED4;font-size:6.5pt;margin-top:1px}
   .orders td.num{width:0.34in;text-align:center;font-family:var(--display);font-weight:700;font-size:11pt}
   .orders td.tag{overflow:hidden;white-space:nowrap;max-width:1px}
   .orders td.tag b{font-family:var(--display);font-size:10.5pt}
   .orders td.tag b{font-size:11.5pt}
+  .orders td.tag b.long{font-size:9pt;letter-spacing:-.01em}
+  .sheet h2 .ttl{white-space:nowrap;margin-right:10px}
+  .sheet h2 small{text-align:right}
   .orders td.qty{width:0.55in;text-align:center;font-family:var(--display);font-weight:700;font-size:11pt}
   .sheet th.qty{width:0.55in}
-  .orders td.box{width:0.34in}
+  .orders td.box{}
   .orders td.box.first{border-left:2.5px solid var(--ink2)}
   .orders td.na{background:repeating-linear-gradient(135deg,#fff 0 3px,#D9D4CA 3px 4px);-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .orders td.reason{width:0.8in}
@@ -224,7 +229,7 @@ const DEPARTMENTS = [
     // Every order gets filler panels, so every order is on the Panel sheet.
     // The Roof Panels / Roof Extr. / Acrylic marks only say whether the
     // room also has a roof panel; those boxes are hatched when it doesn't.
-    everyOrder: true, hint: 'Filler on every order. Hatched boxes aren’t needed on that order. ' },
+    everyOrder: true, hint: 'Filler on every order · hatched = not needed · ' },
 ]
 // Defaults; the PC can change the times and each department's stations
 // under "Check-in times & stations", kept on this PC.
@@ -711,7 +716,13 @@ function sheetHtml(d, list, page, pages) {
   const day = { date: nice($('date').value), ship: nice($('ship').value), crew: $('crew').value.trim(), note: $('note').value.trim() }
   const lead = store.get('leads', {})[d.key] ?? ''
   const jobHead = d.jobs.map(([, label]) => `<th class="job" colspan="2">${esc(label)}</th>`).join('')
-  const jobSub = d.jobs.map(() => `<th class="sub">Start</th><th class="sub">Done</th>`).join('')
+  // The first job's headings carry an example, which says "write the clock
+  // time here" without a paragraph of rules on the page.
+  const jobSub = d.jobs.map((_, j) => `<th class="sub">Start${j ? '' : '<i>e.g. 7:40</i>'}</th><th class="sub">Done${j ? '' : '<i>e.g. 9:15</i>'}</th>`).join('')
+  // Start/Done boxes get all the room the tag name doesn't need: wide on
+  // Mods and Track, still big enough for a written time on Panel's four.
+  const boxW = Math.min(0.9, Math.max(0.5, (7.6 - 0.34 - 2.4 - (d.qty ? 0.55 : 0) - 0.75) / (2 * d.jobs.length)))
+  const cols = `<colgroup><col style="width:.34in"><col>${d.qty ? '<col style="width:.55in">' : ''}${d.jobs.map(() => `<col style="width:${boxW}in"><col style="width:${boxW}in">`).join('')}<col style="width:.75in"></colgroup>`
   const perPage = rowsFor(d)
   const times = checkins()
   const rows = Array.from({ length: perPage }, (_, i) => {
@@ -724,7 +735,7 @@ function sheetHtml(d, list, page, pages) {
       return `<td class="box first${na ? ' na' : ''}"></td><td class="box${na ? ' na' : ''}"></td>`
     }).join('')
     const qty = d.qty ? `<td class="qty">${esc(o?.qty ?? '')}</td>` : ''
-    return `<tr><td class="num">${o ? n : ''}</td><td class="tag">${o ? `<b>${esc(o.tag)}</b>` : ''}</td>${qty}${boxes}<td class="reason"></td></tr>`
+    return `<tr><td class="num">${o ? n : ''}</td><td class="tag">${o ? `<b${o.tag.length > 22 ? ' class="long"' : ''}>${esc(o.tag)}</b>` : ''}</td>${qty}${boxes}<td class="reason"></td></tr>`
   }).join('')
   const counts = stationsOf(d).map((s) => `<tr><td class="st">${esc(s)}</td>${times.map(() => '<td></td>').join('')}</tr>`).join('')
   const codes = BLOCKS.map((b, i) => `<li><b>${i + 1}</b>${esc(b)}</li>`).join('')
@@ -742,15 +753,9 @@ function sheetHtml(d, list, page, pages) {
       </div>
     </div>
     ${day.note ? `<div class="note">📣 ${esc(day.note)}</div>` : ''}
-    <div class="rules">
-      <div class="rule"><b>1 · In order</b>Build #1, then #2, then #3 — the office sets the order. Don't skip ahead.</div>
-      <div class="rule start"><b>2 · Start</b>Write the time in <b>Start</b> the moment you begin a job.</div>
-      <div class="rule done"><b>3 · Done</b>Write the time in <b>Done</b> when it's finished — not later, not in a batch.</div>
-      <div class="rule block"><b>4 · Stuck?</b>Write the <b>code</b> below in Problem and <b>tell the office right away</b>. Don't wait for the check-in.</div>
-    </div>
     <div>
-      <h2>Today's orders <small>${d.hint ?? (d.jobs.length > 1 ? 'Hatched boxes aren’t needed on that order. ' : '')}Write the time, e.g. 9:40.</small></h2>
-      <table class="orders">
+      <h2><span class="ttl">Today's orders</span> <small>${d.hint ?? (d.jobs.length > 1 ? 'Hatched = not needed · ' : '')}Top to bottom, in order · Stuck? Write a code and <b>tell the office now</b></small></h2>
+      <table class="orders">${cols}
         <thead><tr><th rowspan="2">#</th><th rowspan="2" style="text-align:left">Tag name</th>${d.qty ? `<th rowspan="2" class="qty">${esc(d.qty)}</th>` : ''}${jobHead}<th rowspan="2">Problem<br>code</th></tr><tr>${jobSub}</tr></thead>
         <tbody>${rows}</tbody>
       </table>

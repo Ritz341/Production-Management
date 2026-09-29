@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { dbErrorText } from '../lib/dbError'
-import NotificationBanner from '../components/NotificationBanner.jsx'
+import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
 
 const LEAD_BADGE = {
   NONE: { label: '', bg: '' },
@@ -118,7 +118,10 @@ export default function CrossDeptFloatBoard() {
           <h1 className="font-display text-2xl font-bold tracking-wide">Cross-Department Float Board</h1>
           <p className="text-floorMute text-sm">Tap a department with a bottleneck to find qualified leads</p>
         </div>
-        <button onClick={signOut} className="text-sm text-steelLight hover:text-paper">Sign out</button>
+        <div className="flex items-center gap-2">
+          <NotificationBell />
+          <button onClick={signOut} className="text-sm text-floorMute hover:text-paper">Sign out</button>
+        </div>
       </header>
 
       {error && (

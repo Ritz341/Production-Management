@@ -40,6 +40,46 @@ export function relativeDay(n) {
   return `in ${n} days`
 }
 
+/**
+ * The big word at the top of a build week — and whether it's an alarm.
+ *
+ * This used to be the ship date alone, which meant a week read "2D
+ * LATE" in red next to "100% complete" in green. Both were true and
+ * together they said nothing: the date had passed, and the floor had
+ * finished everything. "Late" is a word about fault, so pointing it at
+ * a crew who built the lot is worse than useless — they learn to
+ * ignore the number, and then it can't warn them when it matters.
+ *
+ * So the headline answers "is anything still owed here?", and only a
+ * week with work left on it can be late. An empty week can't be late
+ * either — there's nothing in it to be late with.
+ *
+ *   weekHeadline('2026-09-25', { total: 1, done: 1 }) → ALL BUILT (done)
+ *   weekHeadline('2026-09-25', { total: 4, done: 1 }) → 3D LATE  (late)
+ *
+ * `total`/`done` are counted in whatever the caller cares about: orders
+ * for the week on admin, this department's own jobs on a tablet. A
+ * Mods tablet reading ALL BUILT means Mods is finished, not the plant.
+ */
+export function weekHeadline(shipDate, { total = 0, done = 0 } = {}) {
+  if (!shipDate) return { text: 'NO DATE', tone: 'idle', days: null }
+  const days = daysUntil(shipDate)
+  const text = relativeDay(days).toUpperCase()
+  if (total > 0 && done >= total) return { text: 'ALL BUILT', tone: 'done', days }
+  if (total === 0) return { text, tone: 'idle', days }
+  if (days < 0) return { text, tone: 'late', days }
+  return { text, tone: days <= 2 ? 'urgent' : 'ok', days }
+}
+
+/** Text colour for a weekHeadline tone, on the dark floor/admin tiles. */
+export const HEADLINE_TONE_CLASS = {
+  done: 'text-[#4CC46F]',
+  late: 'text-[#FF6B6B]',
+  urgent: 'text-[#FF6B6B]',
+  ok: 'text-safety',
+  idle: 'text-floorMute',
+}
+
 export function shortDate(iso) {
   return new Date(iso + 'T00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 }

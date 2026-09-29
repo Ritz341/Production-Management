@@ -7,6 +7,8 @@
 -- a department-level skill system with Cutting/Assembly functional
 -- tracks, Lead tier assignments, and a cross-department floater view
 -- for supervisors to reallocate qualified leads during bottlenecks.
+--
+-- Safe to re-run.
 -- ============================================================
 
 -- ── Employees ────────────────────────────────────────────────
@@ -71,6 +73,12 @@ create table if not exists bt_float_assignments (
   note            text
 );
 
+-- The floater board reads these by employee and by department on every
+-- refresh; without indexes each one is a sequential scan.
+create index if not exists bt_employee_skills_skill on bt_employee_skills (skill_id);
+create index if not exists bt_skills_dept on bt_skills (department_id);
+create index if not exists bt_float_active on bt_float_assignments (employee_id) where ended_at is null;
+
 -- ── Cross-Department Floater View ────────────────────────────
 -- Shows employees qualified (rating 3+) in departments outside
 -- their primary assignment. Used by the CrossDeptFloatBoard.
@@ -88,13 +96,17 @@ select
   d.name            as qualified_dept,
   s.function_category,
   max(es.rating)    as max_rating,
-  -- Is there an active float right now?
+  -- Is there an active float right now? Newest first, so two open rows
+  -- for one person (a float ended without ended_at being set, say)
+  -- report the current one rather than an arbitrary one.
   (select fa.id from bt_float_assignments fa
    where fa.employee_id = e.id and fa.ended_at is null
+   order by fa.assigned_at desc
    limit 1)         as active_float_id,
   (select fd.name from bt_float_assignments fa
    join bt_departments fd on fd.id = fa.to_dept_id
    where fa.employee_id = e.id and fa.ended_at is null
+   order by fa.assigned_at desc
    limit 1)         as currently_floated_to
 from bt_employees e
 join bt_employee_skills es on es.employee_id = e.id
@@ -129,6 +141,15 @@ where es.rating >= 2
   and e.is_active = true
 group by e.id, e.name, e.lead_level, e.primary_dept_id, pd.name;
 
+-- A view runs as its OWNER unless told otherwise, which means it reads
+-- straight past the row-level security on the tables underneath it.
+-- These two carry people's names, badge numbers and skill ratings, and
+-- PostgREST will serve any view in the public schema — so without this
+-- they are readable by a caller holding nothing but the anon key.
+-- security_invoker makes them obey the policies below instead.
+alter view v_cross_dept_floaters set (security_invoker = on);
+alter view v_employee_versatility set (security_invoker = on);
+
 -- ── Triggers ─────────────────────────────────────────────────
 drop trigger if exists bt_employees_set_updated_at on bt_employees;
 create trigger bt_employees_set_updated_at
@@ -141,35 +162,58 @@ alter table bt_skills enable row level security;
 alter table bt_employee_skills enable row level security;
 alter table bt_float_assignments enable row level security;
 
+-- Every policy is dropped first so the whole file can be re-run — a
+-- bare create policy raises "already exists" on the second pass, which
+-- would leave the rest of the migration unapplied.
 -- Everyone authenticated can read (tablets need to see the floater board)
+drop policy if exists "authenticated read" on bt_employees;
 create policy "authenticated read" on bt_employees for select
   using (auth.role() = 'authenticated');
+drop policy if exists "authenticated read" on bt_skills;
 create policy "authenticated read" on bt_skills for select
   using (auth.role() = 'authenticated');
+drop policy if exists "authenticated read" on bt_employee_skills;
 create policy "authenticated read" on bt_employee_skills for select
   using (auth.role() = 'authenticated');
+drop policy if exists "authenticated read" on bt_float_assignments;
 create policy "authenticated read" on bt_float_assignments for select
   using (auth.role() = 'authenticated');
 
 -- Only admin can write employees, skills, and ratings
+drop policy if exists "admin write employees" on bt_employees;
 create policy "admin write employees" on bt_employees for all using (
   exists (select 1 from bt_profiles p where p.user_id = auth.uid() and p.role = 'admin')
 );
+drop policy if exists "admin write skills" on bt_skills;
 create policy "admin write skills" on bt_skills for all using (
   exists (select 1 from bt_profiles p where p.user_id = auth.uid() and p.role = 'admin')
 );
+drop policy if exists "admin write employee_skills" on bt_employee_skills;
 create policy "admin write employee_skills" on bt_employee_skills for all using (
   exists (select 1 from bt_profiles p where p.user_id = auth.uid() and p.role = 'admin')
 );
 -- Admin and crew leads can write float assignments (crew needs to
--- end their own float when they return)
+-- end their own float when they return).
+--
+-- Note what this does and doesn't stop: a crew login can create and
+-- edit ANY float row, not only its own — RLS can't compare the old row
+-- to the new one, so "only set ended_at" isn't expressible here. It
+-- would take a security-definer function to hold that line. Fine for a
+-- floor where every tablet is trusted; not if that changes.
+drop policy if exists "admin write float_assignments" on bt_float_assignments;
 create policy "admin write float_assignments" on bt_float_assignments for all using (
   exists (select 1 from bt_profiles p where p.user_id = auth.uid() and p.role = 'admin')
 );
+drop policy if exists "crew insert float_assignments" on bt_float_assignments;
 create policy "crew insert float_assignments" on bt_float_assignments for insert with check (
   exists (select 1 from bt_profiles p where p.user_id = auth.uid() and p.role = 'crew')
 );
+drop policy if exists "crew update float_assignments" on bt_float_assignments;
 create policy "crew update float_assignments" on bt_float_assignments for update using (
+  exists (select 1 from bt_profiles p where p.user_id = auth.uid() and p.role = 'crew')
+) with check (
+  -- Without this a crew login passes the USING check on the old row and
+  -- can then write anything at all into the new one.
   exists (select 1 from bt_profiles p where p.user_id = auth.uid() and p.role = 'crew')
 );
 

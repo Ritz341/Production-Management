@@ -4,7 +4,7 @@ import { useAuth } from '../lib/AuthContext.jsx'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { DONE_RANK, ago, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
 import { weekName } from '../lib/dates'
-import NotificationBanner from '../components/NotificationBanner.jsx'
+import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
 import FileModal from '../components/FileModal.jsx'
 import OrderFormModal from '../components/OrderFormModal.jsx'
 
@@ -199,9 +199,12 @@ export default function LogisticsView() {
           <h1 className="font-display text-3xl font-bold text-paper leading-none">Logistics</h1>
           <p className="text-sm text-floorMute mt-1">Add confirmed orders — they reach the floor as soon as you save.</p>
         </div>
-        <button onClick={signOut} className="text-sm text-steelLight hover:text-paper">
-          Sign out
-        </button>
+        <div className="flex items-center gap-2">
+          <NotificationBell />
+          <button onClick={signOut} className="text-sm text-floorMute hover:text-paper">
+            Sign out
+          </button>
+        </div>
       </header>
 
       <main className="px-4 sm:px-6 py-5 max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] gap-5 items-start">
@@ -345,7 +348,11 @@ export default function LogisticsView() {
               const cells = Object.values(o.statuses).filter((c) => c.visible)
               const done = cells.filter((c) => stageRank(c.stage) >= DONE_RANK).length
               const blocked = cells.some((c) => c.blocked)
-              const days = daysUntil(o.scheduled_pickup_date)
+              // The order's own date if it has one, otherwise its week's —
+              // an order in a week with a ship date has a pickup, and saying
+              // "No pickup date" on it was simply wrong.
+              const pickupDate = o.scheduled_pickup_date ?? buildWeeks.find((w) => w.id === o.build_week_id)?.ship_date ?? null
+              const days = daysUntil(pickupDate)
               return (
                 <li key={o.id} className="py-3 grid grid-cols-[1fr_auto] gap-3 items-center">
                   <div className="min-w-0">
@@ -355,7 +362,7 @@ export default function LogisticsView() {
                     </div>
                     <div className="text-xs mt-1 flex flex-wrap gap-x-3">
                       <span className={o.status === 'cancelled' ? 'text-andonRed font-semibold' : o.actual_pickup_date ? 'text-andonGreen font-semibold' : days != null && days < 0 ? 'text-andonRed font-semibold' : 'text-steel'}>
-                        {o.status === 'cancelled' ? `Cancelled${o.cancel_reason ? ` — ${o.cancel_reason}` : ''}` : o.actual_pickup_date ? 'Picked up' : o.scheduled_pickup_date ? `Pickup ${shortDate(o.scheduled_pickup_date)} · ${relativeDay(days)}` : 'No pickup date'}
+                        {o.status === 'cancelled' ? `Cancelled${o.cancel_reason ? ` — ${o.cancel_reason}` : ''}` : o.actual_pickup_date ? 'Picked up' : pickupDate ? `Pickup ${shortDate(pickupDate)} · ${relativeDay(days)}` : 'No pickup date'}
                       </span>
                       <span className="text-steel tabular-nums">
                         {done}/{cells.length} departments done

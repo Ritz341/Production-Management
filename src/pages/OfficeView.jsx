@@ -144,13 +144,13 @@ export default function OfficeView() {
             <input type="checkbox" checked={onlyNotReady} onChange={(e) => setOnlyNotReady(e.target.checked)} className="w-4 h-4" />
             Only paperwork not ready
           </label>
-          <button onClick={signOut} className="text-sm text-steelLight hover:text-paper">
+          <button onClick={signOut} className="text-sm text-floorMute hover:text-paper">
             Sign out
           </button>
         </div>
       </header>
 
-      <main className="px-4 sm:px-6 py-5 max-w-6xl mx-auto space-y-5">
+      <main className="px-4 sm:px-6 py-5 max-w-[90rem] mx-auto space-y-5">
         {error && <div className="bg-andonRedBg text-andonRed text-sm px-4 py-3 rounded-lg">⚠ {error}</div>}
         {groups.length === 0 && <p className="text-steelLight">No orders waiting.</p>}
 
@@ -168,13 +168,15 @@ export default function OfficeView() {
                   </h2>
                   {week?.ship_date && (
                     <p className="text-sm text-steelLight">
-                      {shortDate(week.ship_date)} · {relativeDay(daysUntil(week.ship_date))} · paperwork {list.length - open.length}/
+                      {relativeDay(daysUntil(week.ship_date))} · paperwork {list.length - open.length}/
                       {list.length}
                     </p>
                   )}
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
-                  {load && <WeekLoad load={load} settings={settings} />}
+                  {/* Whether the crew can make a pickup only means something
+                      before it — a shipped week's "0 of 0 person-days" is noise. */}
+                  {load && load.days > 0 && <WeekLoad load={load} settings={settings} />}
                   {open.length > 0 && (
                     <button
                       onClick={() => setReady(open.map((o) => o.id), true)}
@@ -226,7 +228,8 @@ export default function OfficeView() {
                             <div className="font-display font-bold text-base text-charcoal">{o.tag_name}</div>
                             <div className="text-xs text-steelLight truncate max-w-[16rem]">{o.dealer}</div>
                           </td>
-                          <td className="px-2 py-2.5">
+                          <td className="px-2 py-2.5 whitespace-nowrap">
+                            <label className="flex items-center gap-1.5">
                             <input
                               type="number"
                               min="0"
@@ -241,9 +244,12 @@ export default function OfficeView() {
                               aria-label={`Mods for ${o.tag_name}`}
                               className={`w-16 rounded border px-2 py-1.5 tabular-nums ${o.mods_count ? 'border-paperDim' : 'border-safety bg-safety/10'}`}
                             />
+                            <span className="text-xs text-steelLight">mods</span>
+                            </label>
                             {/* How the drawing splits those mods up.
                                 Optional — the estimate runs off the
                                 total, this is for the floor. */}
+                            <label className="flex items-center gap-1.5 mt-1">
                             <input
                               type="number"
                               min="0"
@@ -255,10 +261,11 @@ export default function OfficeView() {
                                 const v = e.target.value === '' ? null : Number(e.target.value)
                                 if (v !== (o.walls_count ?? null)) saveDetails(o, { walls_count: v })
                               }}
-                              placeholder="walls"
                               aria-label={`Walls for ${o.tag_name}`}
-                              className="ml-1.5 w-16 rounded border border-paperDim px-2 py-1.5 tabular-nums"
+                              className="w-16 rounded border border-paperDim px-2 py-1.5 tabular-nums"
                             />
+                            <span className="text-xs text-steelLight">walls</span>
+                            </label>
                           </td>
                           <DetailSelect order={o} field="room_shape" options={ROOM_SHAPES} onSave={saveDetails} disabled={!live} />
                           <DetailSelect order={o} field="window_type" options={WINDOW_TYPES} onSave={saveDetails} disabled={!live} />

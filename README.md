@@ -95,7 +95,7 @@ In the Supabase SQL editor, run **in order**:
 
 1. `schema.sql`
 2. `seed.sql`
-3. `schema_v2.sql` through `schema_v17.sql`, in order
+3. `schema_v2.sql` through `schema_v20.sql`, in order
 
 Skip `import_data.sql` — it's a snapshot of an old sheet. Start empty and load orders through **Weekly import** or the logistics screen. To wipe orders later but keep departments and logins, run `reset_to_empty.sql`.
 
@@ -183,7 +183,7 @@ Stand up Supabase via Docker on the plant server, run the same SQL files, recrea
 │       ├── AuthContext.jsx
 │       ├── ConnectionContext.jsx
 │       └── supabaseClient.js
-├── schema.sql, schema_v2–v17.sql   # database + migrations
+├── schema.sql, schema_v2–v20.sql   # database + migrations
 ├── seed.sql, import_data.sql
 └── .github/workflows/build.yml     # CI build check
 ```

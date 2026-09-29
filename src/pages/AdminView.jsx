@@ -6,21 +6,24 @@ import { dbErrorText } from '../lib/dbError'
 import { WORKFLOW_STAGES, workflowStageById, BLOCKED_CHIP_CLASS } from '../lib/statusColors'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import FileModal from '../components/FileModal.jsx'
-import NotificationBanner from '../components/NotificationBanner.jsx'
+import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
 import OrderFormModal from '../components/OrderFormModal.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
+import BulkRemoveModal from '../components/BulkRemoveModal.jsx'
 import AdminImport from './AdminImport.jsx'
 import AdminOverview from './AdminOverview.jsx'
 import AdminReports from './AdminReports.jsx'
 import AdminTVs from './AdminTVs.jsx'
 import AdminSkillMatrix from './AdminSkillMatrix.jsx'
+import AdminFloaters from './AdminFloaters.jsx'
 import { blockText } from '../lib/catalog'
 import { DONE_RANK, buildNumbers, byBuildOrder, stageRank, wasMovedRecently } from '../lib/schedule'
 
-// Cycled per row in the Grid tab so long lists are easier to track
-// across a wide table (25 columns) than plain white/paper zebra
-// striping. Deliberately avoids red — that's reserved for alerts.
-const ROW_SHADES = ['bg-white', 'bg-paperDim', 'bg-andonBlueBg', 'bg-andonGreenBg', 'bg-steel/10']
+// Plain two-tone zebra, so a row can be followed across 25 columns.
+// It used to cycle through blue and green as well — the same colours
+// that mean "in progress" and "done" everywhere else in the app, so a
+// row nobody had touched could read as finished at a glance.
+const ROW_SHADES = ['bg-white', 'bg-paper']
 
 export default function AdminView() {
   const { signOut } = useAuth()
@@ -39,6 +42,11 @@ export default function AdminView() {
   const [openOrder, setOpenOrder] = useState(null)
   const [formOrder, setFormOrder] = useState(null) // null = closed, 'new' = create, order object = edit
   const [shipDateDraft, setShipDateDraft] = useState('')
+  // Orders ticked for removal. Held as ids, not rows, so a live
+  // refresh mid-selection can't leave stale copies behind.
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [removing, setRemoving] = useState(false)
+  const [notice, setNotice] = useState('')
 
   async function loadBuildWeeks() {
     // Newest ship date first — oldest scrolls to the bottom.
@@ -223,6 +231,24 @@ export default function AdminView() {
         (o.dealer ?? '').toLowerCase().includes(filter.toLowerCase()))
   )
 
+  // Only ever act on what's both ticked AND on screen: narrowing the
+  // filter after ticking rows must not remove orders the admin can no
+  // longer see.
+  const selectedOrders = visibleOrders.filter((o) => selectedIds.has(o.id))
+  const allShownSelected = visibleOrders.length > 0 && selectedOrders.length === visibleOrders.length
+
+  function toggleSelected(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  function toggleAllShown() {
+    setSelectedIds(allShownSelected ? new Set() : new Set(visibleOrders.map((o) => o.id)))
+  }
+
   // A column only earns a spot in the grid if at least one visible order
   // actually has a value in it. A blank cell on the sheet means that
   // department never applied to that order at all — not "waiting" or
@@ -242,6 +268,7 @@ export default function AdminView() {
             ['reports', 'Reports'],
             ['tvs', 'Targets & TVs'],
             ['skills', 'Skills Matrix'],
+            ['floaters', 'Who can cover'],
           ].map(([id, label]) => (
             <button
               key={id}
@@ -252,9 +279,12 @@ export default function AdminView() {
             </button>
           ))}
         </div>
-        <button onClick={signOut} className="text-sm text-steelLight hover:text-paper">
-          Sign out
-        </button>
+        <div className="flex items-center gap-2">
+          <NotificationBell />
+          <button onClick={signOut} className="text-sm text-floorMute hover:text-paper">
+            Sign out
+          </button>
+        </div>
       </header>
 
       {tab === 'overview' && (
@@ -273,6 +303,8 @@ export default function AdminView() {
       {tab === 'tvs' && <AdminTVs />}
 
       {tab === 'skills' && <AdminSkillMatrix />}
+
+      {tab === 'floaters' && <AdminFloaters />}
 
       {tab === 'import' && (
         <AdminImport
@@ -337,7 +369,34 @@ export default function AdminView() {
             </button>
           </div>
 
+          {/* ── Ticked orders ──
+              A fixed bar rather than a button in the toolbar: the grid
+              scrolls a long way, and an action on a selection you made
+              200 rows ago needs to stay in sight. */}
+          {selectedOrders.length > 0 && (
+            <div className="sticky top-0 z-20 bg-charcoal text-paper px-5 py-2.5 flex items-center gap-4 flex-wrap shadow-lg">
+              <span className="font-display font-bold text-lg tabular-nums">
+                {selectedOrders.length} selected
+              </span>
+              <button onClick={() => setSelectedIds(new Set())} className="text-sm text-floorMute hover:text-paper underline">
+                Clear
+              </button>
+              <button
+                onClick={() => setRemoving(true)}
+                disabled={!live}
+                className="ml-auto bg-andonRed text-white font-display font-bold text-sm px-4 py-2 rounded disabled:opacity-40"
+              >
+                Remove selected…
+              </button>
+            </div>
+          )}
+
           <main className="p-4 overflow-x-auto">
+            {notice && (
+              <div className="bg-andonGreenBg border border-andonGreen text-andonGreen text-sm px-4 py-3 rounded mb-3">
+                {notice}
+              </div>
+            )}
             {loadError && (
               <div className="bg-andonRedBg border border-andonRed text-andonRed text-sm px-4 py-3 rounded mb-3">
                 ⚠ {loadError}
@@ -349,6 +408,16 @@ export default function AdminView() {
               <table className="min-w-full text-sm bg-white shadow-sm">
                 <thead className="bg-charcoal text-paper font-display text-base">
                   <tr>
+                    <th className="px-2 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={allShownSelected}
+                        onChange={toggleAllShown}
+                        aria-label="Select every order shown"
+                        title="Select every order shown"
+                        className="w-4 h-4 align-middle"
+                      />
+                    </th>
                     <th className="px-2 py-2 text-left sticky left-0 bg-charcoal z-10" title="Build order within the pickup">#</th>
                     <th className="px-3 py-2 text-left">Tag Name</th>
                     <th className="px-2 py-2 text-center" title="Paperwork ready (office only — not shown on the floor)">📄</th>
@@ -364,7 +433,16 @@ export default function AdminView() {
                 </thead>
                 <tbody>
                   {visibleOrders.map((o, i) => (
-                    <tr key={o.id} className={ROW_SHADES[i % ROW_SHADES.length]}>
+                    <tr key={o.id} className={selectedIds.has(o.id) ? 'bg-safety/20' : ROW_SHADES[i % ROW_SHADES.length]}>
+                      <td className="px-2 py-1 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(o.id)}
+                          onChange={() => toggleSelected(o.id)}
+                          aria-label={`Select ${o.tag_name}`}
+                          className="w-4 h-4 align-middle"
+                        />
+                      </td>
                       <td className="px-1 py-1 sticky left-0 bg-inherit whitespace-nowrap">
                         {o.status === 'active' ? (
                           <div className="flex items-center gap-1">
@@ -393,7 +471,9 @@ export default function AdminView() {
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        <span className={`font-display text-base font-semibold ${o.status === 'cancelled' ? 'text-steelLight line-through' : 'text-charcoal'}`}>
+                        {/* An identifier: broken at its hyphens it became
+                            three lines and hard to read as one tag. */}
+                        <span className={`font-display text-base font-semibold whitespace-nowrap ${o.status === 'cancelled' ? 'text-steelLight line-through' : 'text-charcoal'}`}>
                           {o.tag_name}
                         </span>
                         {o.status === 'cancelled' && (
@@ -413,7 +493,7 @@ export default function AdminView() {
                           {o.paperwork_ready_at ? '✓' : '○'}
                         </button>
                       </td>
-                      <td className="px-3 py-2 text-steelLight">{o.dealer}</td>
+                      <td className="px-3 py-2 text-steelLight min-w-[11rem]">{o.dealer}</td>
                       <td className="px-3 py-2 text-steelLight">{o.shipping_status}</td>
                       {presentColumns.map((c) => {
                         const cell = o.statuses[c.id]
@@ -510,6 +590,21 @@ export default function AdminView() {
           onClose={() => setFormOrder(null)}
           onSaved={loadAll}
           allowPull
+        />
+      )}
+
+      {removing && (
+        <BulkRemoveModal
+          orders={selectedOrders}
+          onClose={() => setRemoving(false)}
+          onDone={({ count, permanent, announce }) => {
+            setSelectedIds(new Set())
+            setNotice(
+              `${count} ${count === 1 ? 'order' : 'orders'} ${permanent ? 'deleted for good' : 'cancelled'}` +
+                (announce ? ' — the floor has been told.' : ' — the floor was not notified.')
+            )
+            loadAll()
+          }}
         />
       )}
 

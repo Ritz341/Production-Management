@@ -6,7 +6,7 @@ import { blockText, fmtQty, isoDate, pickupLoads, planLine, processesFor, ratePe
 import WeekLoad from '../components/WeekLoad.jsx'
 import { nearestBuildWeekId, weekName, weekOptionLabel } from '../lib/dates'
 import { dbErrorText } from '../lib/dbError'
-import { DONE_RANK, ago, buildNumbers, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
+import { DONE_RANK, HEADLINE_TONE_CLASS, ago, buildNumbers, daysUntil, relativeDay, shortDate, stageRank, weekHeadline } from '../lib/schedule'
 
 // How close a pickup has to be before an unfinished order counts as at risk.
 const AT_RISK_DAYS = 3
@@ -156,6 +156,20 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
     return { total: cells.length, done, byStage, ordersDone }
   }, [weekOrders])
 
+  // Orders fully built, per week — for the week picker.
+  const weekBuilt = useMemo(() => {
+    const out = new Map()
+    for (const o of orders) {
+      if (o.status === 'cancelled') continue
+      const cells = cellsOf(o)
+      const entry = out.get(o.build_week_id) ?? { total: 0, done: 0 }
+      entry.total++
+      if (cells.length && cells.every(([, c]) => stageRank(c.stage) >= DONE_RANK)) entry.done++
+      out.set(o.build_week_id, entry)
+    }
+    return out
+  }, [orders])
+
   const blocked = useMemo(
     () =>
       orders
@@ -289,6 +303,9 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
   }, [buildWeeks])
 
   const shipDays = daysUntil(week?.ship_date)
+  // Counted in orders, not department jobs: the tile is about whether
+  // this week still owes the yard anything.
+  const headline = weekHeadline(week?.ship_date, { total: weekOrders.length, done: weekStats.ordersDone })
   const pct = weekStats.total ? Math.round((weekStats.done / weekStats.total) * 100) : 0
 
   return (
@@ -307,10 +324,17 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
                   the sheet's banner and carries a date of its own, so
                   leading with it puts a second, staler date on screen. */}
               <div className="font-display font-bold text-lg leading-tight text-charcoal">{shortDate(w.ship_date)}</div>
-              <div className={`text-xs ${daysUntil(w.ship_date) < 0 ? 'text-andonRed' : 'text-steelLight'}`}>
-                {relativeDay(daysUntil(w.ship_date))}
-                {weekName(w) && ` · ${weekName(w)}`}
-              </div>
+              {(() => {
+                // Same rule as the big tile: a week that's fully built
+                // isn't late, it's waiting on a truck.
+                const h = weekHeadline(w.ship_date, weekBuilt.get(w.id) ?? {})
+                return (
+                  <div className={`text-xs ${h.tone === 'done' ? 'text-andonGreen font-semibold' : h.tone === 'late' ? 'text-andonRed' : 'text-steelLight'}`}>
+                    {h.tone === 'done' ? 'All built' : relativeDay(daysUntil(w.ship_date))}
+                    {weekName(w) && ` · ${weekName(w)}`}
+                  </div>
+                )
+              })()}
             </button>
           ))}
           {buildWeeks.length > upcoming.length && (
@@ -347,10 +371,15 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
           <div className="text-[11px] uppercase tracking-[0.12em] text-floorMute font-semibold">
             {weekName(week) || 'This build week'} ships
           </div>
-          <div className={`font-display font-extrabold text-5xl leading-none mt-1.5 tabular-nums ${shipDays != null && shipDays <= 2 ? 'text-[#FF6B6B]' : 'text-safety'}`}>
-            {week?.ship_date ? relativeDay(shipDays).toUpperCase() : 'NO DATE'}
+          <div className={`font-display font-extrabold text-5xl leading-none mt-1.5 tabular-nums ${HEADLINE_TONE_CLASS[headline.tone]}`}>
+            {headline.text}
           </div>
-          <div className="text-sm text-floorMute mt-1">{week?.ship_date ? shortDate(week.ship_date) : 'Set a ship date below'}</div>
+          <div className="text-sm text-floorMute mt-1">
+            {week?.ship_date ? shortDate(week.ship_date) : 'Set a ship date below'}
+            {/* Still say where the date sits — finished early and finished
+                late are different facts, they're just not alarms. */}
+            {headline.tone === 'done' && shipDays != null && ` · ${relativeDay(shipDays)}`}
+          </div>
           {week && (
             <div className="flex items-center gap-2 mt-3">
               <input
@@ -396,7 +425,12 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
         </Kpi>
       </div>
 
+      {/* Two stacks of about the same height: what's happening on the
+          left, planning on the right. The left used to hold Needs
+          attention alone — two lines on a good day, then a screen of
+          empty space beside a right column four panels deep. */}
       <div className="mt-3 grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-3 items-start">
+        <div className="grid gap-3">
         {/* ── Needs attention ── */}
         <section className="rounded-2xl bg-white border border-paperDim p-4">
           <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">Needs attention</h2>
@@ -449,6 +483,53 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
             </ul>
           )}
         </section>
+
+          {/* ── Departments ── */}
+          <section className="rounded-2xl bg-white border border-paperDim p-4">
+            <div className="flex items-baseline justify-between">
+              <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">Departments</h2>
+              <button onClick={onOpenGrid} className="text-sm text-andonBlue font-medium">
+                Open grid →
+              </button>
+            </div>
+            <ul className="mt-2 space-y-3">
+              {deptStats.map(({ d, jobs, done, started, blocked: b }) => (
+                <li key={d.id}>
+                  <div className="flex items-baseline justify-between gap-2 text-sm">
+                    <span className="font-display font-bold text-lg text-charcoal">{d.name}</span>
+                    <span className="text-steelLight tabular-nums">
+                      {jobs ? `${done}/${jobs} done` : 'none this week'}
+                      {b > 0 && <b className="text-andonRed"> · {b} blocked</b>}
+                    </span>
+                  </div>
+                  {jobs > 0 && (
+                    <div className="h-2 rounded-full bg-paperDim overflow-hidden flex mt-1" aria-hidden="true">
+                      <i className="bg-andonGreen" style={{ width: `${(done / jobs) * 100}%` }} />
+                      <i className="bg-andonBlue" style={{ width: `${(started / jobs) * 100}%` }} />
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          {/* ── Activity ── */}
+          <section className="rounded-2xl bg-white border border-paperDim p-4">
+            <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">On the floor</h2>
+            {events.length === 0 ? (
+              <p className="text-sm text-steelLight mt-2">No activity yet.</p>
+            ) : (
+              <ul className="mt-2 space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                {events.map((e) => (
+                  <li key={e.id} className="grid grid-cols-[2.5rem_1fr] gap-2 text-sm">
+                    <span className="text-steelLight tabular-nums text-right">{ago(e.created_at)}</span>
+                    <span className={e.message.includes('BLOCKED') ? 'text-andonRed' : 'text-steel'}>{e.message}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
 
         <div className="grid gap-3">
           {/* ── Can we make it? ── */}
@@ -509,51 +590,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
             </ul>
           </section>
 
-          {/* ── Departments ── */}
-          <section className="rounded-2xl bg-white border border-paperDim p-4">
-            <div className="flex items-baseline justify-between">
-              <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">Departments</h2>
-              <button onClick={onOpenGrid} className="text-sm text-andonBlue font-medium">
-                Open grid →
-              </button>
-            </div>
-            <ul className="mt-2 space-y-3">
-              {deptStats.map(({ d, jobs, done, started, blocked: b }) => (
-                <li key={d.id}>
-                  <div className="flex items-baseline justify-between gap-2 text-sm">
-                    <span className="font-display font-bold text-lg text-charcoal">{d.name}</span>
-                    <span className="text-steelLight tabular-nums">
-                      {jobs ? `${done}/${jobs} done` : 'none this week'}
-                      {b > 0 && <b className="text-andonRed"> · {b} blocked</b>}
-                    </span>
-                  </div>
-                  {jobs > 0 && (
-                    <div className="h-2 rounded-full bg-paperDim overflow-hidden flex mt-1" aria-hidden="true">
-                      <i className="bg-andonGreen" style={{ width: `${(done / jobs) * 100}%` }} />
-                      <i className="bg-andonBlue" style={{ width: `${(started / jobs) * 100}%` }} />
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
 
-          {/* ── Activity ── */}
-          <section className="rounded-2xl bg-white border border-paperDim p-4">
-            <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">On the floor</h2>
-            {events.length === 0 ? (
-              <p className="text-sm text-steelLight mt-2">No activity yet.</p>
-            ) : (
-              <ul className="mt-2 space-y-1.5 max-h-80 overflow-y-auto pr-1">
-                {events.map((e) => (
-                  <li key={e.id} className="grid grid-cols-[2.5rem_1fr] gap-2 text-sm">
-                    <span className="text-steelLight tabular-nums text-right">{ago(e.created_at)}</span>
-                    <span className={e.message.includes('BLOCKED') ? 'text-andonRed' : 'text-steel'}>{e.message}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
         </div>
       </div>
 

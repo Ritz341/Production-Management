@@ -28,7 +28,14 @@ export function weekOptionLabel(w) {
 export function weekName(w) {
   if (!w) return ''
   if (!w.ship_date) return w.label ?? ''
-  const own = String(w.label ?? '').replace(/\d{1,2}\/\d{1,2}(\/\d{2,4})?/g, '').replace(/\s+/g, ' ').trim()
+  // Both forms a stale date shows up in: the sheet's '9/15', and a
+  // written-out 'Sept 15'. Stripped here as well as in the trigger,
+  // because this runs whatever state the database is in.
+  const own = String(w.label ?? '')
+    .replace(/\d{1,2}\/\d{1,2}(\/\d{2,4})?/g, '')
+    .replace(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(st|nd|rd|th)?\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
   // 'PICK UP' on its own adds nothing next to a ship date.
   return /^(pick ?up|pu)?$/i.test(own) ? '' : own
 }

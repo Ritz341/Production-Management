@@ -58,6 +58,11 @@
   label.f input,label.f select{border:1px solid var(--faint);border-radius:7px;padding:7px 8px;font-weight:400;font-size:14px}
   .fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
   .leads{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:10px}
+  .lead-saved{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:600;color:var(--ink2);min-width:0}
+  .lead-saved .lv{display:flex;align-items:center;gap:6px;justify-content:space-between;border:1px solid var(--faint);background:var(--rail);border-radius:7px;padding:4px 4px 4px 8px;min-height:35px}
+  .lead-saved .lv b{font-size:14px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .btn.tiny{padding:3px 8px;font-size:12px;flex:none}
+  .leads-note{grid-column:1/-1;font-size:12px;color:var(--mute);margin-top:-4px}
   .full{grid-column:1/-1}
 
   table.review{width:100%;border-collapse:collapse;font-size:13px}
@@ -608,14 +613,36 @@ function renderCounts() {
 }
 
 // ── The day ──
+// Lead names are kept on this PC and come back every day. A saved name
+// shows locked, so it isn't changed by a stray click; Change opens it.
+let editingLead = null, leadBefore = ''
 function renderLeads() {
   const leads = store.get('leads', {})
-  $('leads').innerHTML = DEPARTMENTS.map((d) => `<label class="f">${d.name} lead <input data-lead="${d.key}" value="${esc(leads[d.key] ?? '')}" placeholder="Name"></label>`).join('')
+  $('leads').innerHTML = DEPARTMENTS.map((d) => {
+    const name = (leads[d.key] ?? '').trim()
+    if (name && editingLead !== d.key) return `<div class="lead-saved">${d.name} lead<span class="lv"><b title="${esc(name)}">${esc(name)}</b><button class="btn tiny" data-edit="${d.key}">Change</button></span></div>`
+    return `<label class="f">${d.name} lead <input data-lead="${d.key}" value="${esc(leads[d.key] ?? '')}" placeholder="Name"></label>`
+  }).join('') + (Object.values(leads).some((v) => v?.trim()) ? '<div class="leads-note">Saved on this PC — they\'ll be here tomorrow.</div>' : '')
 }
+function setLead(k, v) { const leads = store.get('leads', {}); leads[k] = v; store.set('leads', leads) }
+function lockLeads() { editingLead = null; renderLeads() }
 $('leads').addEventListener('input', (e) => {
   const k = e.target.dataset.lead; if (!k) return
-  const leads = store.get('leads', {}); leads[k] = e.target.value; store.set('leads', leads); renderSheets()
+  setLead(k, e.target.value); renderSheets()
 })
+$('leads').addEventListener('click', (e) => {
+  const k = e.target.dataset.edit; if (!k) return
+  editingLead = k; leadBefore = store.get('leads', {})[k] ?? ''
+  renderLeads()
+  const input = $('leads').querySelector(`[data-lead="${k}"]`); input.focus(); input.select()
+})
+$('leads').addEventListener('keydown', (e) => {
+  const k = e.target.dataset.lead; if (!k) return
+  if (e.key === 'Enter') e.target.blur()
+  if (e.key === 'Escape' && editingLead === k) { setLead(k, leadBefore); e.target.blur(); renderSheets() }
+})
+// Leaving the box saves it; defer so a click on another Change still lands.
+$('leads').addEventListener('focusout', (e) => { if (e.target.dataset.lead) setTimeout(() => { if (!$('leads').contains(document.activeElement)) lockLeads() }) })
 for (const id of ['date', 'ship', 'crew', 'note']) $(id).addEventListener('input', () => { if (id === 'note') store.set('note', $('note').value); renderSheets() })
 
 // ── The printed sheets ──

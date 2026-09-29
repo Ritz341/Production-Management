@@ -260,11 +260,9 @@ function bannerIn(row, dealerRaw, tag) {
 // and rarely in the selection). Then the Tag Name column is found by its
 // values — "FOSTER_168004" — and the columns to its right are named in
 // sheet order: the order last seen in a header (the Excel file, or a paste
-// that had one), else this one. Read off a real paste: Mods, V4T and Vin.
-// Fix first, Doors 13th, Roof Panels, Roof Extr. and Track right after it,
-// PATIO Door 22nd. The two columns before Doors weren't identified; none
-// of the four floor departments reads them.
-const DEFAULT_LAYOUT = ['Mods', 'V4T', 'Vin. Fix', 'Vin. Trap', 'Alum. Fix', 'Alum. Trap', 'XX', 'H2/4', 'PVC', 'I-A', '?', '?', 'Doors', 'Roof Panels', 'Roof Extr.', 'Track', 'Therm a deck', 'Acrylic', 'Deck', 'Valance', 'Rail', 'PATIO Door', 'Glass', 'Pergola', 'R. Screen', 'Nova Sun', 'Stairs']
+// that had one), else the build sheet's own header, left to right:
+// Date, Truck, Dealer, Tag Name, then these.
+const DEFAULT_LAYOUT = ['Mods', 'V4T', 'Vin. Fix', 'Vin. Trap', 'Alum. Fix', 'Alum. Trap', 'XX', 'H2/4', 'PVC', 'I-A', 'Doors', 'Roof Panels', 'Roof Extr.', 'Track', 'Therm a deck', 'Acrylic', 'Deck', 'Valance', 'Rail', 'PATIO Door', 'Glass', 'Pergola', 'R. Screen', 'Nova Sun', 'Stairs']
 const TAG_SHAPED = /_\d{4,}\s*$/
 const canon = (h) => { const n = norm(h); return n ? SHEET_COLUMNS.find((c) => norm(c) === n) ?? null : null }
 
@@ -556,7 +554,7 @@ function addOrders(found, how, source, parsed) {
   if (skipped) text += ` ${skipped} already on the list.`
   if (parsed?.inferred) text += parsed.inferred === 'remembered'
     ? ' No header row, so columns were matched to the last header seen — check the ticks.'
-    : ' No header row, so columns were matched by their usual place on the build sheet — check the ticks. Opening the Excel file once teaches it the exact columns.'
+    : ' No header row, so columns were matched by their usual place on the build sheet — check the ticks.'
   if (how === 'loose') text += " Couldn't see the column headers, so every order is on every sheet — untick the departments that don't build it."
   if (lows) text += ` ${lows} highlighted in yellow were hard to read — check them against the sheet.`
   setMsg(text, how === 'loose' || lows || parsed?.inferred ? 'warn' : 'ok')

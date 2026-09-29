@@ -77,6 +77,10 @@
   .counts{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 0}
   .pill{background:var(--rail);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600}
   .empty{color:var(--mute);text-align:center;padding:22px}
+  .fileicon{margin-top:10px;display:inline-block;background:var(--green-bg);color:var(--green);border-radius:8px;padding:6px 10px;font-weight:600}
+  .picker{margin-top:10px;border:2px solid var(--safety);background:var(--safety-bg);border-radius:10px;padding:10px 12px;font-size:13px}
+  .picker .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .picker .chips .btn small{font-weight:400;color:var(--mute)}
 
   /* ───────── the printed sheets ───────── */
   #sheets{display:none}
@@ -132,7 +136,7 @@
 </head>
 <body>
 <div class="bar">
-  <div><h1>Floor Sheet Maker</h1><small>Screenshot today's orders → check the list → print the floor sheets</small></div>
+  <div><h1>Floor Sheet Maker</h1><small>Screenshot or Excel file of today's orders → check the list → print the floor sheets</small></div>
   <button class="print" id="printBtn" disabled>🖨 Print sheets</button>
 </div>
 
@@ -142,18 +146,20 @@
       <h2><span class="step">1</span>Today's orders</h2>
       <div class="drop" id="drop" tabindex="0">
         <b>Paste a screenshot here</b> (Ctrl+V)<br>
-        or drag the image in, or <u>click to choose a file</u>.<br>
-        <small>Win+Shift+S → select the rows, <b>including the header row</b> with Tag Name, Dealer, Mods…</small>
+        or drag in the image <b>or the Excel file</b>, or <u>click to choose one</u>.<br>
+        <small>Screenshot: Win+Shift+S → select the rows, <b>including the header row</b> with Tag Name, Dealer, Mods…<br>
+        Excel: only the <b>Truesdale</b> tab is read.</small>
         <div id="thumb"></div>
         <div class="progress" id="prog"><i></i></div>
       </div>
-      <input type="file" id="file" accept="image/*" hidden>
+      <input type="file" id="file" accept="image/*,.xlsx,.xlsm,.xlsb,.xls" hidden>
       <details style="margin-top:10px">
         <summary style="cursor:pointer;font-weight:600">…or paste the rows from Excel (exact, works offline)</summary>
         <textarea id="paste" placeholder="Copy the rows from the build sheet — including the header row — and paste here."></textarea>
         <div class="row2"><button class="btn dark" id="readPaste">Read these rows</button></div>
       </details>
       <div class="msg" id="msg"></div>
+      <div class="picker" id="picker" hidden></div>
     </section>
 
     <section class="card">
@@ -223,31 +229,63 @@ const store = {
   set(k, v) { try { localStorage.setItem('fsm:' + k, JSON.stringify(v)) } catch {} },
 }
 
-// ── Reading rows (from Excel paste, or rebuilt from OCR) ──
+// ── Reading rows (from an Excel file or paste, or rebuilt from OCR) ──
 // A department takes an order when any of its columns has something in
 // it that isn't "C": blank means the order doesn't need that department,
 // C means it's already done.
+//
+// The Truesdale tab holds every pickup week, each under a "PICK UP 10/2"
+// banner row (in the Dealer column), so every order remembers which
+// pickup it sits under. Rows the Date column marks Shipped / Picked up,
+// and rows with nothing left for any of the four departments, are left
+// off and counted.
+const PICKUP_BANNER = /pick\s*up\D{0,20}(\d{1,2})\/(\d{1,2})/i
+// Same rule as the app's importer: a month/day more than ~6 months
+// back means next year's.
+function pickupIso(month, day) {
+  const now = new Date()
+  let year = now.getFullYear()
+  if (new Date(year, month - 1, day) < new Date(now.getTime() - 180 * 864e5)) year += 1
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+function bannerIn(row, dealerRaw, tag) {
+  let m = dealerRaw.match(/^\s*pick\s*up\D{0,20}(\d{1,2})\/(\d{1,2})/i)
+  // OCR can scatter the banner across columns; look at the whole row, but
+  // only when the tag slot isn't a real order.
+  if (!m && (!tag || /pick\s*up|current\s*as\s*of/i.test(tag))) m = row.map((c) => String(c ?? '')).join(' ').match(PICKUP_BANNER)
+  return m ? { iso: pickupIso(Number(m[1]), Number(m[2])) } : null
+}
+
 function ordersFromGrid(grid) {
-  const headerIdx = grid.findIndex((r) => r.some((c) => /tag\s*name/i.test(c ?? '')))
+  const headerIdx = grid.findIndex((r) => r.some((c) => /tag\s*name/i.test(String(c ?? ''))))
   if (headerIdx === -1) return null
   const header = grid[headerIdx].map((h) => {
     const n = norm(h)
     return SHEET_COLUMNS.find((c) => norm(c) === n) ?? null
   })
   const col = (name) => header.indexOf(name)
+  const cell = (row, name) => { const i = col(name); return i === -1 ? '' : String(row[i] ?? '').trim() }
   const out = []
+  const sections = [] // [{ iso, count }] in sheet order
+  let section = null
+  let shipped = 0, done = 0
   for (const row of grid.slice(headerIdx + 1)) {
-    const tag = (row[col('Tag Name')] ?? '').trim()
-    if (!tag || /^pick\s*up/i.test(tag)) continue
-    const dealerRaw = (row[col('Dealer')] ?? '').trim()
-    if (/^pick\s*up/i.test(dealerRaw) && !tag) continue
+    const tag = cell(row, 'Tag Name')
+    const dealerRaw = cell(row, 'Dealer')
+    const banner = bannerIn(row, dealerRaw, tag)
+    if (banner) {
+      section = sections.find((x) => x.iso === banner.iso)
+      if (!section) sections.push(section = { iso: banner.iso, count: 0 })
+      continue
+    }
+    if (!tag || /^pick\s*up|^current\s*as\s*of/i.test(tag) || /tag\s*name/i.test(tag)) continue
+    if (/ship|picked\s*up/i.test(cell(row, 'Date'))) { shipped++; continue }
     const jobs = {}
     const depts = {}
     for (const d of DEPARTMENTS) {
       let open = false
       for (const [colName] of d.jobs) {
-        const i = col(colName)
-        const v = i === -1 ? '' : String(row[i] ?? '').trim()
+        const v = cell(row, colName)
         const needed = v !== '' && v.toLowerCase() !== 'c'
         jobs[colName] = needed
         if (needed) open = true
@@ -257,9 +295,11 @@ function ordersFromGrid(grid) {
     // A sheet that had none of a department's columns tells us nothing
     // about it, so don't silently leave that department off.
     for (const d of DEPARTMENTS) if (d.jobs.every(([c]) => col(c) === -1)) { depts[d.key] = true; for (const [c] of d.jobs) jobs[c] = true }
-    out.push({ tag, dealer: /^pick\s*up/i.test(dealerRaw) ? '' : dealerRaw, depts, jobs, low: false })
+    if (!DEPARTMENTS.some((d) => depts[d.key])) { done++; continue }
+    if (section) section.count++
+    out.push({ tag, dealer: /^pick\s*up/i.test(dealerRaw) ? '' : dealerRaw, depts, jobs, low: !!row.low, pickup: section?.iso ?? null })
   }
-  return out
+  return { orders: out, sections: sections.filter((x) => x.count), shipped, done }
 }
 
 // A screenshot or paste with no header row: take anything that looks
@@ -282,9 +322,8 @@ function ordersFromLooseText(text) {
 function readPasted(text) {
   const grid = text.split(/\r?\n/).filter((l) => l.trim()).map((l) => l.split('\t'))
   const parsed = ordersFromGrid(grid)
-  if (parsed?.length) return { orders: parsed, how: 'header' }
-  const loose = ordersFromLooseText(text)
-  return { orders: loose, how: 'loose' }
+  if (parsed && (parsed.orders.length || parsed.shipped || parsed.done)) return { ...parsed, how: 'header' }
+  return { orders: ordersFromLooseText(text), sections: [], shipped: 0, done: 0, how: 'loose' }
 }
 
 // ── OCR: rebuild the table from where each word sits ──
@@ -381,15 +420,13 @@ async function readImage(file) {
     for (const b of data.blocks ?? []) for (const p of b.paragraphs ?? []) for (const l of p.lines ?? []) for (const w of l.words ?? []) if (w.text?.trim()) words.push(w)
 
     const rebuilt = words.length ? gridFromWords(words) : null
-    let found = rebuilt ? ordersFromGrid(rebuilt.grid) : null
-    if (found) {
-      // grid row n → order n-1 (header is row 0)
-      found.forEach((o, i) => { if (rebuilt.lowRows.has(i + 1)) o.low = true })
-    }
+    // Mark the rows OCR wasn't sure of; ordersFromGrid carries it onto the order.
+    if (rebuilt) rebuilt.grid.forEach((r, i) => { r.low = rebuilt.lowRows.has(i) })
+    let parsed = rebuilt ? ordersFromGrid(rebuilt.grid) : null
     let how = 'header'
-    if (!found?.length) { found = ordersFromLooseText(data.text ?? ''); how = 'loose' }
-    if (!found.length) return setMsg("Couldn't find any orders in that image. Try a sharper screenshot that includes the Tag Name header — or paste the rows from Excel.", 'err')
-    addOrders(found, how, 'screenshot')
+    if (!parsed?.orders.length) { parsed = { orders: ordersFromLooseText(data.text ?? ''), sections: [], shipped: parsed?.shipped ?? 0, done: parsed?.done ?? 0 }; how = 'loose' }
+    if (!parsed.orders.length) return setMsg("Couldn't find any orders in that image. Try a sharper screenshot that includes the Tag Name header — or use the Excel file.", 'err')
+    offer(parsed, how, 'screenshot')
   } catch (e) {
     setMsg(e.message || String(e), 'err')
   } finally {
@@ -397,13 +434,86 @@ async function readImage(file) {
   }
 }
 
-function addOrders(found, how, source) {
+// ── Excel workbook: the Truesdale tab only ──
+let xlsxReady = null
+function loadXlsx() {
+  if (window.XLSX) return Promise.resolve()
+  xlsxReady ??= new Promise((resolve, reject) => {
+    const s = document.createElement('script')
+    s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'
+    s.onload = resolve
+    s.onerror = () => { xlsxReady = null; reject(new Error("Couldn't load the Excel reader — this PC needs internet to open the file. Open it in Excel, copy the rows and paste them below instead; that works offline.")) }
+    document.head.appendChild(s)
+  })
+  return xlsxReady
+}
+const isWorkbook = (f) => /\.(xlsx|xlsm|xlsb|xls)$/i.test(f.name) || /spreadsheet|ms-excel/.test(f.type)
+const cellText = (v) => (v == null ? '' : v instanceof Date ? `${v.getMonth() + 1}/${v.getDate()}` : String(v))
+
+async function readWorkbook(file) {
+  $('thumb').innerHTML = ''
+  setMsg('Opening the workbook…', '')
+  try {
+    await loadXlsx()
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
+    // Same rule as the app's importer: the tab named Truesdale, and nothing else.
+    const name = wb.SheetNames.find((n) => n.trim().toLowerCase() === 'truesdale')
+    if (!name) return setMsg(`No "Truesdale" tab in ${file.name}. Tabs in this file: ${wb.SheetNames.join(', ')}.`, 'err')
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: null, raw: true })
+    const parsed = ordersFromGrid(rows.map((r) => Array.from(r ?? [], cellText)))
+    if (!parsed) return setMsg(`Found the Truesdale tab, but no header row with "Tag Name" in it.`, 'err')
+    $('thumb').innerHTML = `<div class="fileicon">📊 ${esc(file.name)} → ${esc(name)} tab</div>`
+    if (!parsed.orders.length) return setMsg(`Nothing left to build on the Truesdale tab${leftOff(parsed)}`, 'warn')
+    offer(parsed, 'header', 'Truesdale tab')
+  } catch (e) {
+    setMsg(e.message || String(e), 'err')
+  }
+}
+function readFile(f) { if (isWorkbook(f)) readWorkbook(f); else if (f.type.startsWith('image/')) readImage(f); else setMsg(`${f.name} isn't a picture or an Excel file.`, 'err') }
+
+function leftOff({ shipped, done }) {
+  const bits = []
+  if (shipped) bits.push(`${shipped} already shipped`)
+  if (done) bits.push(`${done} with nothing left for Mods, V4T, Track or Panel`)
+  return bits.length ? ` — left off ${bits.join(' and ')}.` : '.'
+}
+
+// More than one pickup in what was read: ask which one today's sheets are
+// for, and take the ship date from its banner.
+let pending = null
+function offer(parsed, how, source) {
+  hidePicker()
+  const noBanner = parsed.orders.filter((o) => !o.pickup).length
+  if (parsed.sections.length + (noBanner ? 1 : 0) > 1) {
+    pending = { parsed, how, source }
+    const chip = (k, title, n) => `<button class="btn" data-pick="${k}">${title} <small>· ${n} order${n === 1 ? '' : 's'}</small></button>`
+    const p = $('picker')
+    p.innerHTML = `<b>${source === 'Truesdale tab' ? 'The Truesdale tab' : 'This'} has ${parsed.sections.length} pickups. Which one are today's sheets for?</b>
+      <div class="chips">${parsed.sections.map((x) => chip(x.iso, 'Pickup ' + nice(x.iso), x.count)).join('')}${noBanner ? chip('none', 'Above the first pickup', noBanner) : ''}${chip('all', 'All of them', parsed.orders.length)}</div>`
+    p.hidden = false
+    setMsg(`Read ${parsed.orders.length} orders to build${leftOff(parsed)}`, 'ok')
+    return
+  }
+  if (parsed.sections.length === 1) $('ship').value = parsed.sections[0].iso
+  addOrders(parsed.orders, how, source, parsed)
+}
+function hidePicker() { pending = null; $('picker').hidden = true; $('picker').innerHTML = '' }
+$('picker').addEventListener('click', (e) => {
+  const k = e.target.closest('[data-pick]')?.dataset.pick; if (!k || !pending) return
+  const { parsed, how, source } = pending
+  const list = k === 'all' ? parsed.orders : parsed.orders.filter((o) => o.pickup === (k === 'none' ? null : k))
+  if (k !== 'all' && k !== 'none') $('ship').value = k
+  hidePicker()
+  addOrders(list, how, k === 'all' || k === 'none' ? source : `${source}, pickup ${nice(k)}`, parsed)
+})
+
+function addOrders(found, how, source, parsed) {
   const have = new Set(orders.map((o) => o.tag.toUpperCase()))
   const fresh = found.filter((o) => !have.has(o.tag.toUpperCase()))
   orders = [...orders, ...fresh]
   const skipped = found.length - fresh.length
   const lows = fresh.filter((o) => o.low).length
-  let text = `Added ${fresh.length} order${fresh.length === 1 ? '' : 's'} from the ${source}.`
+  let text = `Added ${fresh.length} order${fresh.length === 1 ? '' : 's'} from the ${source}${parsed ? leftOff(parsed) : '.'}`
   if (skipped) text += ` ${skipped} already on the list.`
   if (how === 'loose') text += " Couldn't see the column headers, so every order is on every sheet — untick the departments that don't build it."
   if (lows) text += ` ${lows} highlighted in yellow were hard to read — check them against the sheet.`
@@ -417,7 +527,7 @@ function showThumb(file) { const url = URL.createObjectURL(file); $('thumb').inn
 // ── The review list ──
 function renderList() {
   const tb = $('list')
-  if (!orders.length) { tb.innerHTML = `<tr><td colspan="8" class="empty">No orders yet — paste a screenshot above, or add them by hand.</td></tr>`; return }
+  if (!orders.length) { tb.innerHTML = `<tr><td colspan="8" class="empty">No orders yet — paste a screenshot or drop the Excel file above, or add them by hand.</td></tr>`; return }
   tb.innerHTML = orders.map((o, i) => `
     <tr class="${o.low ? 'low' : ''}" data-i="${i}">
       <td class="n">${i + 1}</td>
@@ -451,7 +561,7 @@ $('addRow').onclick = () => {
   render()
   const inputs = document.querySelectorAll('#list input.t'); inputs[inputs.length - 1]?.focus()
 }
-$('clearAll').onclick = () => { if (!orders.length || confirm('Clear the whole list?')) { orders = []; $('thumb').innerHTML = ''; setMsg('', ''); render() } }
+$('clearAll').onclick = () => { if (!orders.length || confirm('Clear the whole list?')) { orders = []; $('thumb').innerHTML = ''; setMsg('', ''); hidePicker(); render() } }
 
 function renderCounts() {
   $('counts').innerHTML = DEPARTMENTS.map((d) => `<span class="pill">${d.name}: ${orders.filter((o) => o.tag.trim() && o.depts[d.key]).length}</span>`).join('')
@@ -561,19 +671,19 @@ document.addEventListener('paste', (e) => {
   const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'))
   if (item) { e.preventDefault(); readImage(item.getAsFile()); return }
   const text = e.clipboardData?.getData('text/plain')
-  if (text?.trim()) { e.preventDefault(); const r = readPasted(text); r.orders.length ? addOrders(r.orders, r.how, 'paste') : setMsg('Nothing in that paste looked like an order.', 'err') }
+  if (text?.trim()) { e.preventDefault(); const r = readPasted(text); r.orders.length ? offer(r, r.how, 'paste') : setMsg('Nothing in that paste to build' + leftOff(r), 'err') }
 })
 const drop = $('drop')
 drop.onclick = () => $('file').click()
 drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') $('file').click() }
-$('file').onchange = (e) => { const f = e.target.files?.[0]; if (f) readImage(f); e.target.value = '' }
+$('file').onchange = (e) => { const f = e.target.files?.[0]; if (f) readFile(f); e.target.value = '' }
 drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over') }
 drop.ondragleave = () => drop.classList.remove('over')
-drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = [...e.dataTransfer.files].find((x) => x.type.startsWith('image/')); if (f) readImage(f) }
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = [...e.dataTransfer.files].find((x) => isWorkbook(x) || x.type.startsWith('image/')) ?? e.dataTransfer.files[0]; if (f) readFile(f) }
 $('readPaste').onclick = () => {
   const r = readPasted($('paste').value)
-  if (!r.orders.length) return setMsg("Couldn't find any orders in that paste. Include the header row (Tag Name, Dealer, Mods…).", 'err')
-  addOrders(r.orders, r.how, 'Excel paste'); $('paste').value = ''
+  if (!r.orders.length) return setMsg(r.shipped || r.done ? 'Nothing in that paste to build' + leftOff(r) : "Couldn't find any orders in that paste. Include the header row (Tag Name, Dealer, Mods…).", 'err')
+  offer(r, r.how, 'Excel paste'); $('paste').value = ''
 }
 $('printBtn').onclick = () => { renderSheets(); window.print() }
 

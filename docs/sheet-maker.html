@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Floor Sheet Maker</title>
+<!--
+  Floor Sheet Maker — the day's paper sheets for the floor, from a
+  screenshot of the build sheet.
+
+  For the weeks before the tablets: the PC takes a screenshot of today's
+  orders (Win+Shift+S), pastes it here, checks the list, and prints one
+  sheet each for Mods, V4T, Track and Panel with the orders already
+  written in. Same layout as docs/lead-sheet.html.
+
+  One file, nothing to install: open it in Chrome. Reading a screenshot
+  needs internet the first time (the text-recognition engine loads from
+  cdn.jsdelivr.net); pasting from Excel works offline and is exact.
+  Lead names and the last note are remembered on this PC.
+-->
+<style>
+  :root{
+    --ink:#14181C; --ink2:#3C434B; --mute:#666E78; --line:#9C978D; --faint:#CFCAC0; --rail:#F1EEE8;
+    --safety:#B37D00; --safety-bg:#FFF4D6; --yellow:#F2B705; --red:#B31F26; --red-bg:#FBE6E6; --green:#1F6B37; --green-bg:#E3F2E7;
+    --display:"Arial Narrow","Barlow Condensed",Haettenschweiler,sans-serif;
+    --body:"Segoe UI",Calibri,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--rail);color:var(--ink);font-family:var(--body);font-size:14px;line-height:1.4}
+  button,input,select,textarea{font:inherit;color:inherit}
+
+  /* ───────── the app (screen only) ───────── */
+  .app{max-width:1150px;margin:0 auto;padding:18px 18px 60px}
+  .bar{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--ink);color:#fff;padding:12px 18px;border-bottom:4px solid var(--yellow)}
+  .bar h1{font-family:var(--display);text-transform:uppercase;font-size:24px;margin:0;letter-spacing:.02em}
+  .bar small{color:#AEB5BE}
+  .print{background:var(--yellow);color:var(--ink);border:0;border-radius:8px;font-family:var(--display);font-weight:700;font-size:20px;text-transform:uppercase;padding:10px 22px;cursor:pointer}
+  .print:disabled{opacity:.4;cursor:not-allowed}
+  .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:14px;margin-top:14px}
+  @media (max-width:820px){.grid{grid-template-columns:1fr}}
+  label.f input{min-width:0}
+  .card{background:#fff;border:1px solid var(--faint);border-radius:12px;padding:14px 16px}
+  .card h2{font-family:var(--display);text-transform:uppercase;font-size:18px;margin:0 0 8px;letter-spacing:.03em}
+  .step{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;font-size:12px;font-weight:700;margin-right:6px;vertical-align:2px}
+  .drop{border:2px dashed var(--line);border-radius:10px;padding:22px;text-align:center;color:var(--mute);cursor:pointer;transition:background .15s}
+  .drop.over{background:var(--safety-bg);border-color:var(--safety)}
+  .drop b{color:var(--ink)}
+  .drop img{max-width:100%;max-height:160px;margin-top:10px;border:1px solid var(--faint)}
+  .progress{height:6px;background:var(--rail);border-radius:3px;overflow:hidden;margin-top:10px;display:none}
+  .progress i{display:block;height:100%;width:0;background:var(--safety);transition:width .2s}
+  textarea{width:100%;min-height:92px;border:1px solid var(--faint);border-radius:8px;padding:8px;font-family:Consolas,monospace;font-size:12px}
+  .row2{display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap}
+  .btn{background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer;font-weight:600}
+  .btn.dark{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .msg{margin-top:8px;font-size:13px}
+  .msg.err{color:var(--red)} .msg.ok{color:var(--green)} .msg.warn{color:var(--safety)}
+  label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:600;color:var(--ink2)}
+  label.f input,label.f select{border:1px solid var(--faint);border-radius:7px;padding:7px 8px;font-weight:400;font-size:14px}
+  .fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+  .leads{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:10px}
+  .full{grid-column:1/-1}
+
+  table.review{width:100%;border-collapse:collapse;font-size:13px}
+  .review th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);padding:6px 6px;border-bottom:2px solid var(--ink)}
+  .review td{padding:4px 6px;border-bottom:1px solid var(--rail);vertical-align:middle}
+  .review td.n{font-family:var(--display);font-weight:700;font-size:16px;width:34px;text-align:center}
+  .review input.t{width:100%;border:1px solid transparent;border-radius:6px;padding:5px 6px;font-weight:600}
+  .review input.t:hover,.review input.t:focus{border-color:var(--faint)}
+  .review input.d{width:100%;border:1px solid transparent;border-radius:6px;padding:5px 6px;color:var(--mute)}
+  .review input.d:hover,.review input.d:focus{border-color:var(--faint)}
+  .review .dept{text-align:center;width:66px}
+  .review .dept input{width:18px;height:18px;accent-color:var(--ink)}
+  .review .ops{white-space:nowrap;width:92px;text-align:right}
+  .review .ops button{border:0;background:none;cursor:pointer;color:var(--mute);font-size:15px;padding:2px 5px}
+  .review .ops button:hover{color:var(--ink)}
+  .review tr.low input.t{background:var(--safety-bg)}
+  .counts{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 0}
+  .pill{background:var(--rail);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600}
+  .empty{color:var(--mute);text-align:center;padding:22px}
+
+  /* ───────── the printed sheets ───────── */
+  #sheets{display:none}
+  @page{size:letter;margin:0}
+  @media print{
+    html,body{background:#fff}
+    .app,.bar{display:none!important}
+    #sheets{display:block}
+    .sheet{break-after:page}
+    .sheet:last-child{break-after:auto}
+  }
+  .sheet{background:#fff;width:8.5in;height:11in;padding:0.42in 0.45in;display:flex;flex-direction:column;gap:9px;overflow:hidden;font-size:9.5pt;line-height:1.3}
+  .sheet h1{font-family:var(--display);text-transform:uppercase;font-weight:700;font-size:34pt;line-height:.9;margin:0;letter-spacing:-.01em}
+  .sheet h2{font-family:var(--display);text-transform:uppercase;font-size:11.5pt;letter-spacing:.06em;margin:0 0 4px;display:flex;justify-content:space-between;align-items:baseline}
+  .sheet h2 small{font-family:var(--body);text-transform:none;letter-spacing:0;font-size:8pt;font-weight:400;color:var(--mute)}
+  .top{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:end;border-bottom:3px solid var(--ink);padding-bottom:7px}
+  .kicker{font-size:8pt;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);font-weight:700}
+  .sf{display:grid;grid-template-columns:auto auto auto;gap:4px 14px;font-size:9pt}
+  .sf span{white-space:nowrap}
+  .sf b{font-weight:600;margin-right:4px}
+  .val{display:inline-block;min-width:.8in;border-bottom:1px solid var(--ink);font-family:var(--display);font-size:11pt;font-weight:700;padding:0 2px}
+  .note{background:var(--safety-bg);border-left:4px solid var(--safety);padding:4px 8px;font-weight:600;font-size:9.5pt}
+  .rules{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .rule{border:1.5px solid var(--ink);border-radius:6px;padding:5px 7px;font-size:8.3pt;line-height:1.25}
+  .rule > b:first-child{display:block;font-family:var(--display);text-transform:uppercase;font-size:11pt;letter-spacing:.02em;margin-bottom:1px}
+  .rule.start > b:first-child{color:var(--safety)} .rule.done > b:first-child{color:var(--green)} .rule.block > b:first-child{color:var(--red)}
+  .sheet table{border-collapse:collapse;width:100%}
+  .sheet th,.sheet td{border:1px solid var(--line)}
+  .sheet th{background:var(--ink);color:#fff;font-weight:600;font-size:7.8pt;text-transform:uppercase;letter-spacing:.03em;padding:3px;line-height:1.1;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .sheet th.job{border-left:2.5px solid #fff}
+  .sheet th.sub{background:#3C434B;font-size:7pt;padding:2px}
+  .orders td{height:0.285in;padding:0 4px;font-size:8.5pt}
+  .orders td.num{width:0.34in;text-align:center;font-family:var(--display);font-weight:700;font-size:11pt}
+  .orders td.tag{overflow:hidden;white-space:nowrap;max-width:1px}
+  .orders td.tag b{font-family:var(--display);font-size:10.5pt}
+  .orders td.tag span{color:var(--mute);font-size:7.5pt;margin-left:5px}
+  .orders td.box{width:0.34in}
+  .orders td.box.first{border-left:2.5px solid var(--ink2)}
+  .orders td.na{background:repeating-linear-gradient(135deg,#fff 0 3px,#D9D4CA 3px 4px);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .orders td.reason{width:0.8in}
+  .bottom{display:grid;grid-template-columns:1.25fr 1fr;gap:10px;margin-top:auto}
+  .counts-t td{height:0.3in;text-align:center}
+  .counts-t td.st{text-align:left;padding:0 5px;font-weight:600;font-size:8.5pt;white-space:nowrap}
+  .counts-t th.time{width:0.62in}
+  .cnote{font-size:7.8pt;color:var(--mute);margin-top:3px}
+  .codes{border:1.5px solid var(--red);border-radius:6px;padding:6px 8px;background:var(--red-bg);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .codes ol{margin:0;padding:0;list-style:none;columns:2;column-gap:10px;font-size:8.2pt;line-height:1.35}
+  .codes li b{display:inline-block;width:1.25em;font-family:var(--display);font-size:10pt;color:var(--red)}
+  .codes .qc{margin-top:5px;padding-top:4px;border-top:1px solid #e3b5b5;font-size:8pt}
+  .foot{display:flex;justify-content:space-between;font-size:7.8pt;color:var(--mute);border-top:1px solid var(--faint);padding-top:4px}
+  .preview .sheet{margin:16px auto;box-shadow:0 2px 14px rgba(0,0,0,.18);transform-origin:top center}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div><h1>Floor Sheet Maker</h1><small>Screenshot today's orders → check the list → print the floor sheets</small></div>
+  <button class="print" id="printBtn" disabled>🖨 Print sheets</button>
+</div>
+
+<div class="app">
+  <div class="grid">
+    <section class="card">
+      <h2><span class="step">1</span>Today's orders</h2>
+      <div class="drop" id="drop" tabindex="0">
+        <b>Paste a screenshot here</b> (Ctrl+V)<br>
+        or drag the image in, or <u>click to choose a file</u>.<br>
+        <small>Win+Shift+S → select the rows, <b>including the header row</b> with Tag Name, Dealer, Mods…</small>
+        <div id="thumb"></div>
+        <div class="progress" id="prog"><i></i></div>
+      </div>
+      <input type="file" id="file" accept="image/*" hidden>
+      <details style="margin-top:10px">
+        <summary style="cursor:pointer;font-weight:600">…or paste the rows from Excel (exact, works offline)</summary>
+        <textarea id="paste" placeholder="Copy the rows from the build sheet — including the header row — and paste here."></textarea>
+        <div class="row2"><button class="btn dark" id="readPaste">Read these rows</button></div>
+      </details>
+      <div class="msg" id="msg"></div>
+    </section>
+
+    <section class="card">
+      <h2><span class="step">2</span>The day</h2>
+      <div class="fields">
+        <label class="f">Date <input type="date" id="date"></label>
+        <label class="f">Ship / pickup date <input type="date" id="ship"></label>
+        <label class="f">Crew today <input type="text" id="crew" placeholder="optional"></label>
+        <label class="f full">Note for the floor <input type="text" id="note" placeholder="e.g. Safety meeting 2:15 — printed on every sheet"></label>
+      </div>
+      <div class="leads" id="leads"></div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:14px">
+    <h2 style="display:flex;justify-content:space-between;align-items:baseline">
+      <span><span class="step">3</span>Check the list <small style="font-family:var(--body);text-transform:none;letter-spacing:0;color:var(--mute);font-size:12px;font-weight:400">— in build order. Fix any misread tag, untick a department that isn't building it.</small></span>
+      <span><button class="btn" id="addRow">+ Add order</button> <button class="btn" id="clearAll">Clear</button></span>
+    </h2>
+    <table class="review">
+      <thead><tr><th>#</th><th>Tag name</th><th>Dealer</th><th class="dept">Mods</th><th class="dept">V4T</th><th class="dept">Track</th><th class="dept">Panel</th><th></th></tr></thead>
+      <tbody id="list"></tbody>
+    </table>
+    <div class="counts" id="counts"></div>
+  </section>
+
+  <section class="card preview" style="margin-top:14px">
+    <h2><span class="step">4</span>Preview <small style="font-family:var(--body);text-transform:none;letter-spacing:0;color:var(--mute);font-size:12px;font-weight:400">— exactly what prints</small></h2>
+    <div id="preview"></div>
+  </section>
+</div>
+
+<main id="sheets"></main>
+
+<script>
+// ── What each department's sheet is made of ──
+// jobs:     the build-sheet columns that belong to the department, which
+//           become its Start/Done pairs (short label for the sheet).
+// stations: the count check-in rows.
+const DEPARTMENTS = [
+  { key: 'mods',  name: 'Mods',  jobs: [['Mods', 'Mods']], stations: ['Framing (frames)', 'Staging (finished mods)'], unit: 'mods' },
+  { key: 'v4t',   name: 'V4T',   jobs: [['V4T', 'V4T'], ['Vin. Fix', 'Vin. Fix'], ['Vin. Trap', 'Vin. Trap']], stations: ['Vents cut', 'Vents built & glazed', 'Frames built & squared'], unit: 'inserts' },
+  { key: 'track', name: 'Track', jobs: [['Track', 'Track']], stations: ['Tracks done'], unit: 'tracks' },
+  { key: 'panel', name: 'Panel', jobs: [['Roof Panels', 'Roof Panels'], ['Roof Extr.', 'Roof Extr.'], ['Acrylic', 'Acrylic'], ['Mod Filler Panels', 'Filler']], stations: ['Roof panels', 'Mod filler panels', 'Acrylic panels'], unit: 'panels', note: ' Each bench counts its own panels.' },
+]
+const CHECKINS = ['9:30', '11:30', '1:30', '4:00']
+// Same list, same order as the tablet's "report a problem" picker.
+const BLOCKS = ['Material shortage', 'Machine down', 'Rework / wrong cut', 'Waiting on another dept', 'Missing info / paperwork', 'Short-staffed', 'Order change', 'Other — write it']
+const ROWS_PER_PAGE = 18
+// Every column the build sheet can have, longest first for header matching.
+const SHEET_COLUMNS = ['Tag Name', 'Dealer', 'Truck', 'Date', 'Mods', 'V4T', 'Vin. Fix', 'Vin. Trap', 'Alum. Fix', 'Alum. Trap', 'XX', 'H2/4', 'PVC', 'I-A', 'Doors', 'Roof Panels', 'Roof Extr.', 'Track', 'Therm a deck', 'Acrylic', 'Deck', 'Valance', 'Rail', 'PATIO Door', 'Glass', 'Pergola', 'R. Screen', 'Nova Sun', 'Stairs', 'Mod Filler Panels']
+
+const $ = (id) => document.getElementById(id)
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+const norm = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9/]/g, '')
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const nice = (v) => (v ? new Date(v + 'T00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : '')
+
+// ── State ──
+// orders: [{ tag, dealer, depts: { mods: bool… }, jobs: { 'Roof Panels': true… } | null, low: bool }]
+// jobs is what the build sheet said applies (null when typed or unknown:
+// then every job box is left open to write in).
+let orders = []
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('fsm:' + k); return v == null ? d : JSON.parse(v) } catch { return d } },
+  set(k, v) { try { localStorage.setItem('fsm:' + k, JSON.stringify(v)) } catch {} },
+}
+
+// ── Reading rows (from Excel paste, or rebuilt from OCR) ──
+// A department takes an order when any of its columns has something in
+// it that isn't "C": blank means the order doesn't need that department,
+// C means it's already done.
+function ordersFromGrid(grid) {
+  const headerIdx = grid.findIndex((r) => r.some((c) => /tag\s*name/i.test(c ?? '')))
+  if (headerIdx === -1) return null
+  const header = grid[headerIdx].map((h) => {
+    const n = norm(h)
+    return SHEET_COLUMNS.find((c) => norm(c) === n) ?? null
+  })
+  const col = (name) => header.indexOf(name)
+  const out = []
+  for (const row of grid.slice(headerIdx + 1)) {
+    const tag = (row[col('Tag Name')] ?? '').trim()
+    if (!tag || /^pick\s*up/i.test(tag)) continue
+    const dealerRaw = (row[col('Dealer')] ?? '').trim()
+    if (/^pick\s*up/i.test(dealerRaw) && !tag) continue
+    const jobs = {}
+    const depts = {}
+    for (const d of DEPARTMENTS) {
+      let open = false
+      for (const [colName] of d.jobs) {
+        const i = col(colName)
+        const v = i === -1 ? '' : String(row[i] ?? '').trim()
+        const needed = v !== '' && v.toLowerCase() !== 'c'
+        jobs[colName] = needed
+        if (needed) open = true
+      }
+      depts[d.key] = open
+    }
+    // A sheet that had none of a department's columns tells us nothing
+    // about it, so don't silently leave that department off.
+    for (const d of DEPARTMENTS) if (d.jobs.every(([c]) => col(c) === -1)) { depts[d.key] = true; for (const [c] of d.jobs) jobs[c] = true }
+    out.push({ tag, dealer: /^pick\s*up/i.test(dealerRaw) ? '' : dealerRaw, depts, jobs, low: false })
+  }
+  return out
+}
+
+// A screenshot or paste with no header row: take anything that looks
+// like a tag name, one per line, onto every sheet.
+const TAG_RE = /\b[A-Z0-9]{1,6}(?:-[A-Z0-9]{1,12}){1,5}(?:[_-]\d{4,7})?\b/g
+function ordersFromLooseText(text) {
+  const seen = new Set()
+  const out = []
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.toUpperCase().match(TAG_RE)
+    if (!m) continue
+    const tag = m.sort((a, b) => b.length - a.length)[0]
+    if (seen.has(tag)) continue
+    seen.add(tag)
+    out.push({ tag, dealer: '', depts: Object.fromEntries(DEPARTMENTS.map((d) => [d.key, true])), jobs: null, low: true })
+  }
+  return out
+}
+
+function readPasted(text) {
+  const grid = text.split(/\r?\n/).filter((l) => l.trim()).map((l) => l.split('\t'))
+  const parsed = ordersFromGrid(grid)
+  if (parsed?.length) return { orders: parsed, how: 'header' }
+  const loose = ordersFromLooseText(text)
+  return { orders: loose, how: 'loose' }
+}
+
+// ── OCR: rebuild the table from where each word sits ──
+// Same approach as the app's own screenshot import (src/lib/parseScreenshot.js):
+// group words into rows by height, find the header row, and put every
+// word under the header it's nearest to.
+function gridFromWords(words) {
+  const cy = (w) => (w.bbox.y0 + w.bbox.y1) / 2
+  const cx = (w) => (w.bbox.x0 + w.bbox.x1) / 2
+  const hs = words.map((w) => w.bbox.y1 - w.bbox.y0).sort((a, b) => a - b)
+  const tol = (hs[Math.floor(hs.length / 2)] || 10) * 0.6
+  const rows = []
+  let cur = [], anchor = null
+  for (const w of [...words].sort((a, b) => cy(a) - cy(b))) {
+    if (anchor == null || Math.abs(cy(w) - anchor) <= tol) { cur.push(w); anchor = anchor == null ? cy(w) : (anchor * (cur.length - 1) + cy(w)) / cur.length }
+    else { rows.push(cur); cur = [w]; anchor = cy(w) }
+  }
+  if (cur.length) rows.push(cur)
+  rows.forEach((r) => r.sort((a, b) => cx(a) - cx(b)))
+
+  const labels = [...SHEET_COLUMNS].sort((a, b) => b.length - a.length)
+  let best = null
+  for (const row of rows) {
+    if (!/tag\s*name/i.test(row.map((w) => w.text).join(' '))) continue
+    const cols = [], used = new Set()
+    for (const label of labels) {
+      const want = norm(label)
+      for (let i = 0; i < row.length; i++) {
+        if (used.has(i)) continue
+        let joined = ''
+        for (let j = i; j < row.length && j < i + 4; j++) {
+          if (used.has(j)) break
+          joined += norm(row[j].text)
+          if (joined === want) {
+            for (let k = i; k <= j; k++) used.add(k)
+            cols.push({ label, x: (row[i].bbox.x0 + row[j].bbox.x1) / 2 })
+            i = j
+            break
+          }
+          if (!want.startsWith(joined)) break
+        }
+      }
+    }
+    if (!best || cols.length > best.cols.length) best = { row, cols: cols.sort((a, b) => a.x - b.x) }
+  }
+  if (!best || best.cols.length < 2) return null
+  const bounds = best.cols.map((c, i, a) => ({ min: i ? (a[i - 1].x + c.x) / 2 : -Infinity, max: i < a.length - 1 ? (c.x + a[i + 1].x) / 2 : Infinity }))
+  const headerY = cy(best.row[0])
+  const grid = [best.cols.map((c) => c.label)]
+  const lowRows = new Set()
+  for (const row of rows) {
+    if (cy(row[0]) <= headerY) continue
+    const cells = best.cols.map(() => [])
+    let low = false
+    for (const w of row) {
+      const i = bounds.findIndex((b) => cx(w) >= b.min && cx(w) < b.max)
+      if (i === -1) continue
+      cells[i].push(w.text)
+      if (w.confidence < 75) low = true
+    }
+    const values = cells.map((c) => c.join(' ').trim())
+    if (values.every((v) => !v)) continue
+    if (low) lowRows.add(grid.length)
+    grid.push(values)
+  }
+  return { grid, lowRows }
+}
+
+let ocrReady = null
+function loadOcr() {
+  if (window.Tesseract) return Promise.resolve()
+  ocrReady ??= new Promise((resolve, reject) => {
+    const s = document.createElement('script')
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js'
+    s.onload = resolve
+    s.onerror = () => { ocrReady = null; reject(new Error("Couldn't load the text reader — this PC needs internet for screenshots. Paste the rows from Excel instead; that works offline.")) }
+    document.head.appendChild(s)
+  })
+  return ocrReady
+}
+
+async function readImage(file) {
+  showThumb(file)
+  setMsg('Reading the screenshot… (the first time takes a little longer)', '')
+  const prog = $('prog'); prog.style.display = 'block'; prog.firstElementChild.style.width = '4%'
+  try {
+    await loadOcr()
+    const worker = await Tesseract.createWorker('eng', 1, {
+      logger: (m) => { if (m.status === 'recognizing text') prog.firstElementChild.style.width = Math.max(4, Math.round(m.progress * 100)) + '%' },
+    })
+    let data
+    try { ({ data } = await worker.recognize(file, {}, { blocks: true })) } finally { await worker.terminate() }
+    const words = []
+    for (const b of data.blocks ?? []) for (const p of b.paragraphs ?? []) for (const l of p.lines ?? []) for (const w of l.words ?? []) if (w.text?.trim()) words.push(w)
+
+    const rebuilt = words.length ? gridFromWords(words) : null
+    let found = rebuilt ? ordersFromGrid(rebuilt.grid) : null
+    if (found) {
+      // grid row n → order n-1 (header is row 0)
+      found.forEach((o, i) => { if (rebuilt.lowRows.has(i + 1)) o.low = true })
+    }
+    let how = 'header'
+    if (!found?.length) { found = ordersFromLooseText(data.text ?? ''); how = 'loose' }
+    if (!found.length) return setMsg("Couldn't find any orders in that image. Try a sharper screenshot that includes the Tag Name header — or paste the rows from Excel.", 'err')
+    addOrders(found, how, 'screenshot')
+  } catch (e) {
+    setMsg(e.message || String(e), 'err')
+  } finally {
+    prog.style.display = 'none'
+  }
+}
+
+function addOrders(found, how, source) {
+  const have = new Set(orders.map((o) => o.tag.toUpperCase()))
+  const fresh = found.filter((o) => !have.has(o.tag.toUpperCase()))
+  orders = [...orders, ...fresh]
+  const skipped = found.length - fresh.length
+  const lows = fresh.filter((o) => o.low).length
+  let text = `Added ${fresh.length} order${fresh.length === 1 ? '' : 's'} from the ${source}.`
+  if (skipped) text += ` ${skipped} already on the list.`
+  if (how === 'loose') text += " Couldn't see the column headers, so every order is on every sheet — untick the departments that don't build it."
+  if (lows) text += ` ${lows} highlighted in yellow were hard to read — check them against the sheet.`
+  setMsg(text, how === 'loose' || lows ? 'warn' : 'ok')
+  render()
+}
+
+function setMsg(text, kind) { const m = $('msg'); m.textContent = text; m.className = 'msg ' + (kind || '') }
+function showThumb(file) { const url = URL.createObjectURL(file); $('thumb').innerHTML = `<img src="${url}" alt="">` }
+
+// ── The review list ──
+function renderList() {
+  const tb = $('list')
+  if (!orders.length) { tb.innerHTML = `<tr><td colspan="8" class="empty">No orders yet — paste a screenshot above, or add them by hand.</td></tr>`; return }
+  tb.innerHTML = orders.map((o, i) => `
+    <tr class="${o.low ? 'low' : ''}" data-i="${i}">
+      <td class="n">${i + 1}</td>
+      <td><input class="t" data-f="tag" value="${esc(o.tag)}" placeholder="Tag name"></td>
+      <td><input class="d" data-f="dealer" value="${esc(o.dealer)}" placeholder="Dealer"></td>
+      ${DEPARTMENTS.map((d) => `<td class="dept"><input type="checkbox" data-d="${d.key}" ${o.depts[d.key] ? 'checked' : ''} aria-label="${d.name}"></td>`).join('')}
+      <td class="ops"><button data-op="up" title="Move up">▲</button><button data-op="down" title="Move down">▼</button><button data-op="del" title="Remove">✕</button></td>
+    </tr>`).join('')
+}
+
+$('list').addEventListener('input', (e) => {
+  const tr = e.target.closest('tr[data-i]'); if (!tr) return
+  const o = orders[Number(tr.dataset.i)]
+  if (e.target.dataset.f) { o[e.target.dataset.f] = e.target.value; o.low = false; tr.classList.remove('low'); renderSheets() }
+})
+$('list').addEventListener('change', (e) => {
+  const tr = e.target.closest('tr[data-i]'); if (!tr || !e.target.dataset.d) return
+  orders[Number(tr.dataset.i)].depts[e.target.dataset.d] = e.target.checked
+  renderCounts(); renderSheets()
+})
+$('list').addEventListener('click', (e) => {
+  const op = e.target.dataset.op; if (!op) return
+  const i = Number(e.target.closest('tr').dataset.i)
+  if (op === 'del') orders.splice(i, 1)
+  if (op === 'up' && i > 0) [orders[i - 1], orders[i]] = [orders[i], orders[i - 1]]
+  if (op === 'down' && i < orders.length - 1) [orders[i + 1], orders[i]] = [orders[i], orders[i + 1]]
+  render()
+})
+$('addRow').onclick = () => {
+  orders.push({ tag: '', dealer: '', depts: Object.fromEntries(DEPARTMENTS.map((d) => [d.key, true])), jobs: null, low: false })
+  render()
+  const inputs = document.querySelectorAll('#list input.t'); inputs[inputs.length - 1]?.focus()
+}
+$('clearAll').onclick = () => { if (!orders.length || confirm('Clear the whole list?')) { orders = []; $('thumb').innerHTML = ''; setMsg('', ''); render() } }
+
+function renderCounts() {
+  $('counts').innerHTML = DEPARTMENTS.map((d) => `<span class="pill">${d.name}: ${orders.filter((o) => o.tag.trim() && o.depts[d.key]).length}</span>`).join('')
+}
+
+// ── The day ──
+function renderLeads() {
+  const leads = store.get('leads', {})
+  $('leads').innerHTML = DEPARTMENTS.map((d) => `<label class="f">${d.name} lead <input data-lead="${d.key}" value="${esc(leads[d.key] ?? '')}" placeholder="Name"></label>`).join('')
+}
+$('leads').addEventListener('input', (e) => {
+  const k = e.target.dataset.lead; if (!k) return
+  const leads = store.get('leads', {}); leads[k] = e.target.value; store.set('leads', leads); renderSheets()
+})
+for (const id of ['date', 'ship', 'crew', 'note']) $(id).addEventListener('input', () => { if (id === 'note') store.set('note', $('note').value); renderSheets() })
+
+// ── The printed sheets ──
+function sheetHtml(d, list, page, pages) {
+  const day = { date: nice($('date').value), ship: nice($('ship').value), crew: $('crew').value.trim(), note: $('note').value.trim() }
+  const lead = store.get('leads', {})[d.key] ?? ''
+  const total = orders.filter((o) => o.tag.trim() && o.depts[d.key]).length
+  const jobHead = d.jobs.map(([, label]) => `<th class="job" colspan="2">${esc(label)}</th>`).join('')
+  const jobSub = d.jobs.map(() => `<th class="sub">Start</th><th class="sub">Done</th>`).join('')
+  const rows = Array.from({ length: ROWS_PER_PAGE }, (_, i) => {
+    const o = list[i]
+    const n = page * ROWS_PER_PAGE + i + 1
+    // A job the build sheet shows as not needed (blank) or already done
+    // (C) is hatched out, so nobody hunts for a box they'll never fill.
+    const boxes = d.jobs.map(([col]) => {
+      const na = o && o.jobs && d.jobs.length > 1 && o.jobs[col] === false
+      return `<td class="box first${na ? ' na' : ''}"></td><td class="box${na ? ' na' : ''}"></td>`
+    }).join('')
+    const tag = o ? `<b>${esc(o.tag)}</b>${o.dealer ? `<span>${esc(o.dealer)}</span>` : ''}` : ''
+    return `<tr><td class="num">${o ? n : ''}</td><td class="tag">${tag}</td>${boxes}<td class="reason"></td></tr>`
+  }).join('')
+  const counts = d.stations.map((s) => `<tr><td class="st">${esc(s)}</td>${CHECKINS.map(() => '<td></td>').join('')}</tr>`).join('')
+  const codes = BLOCKS.map((b, i) => `<li><b>${i + 1}</b>${esc(b)}</li>`).join('')
+  const val = (v, w) => `<span class="val" style="min-width:${w}">${esc(v) || '&nbsp;'}</span>`
+  return `
+  <section class="sheet">
+    <div class="top">
+      <div><div class="kicker">Sunspace Truesdale · Lead sheet${pages > 1 ? ` · page ${page + 1} of ${pages}` : ''}</div><h1>${esc(d.name)}</h1></div>
+      <div class="sf">
+        <span><b>Date</b>${val(day.date, '1in')}</span>
+        <span><b>Lead</b>${val(lead, '1.1in')}</span>
+        <span><b>Crew today</b>${val(day.crew, '.45in')}</span>
+        <span><b>Pickup</b>${val(day.ship, '1in')}</span>
+        <span style="grid-column:span 2"><b>To finish today</b>${val(total ? String(total) : '', '.45in')} orders</span>
+      </div>
+    </div>
+    ${day.note ? `<div class="note">📣 ${esc(day.note)}</div>` : ''}
+    <div class="rules">
+      <div class="rule"><b>1 · In order</b>Build #1, then #2, then #3 — the office sets the order. Don't skip ahead.</div>
+      <div class="rule start"><b>2 · Start</b>Write the time in <b>Start</b> the moment you begin a job.</div>
+      <div class="rule done"><b>3 · Done</b>Write the time in <b>Done</b> when it's finished — not later, not in a batch.</div>
+      <div class="rule block"><b>4 · Stuck?</b>Write the <b>code</b> below in Problem and <b>tell the office right away</b>. Don't wait for the check-in.</div>
+    </div>
+    <div>
+      <h2>Today's orders <small>${d.jobs.length > 1 ? 'Hatched boxes aren’t needed on that order. ' : ''}Write the time, e.g. 9:40.</small></h2>
+      <table class="orders">
+        <thead><tr><th rowspan="2">#</th><th rowspan="2" style="text-align:left">Tag name</th>${jobHead}<th rowspan="2">Problem<br>code</th></tr><tr>${jobSub}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div class="bottom">
+      <div class="counts-t">
+        <h2>Count check-ins <small>How many ${esc(d.unit)} done so far today</small></h2>
+        <table><thead><tr><th style="text-align:left">Station</th>${CHECKINS.map((t) => `<th class="time">${t}</th>`).join('')}</tr></thead><tbody>${counts}</tbody></table>
+        <div class="cnote">Running total since the start of the shift. The office collects it at each time and updates the TV.${d.note ? esc(d.note) : ''}</div>
+      </div>
+      <div class="codes">
+        <h2 style="color:var(--red)">Problem codes</h2>
+        <ol>${codes}</ol>
+        <div class="qc"><b>Bad part from another department?</b> Write <b>Q</b>, the department and what's wrong (e.g. <i>Q · Panel · 2" short</i>), and bring it to the office.</div>
+      </div>
+    </div>
+    <div class="foot"><span>Hand this sheet to the office at the end of the shift.</span><span>Signed ____________________</span></div>
+  </section>`
+}
+
+function buildSheets() {
+  return DEPARTMENTS.map((d) => {
+    const list = orders.filter((o) => o.tag.trim() && o.depts[d.key])
+    const pages = Math.max(1, Math.ceil(list.length / ROWS_PER_PAGE))
+    return Array.from({ length: pages }, (_, p) => sheetHtml(d, list.slice(p * ROWS_PER_PAGE, (p + 1) * ROWS_PER_PAGE), p, pages)).join('')
+  }).join('')
+}
+
+function renderSheets() {
+  const html = buildSheets()
+  $('sheets').innerHTML = html
+  $('preview').innerHTML = html
+  fitPreview()
+  $('printBtn').disabled = !orders.some((o) => o.tag.trim())
+}
+function fitPreview() {
+  const box = $('preview'); const w = box.clientWidth
+  const scale = Math.min(1, (w - 8) / 816)
+  box.querySelectorAll('.sheet').forEach((s) => { s.style.transform = `scale(${scale})`; s.style.marginBottom = `${-(1 - scale) * 1056 + 16}px` })
+}
+window.addEventListener('resize', fitPreview)
+function render() { renderList(); renderCounts(); renderSheets() }
+
+// ── Input: paste, drop, pick, Excel text ──
+document.addEventListener('paste', (e) => {
+  if (e.target.closest?.('textarea, input')) return
+  const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'))
+  if (item) { e.preventDefault(); readImage(item.getAsFile()); return }
+  const text = e.clipboardData?.getData('text/plain')
+  if (text?.trim()) { e.preventDefault(); const r = readPasted(text); r.orders.length ? addOrders(r.orders, r.how, 'paste') : setMsg('Nothing in that paste looked like an order.', 'err') }
+})
+const drop = $('drop')
+drop.onclick = () => $('file').click()
+drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') $('file').click() }
+$('file').onchange = (e) => { const f = e.target.files?.[0]; if (f) readImage(f); e.target.value = '' }
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over') }
+drop.ondragleave = () => drop.classList.remove('over')
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = [...e.dataTransfer.files].find((x) => x.type.startsWith('image/')); if (f) readImage(f) }
+$('readPaste').onclick = () => {
+  const r = readPasted($('paste').value)
+  if (!r.orders.length) return setMsg("Couldn't find any orders in that paste. Include the header row (Tag Name, Dealer, Mods…).", 'err')
+  addOrders(r.orders, r.how, 'Excel paste'); $('paste').value = ''
+}
+$('printBtn').onclick = () => { renderSheets(); window.print() }
+
+// ── Start ──
+$('date').value = iso(new Date())
+$('note').value = store.get('note', '')
+renderLeads()
+render()
+</script>
+</body>
+</html>

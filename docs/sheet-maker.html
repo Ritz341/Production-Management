@@ -5,18 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Floor Sheet Maker</title>
 <!--
-  Floor Sheet Maker — the day's paper sheets for the floor, from a
-  screenshot of the build sheet.
+  Floor Sheet Maker — the day's paper sheets for the floor, from the
+  build sheet's rows.
 
-  For the weeks before the tablets: the PC takes a screenshot of today's
-  orders (Win+Shift+S), pastes it here, checks the list, and prints one
-  sheet each for Mods, V4T, Track and Panel with the orders already
-  written in. Same layout as docs/lead-sheet.html.
+  For the weeks before the tablets: the PC copies the week's rows from the
+  build sheet, pastes them here, checks the list, and prints one sheet
+  each for Mods, V4T, Track and Panel with the orders already written in,
+  plus a loading sheet by truck.
 
-  One file, nothing to install: open it in Chrome. Reading a screenshot
-  needs internet the first time (the text-recognition engine loads from
-  cdn.jsdelivr.net); pasting from Excel works offline and is exact.
-  Lead names and the last note are remembered on this PC.
+  One file, nothing to install: open it in Chrome. Pasting works offline.
+  Opening the Excel file and the weekly Excel backup load their reader
+  from cdn.sheetjs.com, so those need internet.
+  Lead names, the note, check-in times and stations stay on this PC.
 -->
 <style>
   :root{
@@ -55,8 +55,6 @@
   .drop.over{background:var(--safety-bg);border-color:var(--safety)}
   .drop b{color:var(--ink)}
   .drop img{max-width:100%;max-height:160px;margin-top:10px;border:1px solid var(--faint)}
-  .progress{height:6px;background:var(--rail);border-radius:3px;overflow:hidden;margin-top:10px;display:none}
-  .progress i{display:block;height:100%;width:0;background:var(--safety);transition:width .2s}
   textarea{width:100%;min-height:92px;border:1px solid var(--faint);border-radius:8px;padding:8px;font-family:Consolas,monospace;font-size:12px}
   .row2{display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap}
   .btn{background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer;font-weight:600}
@@ -205,15 +203,13 @@
       <div class="msg" id="msg"></div>
       <div class="picker" id="picker" hidden></div>
       <details class="other" id="other">
-        <summary>Other ways: the Excel file or a screenshot</summary>
+        <summary>Other way: open the Excel file</summary>
         <div class="drop" id="drop" tabindex="0">
-          <b>Drag in the Excel file or a screenshot</b>, or <u>click to choose one</u>.<br>
-          A screenshot can also be pasted with Ctrl+V anywhere on the page.<br>
-          <small>Excel: only the <b>Truesdale</b> tab is read. Screenshot: Win+Shift+S → select the rows, <b>including the header row</b>. Both need internet.</small>
+          <b>Drag in the Excel file</b>, or <u>click to choose it</u>.<br>
+          <small>Only the <b>Truesdale</b> tab is read. Needs internet.</small>
           <div id="thumb"></div>
-          <div class="progress" id="prog"><i></i></div>
         </div>
-        <input type="file" id="file" accept="image/*,.xlsx,.xlsm,.xlsb,.xls" hidden>
+        <input type="file" id="file" accept=".xlsx,.xlsm,.xlsb,.xls" hidden>
       </details>
     </section>
 
@@ -232,7 +228,7 @@
 
   <section class="card" style="margin-top:14px">
     <h2 style="display:flex;justify-content:space-between;align-items:baseline">
-      <span><span class="step">3</span>Check the list <small style="font-family:var(--body);text-transform:none;letter-spacing:0;color:var(--mute);font-size:12px;font-weight:400">— in build order. Fix any misread tag, untick a department that isn't building it.</small></span>
+      <span><span class="step">3</span>Check the list <small style="font-family:var(--body);text-transform:none;letter-spacing:0;color:var(--mute);font-size:12px;font-weight:400">— in build order. Fix a tag if needed, untick a department that isn’t building it.</small></span>
       <span><button class="btn" id="addRow">+ Add order</button> <button class="btn" id="clearAll">Clear</button></span>
     </h2>
     <table class="review">
@@ -303,7 +299,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('fsm:' + k, JSON.stringify(v)) } catch {} },
 }
 
-// ── Reading rows (from an Excel file or paste, or rebuilt from OCR) ──
+// ── Reading rows (from a paste or the Excel file) ──
 // A department takes an order when any of its columns has something in
 // it that isn't "C": blank means the order doesn't need that department,
 // C means it's already done.
@@ -324,8 +320,8 @@ function pickupIso(month, day) {
 }
 function bannerIn(row, dealerRaw, tag) {
   let m = dealerRaw.match(/^\s*pick\s*up\D{0,20}(\d{1,2})\/(\d{1,2})/i)
-  // OCR can scatter the banner across columns; look at the whole row, but
-  // only when the tag slot isn't a real order.
+  // A paste that starts off by a column can put the banner in another
+  // cell; look at the whole row, but only when the tag slot isn't a real order.
   if (!m && (!tag || /pick\s*up|current\s*as\s*of/i.test(tag))) m = row.map((c) => String(c ?? '')).join(' ').match(PICKUP_BANNER)
   return m ? { iso: pickupIso(Number(m[1]), Number(m[2])) } : null
 }
@@ -419,7 +415,7 @@ function ordersFromGrid(grid) {
   return { orders: out, sections: sections.filter((x) => x.count), shipped, done, layout, inferred }
 }
 
-// A screenshot or paste with no header row: take anything that looks
+// A paste with no header row and no tag column found: take anything that looks
 // like a tag name, one per line, onto every sheet.
 const TAG_RE = /\b[A-Z0-9]{1,6}(?:-[A-Z0-9]{1,12}){1,5}(?:[_-]\d{4,7})?\b/g
 function ordersFromLooseText(text) {
@@ -465,114 +461,6 @@ function readPasted(text) {
   return { orders: ordersFromLooseText(text), sections: [], shipped: [], done: 0, how: 'loose' }
 }
 
-// ── OCR: rebuild the table from where each word sits ──
-// Same approach as the app's own screenshot import (src/lib/parseScreenshot.js):
-// group words into rows by height, find the header row, and put every
-// word under the header it's nearest to.
-function gridFromWords(words) {
-  const cy = (w) => (w.bbox.y0 + w.bbox.y1) / 2
-  const cx = (w) => (w.bbox.x0 + w.bbox.x1) / 2
-  const hs = words.map((w) => w.bbox.y1 - w.bbox.y0).sort((a, b) => a - b)
-  const tol = (hs[Math.floor(hs.length / 2)] || 10) * 0.6
-  const rows = []
-  let cur = [], anchor = null
-  for (const w of [...words].sort((a, b) => cy(a) - cy(b))) {
-    if (anchor == null || Math.abs(cy(w) - anchor) <= tol) { cur.push(w); anchor = anchor == null ? cy(w) : (anchor * (cur.length - 1) + cy(w)) / cur.length }
-    else { rows.push(cur); cur = [w]; anchor = cy(w) }
-  }
-  if (cur.length) rows.push(cur)
-  rows.forEach((r) => r.sort((a, b) => cx(a) - cx(b)))
-
-  const labels = [...SHEET_COLUMNS].sort((a, b) => b.length - a.length)
-  let best = null
-  for (const row of rows) {
-    if (!/tag\s*name/i.test(row.map((w) => w.text).join(' '))) continue
-    const cols = [], used = new Set()
-    for (const label of labels) {
-      const want = norm(label)
-      for (let i = 0; i < row.length; i++) {
-        if (used.has(i)) continue
-        let joined = ''
-        for (let j = i; j < row.length && j < i + 4; j++) {
-          if (used.has(j)) break
-          joined += norm(row[j].text)
-          if (joined === want) {
-            for (let k = i; k <= j; k++) used.add(k)
-            cols.push({ label, x: (row[i].bbox.x0 + row[j].bbox.x1) / 2 })
-            i = j
-            break
-          }
-          if (!want.startsWith(joined)) break
-        }
-      }
-    }
-    if (!best || cols.length > best.cols.length) best = { row, cols: cols.sort((a, b) => a.x - b.x) }
-  }
-  if (!best || best.cols.length < 2) return null
-  const bounds = best.cols.map((c, i, a) => ({ min: i ? (a[i - 1].x + c.x) / 2 : -Infinity, max: i < a.length - 1 ? (c.x + a[i + 1].x) / 2 : Infinity }))
-  const headerY = cy(best.row[0])
-  const grid = [best.cols.map((c) => c.label)]
-  const lowRows = new Set()
-  for (const row of rows) {
-    if (cy(row[0]) <= headerY) continue
-    const cells = best.cols.map(() => [])
-    let low = false
-    for (const w of row) {
-      const i = bounds.findIndex((b) => cx(w) >= b.min && cx(w) < b.max)
-      if (i === -1) continue
-      cells[i].push(w.text)
-      if (w.confidence < 75) low = true
-    }
-    const values = cells.map((c) => c.join(' ').trim())
-    if (values.every((v) => !v)) continue
-    if (low) lowRows.add(grid.length)
-    grid.push(values)
-  }
-  return { grid, lowRows }
-}
-
-let ocrReady = null
-function loadOcr() {
-  if (window.Tesseract) return Promise.resolve()
-  ocrReady ??= new Promise((resolve, reject) => {
-    const s = document.createElement('script')
-    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js'
-    s.onload = resolve
-    s.onerror = () => { ocrReady = null; reject(new Error("Couldn't load the text reader — this PC needs internet for screenshots. Paste the rows from Excel instead; that works offline.")) }
-    document.head.appendChild(s)
-  })
-  return ocrReady
-}
-
-async function readImage(file) {
-  showThumb(file)
-  setMsg('Reading the screenshot… (the first time takes a little longer)', '')
-  const prog = $('prog'); prog.style.display = 'block'; prog.firstElementChild.style.width = '4%'
-  try {
-    await loadOcr()
-    const worker = await Tesseract.createWorker('eng', 1, {
-      logger: (m) => { if (m.status === 'recognizing text') prog.firstElementChild.style.width = Math.max(4, Math.round(m.progress * 100)) + '%' },
-    })
-    let data
-    try { ({ data } = await worker.recognize(file, {}, { blocks: true })) } finally { await worker.terminate() }
-    const words = []
-    for (const b of data.blocks ?? []) for (const p of b.paragraphs ?? []) for (const l of p.lines ?? []) for (const w of l.words ?? []) if (w.text?.trim()) words.push(w)
-
-    const rebuilt = words.length ? gridFromWords(words) : null
-    // Mark the rows OCR wasn't sure of; ordersFromGrid carries it onto the order.
-    if (rebuilt) rebuilt.grid.forEach((r, i) => { r.low = rebuilt.lowRows.has(i) })
-    let parsed = rebuilt ? ordersFromGrid(rebuilt.grid) : null
-    let how = 'header'
-    if (!parsed?.orders.length) { parsed = { orders: ordersFromLooseText(data.text ?? ''), sections: [], shipped: parsed?.shipped ?? [], done: parsed?.done ?? 0 }; how = 'loose' }
-    if (!parsed.orders.length) return setMsg("Couldn't find any orders in that image. Try a sharper screenshot that includes the Tag Name header — or use the Excel file.", 'err')
-    offer(parsed, how, 'screenshot')
-  } catch (e) {
-    setMsg(e.message || String(e), 'err')
-  } finally {
-    prog.style.display = 'none'
-  }
-}
-
 // ── Excel workbook: the Truesdale tab only ──
 let xlsxReady = null
 function loadXlsx() {
@@ -609,7 +497,7 @@ async function readWorkbook(file) {
     setMsg(e.message || String(e), 'err')
   }
 }
-function readFile(f) { if (isWorkbook(f)) readWorkbook(f); else if (f.type.startsWith('image/')) readImage(f); else setMsg(`${f.name} isn't a picture or an Excel file.`, 'err') }
+function readFile(f) { if (isWorkbook(f)) readWorkbook(f); else setMsg(`${f.name} isn't an Excel file. Copy the rows from the build sheet and paste them in the box instead.`, 'err') }
 
 // A header seen in the Excel file or a paste is the sheet's real column
 // order: keep it, so later pastes without a header line up exactly.
@@ -672,7 +560,6 @@ function addOrders(found, how, source, parsed) {
 }
 
 function setMsg(text, kind) { const m = $('msg'); m.textContent = text; m.className = 'msg ' + (kind || '') }
-function showThumb(file) { const url = URL.createObjectURL(file); $('thumb').innerHTML = `<img src="${url}" alt="">` }
 
 // ── The review list ──
 function renderList() {
@@ -950,12 +837,13 @@ function render() { renderList(); renderCounts(); renderSheets(); saveToday() }
 
 // ── Input: paste, drop, pick, Excel text ──
 // Rows pasted into the box (or anywhere that isn't another field) are read
-// at once; a pasted picture goes to the screenshot reader.
+// at once. Pictures aren't read — the rows have to come in as text.
 document.addEventListener('paste', (e) => {
   if (e.target.closest?.('textarea, input') && e.target.id !== 'paste') return
-  const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'))
-  if (item) { e.preventDefault(); $('other').open = true; readImage(item.getAsFile()); return }
+  // Excel can put a picture of the cells on the clipboard next to the
+  // text; the text is what's read. Only a picture on its own is refused.
   const text = e.clipboardData?.getData('text/plain')
+  if (!text?.trim() && [...(e.clipboardData?.items ?? [])].some((i) => i.type.startsWith('image/'))) { e.preventDefault(); setMsg("That's a picture — screenshots aren't read. In the build sheet, select the rows, Ctrl+C, then paste here.", 'err'); return }
   if (text?.trim()) { e.preventDefault(); $('paste').value = ''; const r = readPasted(text); r.orders.length ? offer(r, r.how, 'paste') : setMsg(r.shipped.length ? 'Nothing in that paste to build' + leftOff(r) : "Couldn't find any orders in that paste — copy whole rows, from the Truck column across.", 'err') }
 })
 const drop = $('drop')
@@ -964,7 +852,7 @@ drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') $('file').clic
 $('file').onchange = (e) => { const f = e.target.files?.[0]; if (f) readFile(f); e.target.value = '' }
 drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over') }
 drop.ondragleave = () => drop.classList.remove('over')
-drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = [...e.dataTransfer.files].find((x) => isWorkbook(x) || x.type.startsWith('image/')) ?? e.dataTransfer.files[0]; if (f) readFile(f) }
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = [...e.dataTransfer.files].find(isWorkbook) ?? e.dataTransfer.files[0]; if (f) readFile(f) }
 $('readPaste').onclick = () => {
   const r = readPasted($('paste').value)
   if (!r.orders.length) return setMsg(r.shipped.length ? 'Nothing in that paste to build' + leftOff(r) : "Couldn't find any orders in that paste. Include the header row (Tag Name, Dealer, Mods…).", 'err')

@@ -191,7 +191,7 @@
 <body>
 <div class="bar">
   <div><h1>Floor Sheet Maker</h1><small>Paste the week's rows → check the list → print the floor sheets</small></div>
-  <div class="barbtns"><button class="backup" id="backupBtn" title="Every day printed this week, as one Excel file">⬇ Week backup (Excel)</button><button class="backup" id="loadBtn" disabled title="Every order in the list, grouped by truck">🚚 Print loading sheet</button><button class="print" id="printBtn" disabled>🖨 Print sheets</button></div>
+  <div class="barbtns"><button class="backup" id="backupBtn" title="Every day printed this week, as one Excel file">⬇ Week backup (Excel)</button><button class="backup" id="loadBtn" disabled title="Every order, grouped by truck, with a box to tick when it's on">🚚 Print loading sheet</button><button class="print" id="printBtn" disabled>🖨 Print sheets</button></div>
 </div>
 <div class="remind" id="remind" hidden></div>
 
@@ -268,10 +268,10 @@ const DEPARTMENTS = [
 // Defaults; the PC can change the times and each department's stations
 // under "Check-in times & stations", kept on this PC.
 const CHECKINS = ['11:30', '3:30']
-// What goes on the truck for each order, and the build-sheet columns that
+// What goes on the truck for each order (not on the loading sheet yet —
+// kept on each order for when it is), and the build-sheet columns that
 // say whether the order has it. Panel is on every order (filler).
 const LOAD_ITEMS = { mods: ['Mods'], v4t: ['V4T', 'Vin. Fix', 'Vin. Trap'], track: ['Track'], panel: ['Roof Panels', 'Roof Extr.', 'Acrylic'], doors: ['Doors'] }
-const LOAD_LABELS = { mods: 'Mods', v4t: 'V4T', track: 'Track', panel: 'Panel', doors: 'Doors' }
 // Same list, same order as the tablet's "report a problem" picker.
 const BLOCKS = ['Material shortage', 'Machine down', 'Rework / wrong cut', 'Waiting on another dept', 'Missing info / paperwork', 'Short-staffed', 'Order change', 'Other — write it']
 // Order rows per page with up to 3 count stations; each extra station
@@ -744,9 +744,9 @@ function buildSheets() {
 }
 
 // ── Loading sheet: every order in the list, grouped by truck ──
-// A box per item the order has (hatched when the build sheet shows it
-// isn't part of the order), "open" in red where the build sheet still had
-// work outstanding when this was printed, then Packaged and On truck.
+// Kept simple: the tag, a box to tick when it's on the truck, and room for
+// a note. Numbers run on through the whole sheet; the order and truck
+// counts and Loaded by are left for the loader to write, once.
 function buildLoading() {
   const list = orders.filter((o) => o.tag.trim())
   if (!list.length) return ''
@@ -760,48 +760,44 @@ function buildLoading() {
   // Lay groups onto pages; a group moves to the next page rather than
   // splitting, unless it's bigger than a page on its own. Sizes in inches,
   // measured off the printed page.
-  const ROW = 0.3, BAR = 0.42, FIRST = 7.9, CAP = 8.6
+  const ROW = 0.3, BAR = 0.42, FIRST = 8.3, CAP = 8.6
   const pages = [[]]
-  let used = 0, cap = FIRST
+  let used = 0, cap = FIRST, n = 0
   for (const g of groups) {
     let rest = g.orders, part = 0
     while (rest.length) {
       if (used && used + BAR + Math.min(rest.length, 3) * ROW > cap) { pages.push([]); used = 0; cap = CAP }
       const fit = Math.max(1, Math.floor((cap - used - BAR) / ROW))
       const take = rest.slice(0, fit)
-      pages[pages.length - 1].push({ truck: g.truck, total: g.orders.length, orders: take, start: g.orders.length - rest.length, cont: part++ > 0 })
+      pages[pages.length - 1].push({ truck: g.truck, orders: take, first: n + 1, cont: part++ > 0 })
+      n += take.length
       used += BAR + take.length * ROW
       rest = rest.slice(fit)
     }
   }
-  const items = Object.keys(LOAD_ITEMS)
-  const span = 5 + items.length
   const pickup = nice($('ship').value) || '—'
-  const summary = groups.map((g) => `<span><b>${esc(g.truck)}</b> ${g.orders.length}</span>`).join('')
+  const blank = (w) => `<span class="val" style="min-width:${w}">&nbsp;</span>`
   return pages.map((page, pi) => `
   <section class="sheet">
     <div class="top">
       <div><div class="kicker">Sunspace Truesdale · Loading sheet${pages.length > 1 ? ` · page ${pi + 1} of ${pages.length}` : ''}</div><h1>Loading</h1></div>
       <div class="sf" style="grid-template-columns:auto auto">
         <span><b>Pickup</b><span class="val" style="min-width:1in">${esc(pickup)}</span></span>
-        <span><b>Orders</b><span class="val" style="min-width:.45in">${list.length}</span></span>
-        <span><b>Printed</b><span class="val" style="min-width:1in">${esc(nice($('date').value))}</span></span>
-        <span><b>Trucks</b><span class="val" style="min-width:.45in">${groups.length}</span></span>
+        <span><b>Orders</b>${blank('.5in')}</span>
+        <span><b>Date</b><span class="val" style="min-width:1in">${esc(nice($('date').value))}</span></span>
+        <span><b>Trucks</b>${blank('.5in')}</span>
+        <span style="grid-column:span 2"><b>Loaded by</b>${blank('2.2in')}</span>
       </div>
     </div>
-    ${pi === 0 ? `<div class="ld-sum">${summary}</div><div class="ld-key">Tick each item as it's packaged, then On truck as it's loaded. Hatched = not part of that order. <b style="color:var(--red)">OPEN</b> = still being built when this was printed — check before it goes on.</div>` : ''}
+    ${pi === 0 ? `<div class="ld-key">Tick <b>On truck</b> as each order goes on.</div>` : ''}
     <table class="loadt">
-      <colgroup><col style="width:.3in"><col style="width:2.15in"><col>${items.map(() => '<col style="width:.5in">').join('')}<col style="width:.62in"><col style="width:.62in"></colgroup>
-      <thead><tr><th>#</th><th style="text-align:left">Tag name</th><th style="text-align:left">Dealer</th>${items.map((k) => `<th>${LOAD_LABELS[k]}</th>`).join('')}<th>Packaged</th><th>On truck</th></tr></thead>
+      <colgroup><col style="width:.45in"><col><col style="width:.9in"><col style="width:2.6in"></colgroup>
+      <thead><tr><th>#</th><th style="text-align:left">Tag name</th><th>On truck</th><th style="text-align:left">Note</th></tr></thead>
       ${page.map((g) => `<tbody>
-        <tr class="grp"><td colspan="${span}"><div class="ld-head"><b>${esc(g.truck)}<small>${g.total} order${g.total === 1 ? '' : 's'}${g.cont ? ' · continued' : ''}</small></b><span>Loaded by ____________ &nbsp; Checked ____________ &nbsp; Time ______</span></div></td></tr>
-        ${g.orders.map((o, i) => `<tr><td class="num">${g.start + i + 1}</td><td class="tg${o.tag.length > 24 ? ' long' : ''}">${esc(o.tag)}</td><td class="dl">${esc(o.dealer.replace(/\s+/g, ' '))}</td>${items.map((k, j) => {
-          const has = o.has?.[k]
-          return `<td class="bx${j ? '' : ' first'}${has === false ? ' na' : ''}">${has !== false && o.open?.[k] ? '<i>open</i>' : ''}</td>`
-        }).join('')}<td class="bx first"></td><td class="bx"></td></tr>`).join('')}
+        <tr class="grp"><td colspan="4"><div class="ld-head"><b>${esc(g.truck)}${g.cont ? '<small>continued</small>' : ''}</b></div></td></tr>
+        ${g.orders.map((o, i) => `<tr><td class="num">${g.first + i}</td><td class="tg">${esc(o.tag)}</td><td class="bx first"></td><td></td></tr>`).join('')}
       </tbody>`).join('')}
     </table>
-    <div class="foot" style="margin-top:auto"><span>Signed ____________________</span></div>
   </section>`).join('')
 }
 

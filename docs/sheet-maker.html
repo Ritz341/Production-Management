@@ -34,6 +34,15 @@
   .bar{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--ink);color:#fff;padding:12px 18px;border-bottom:4px solid var(--yellow)}
   .bar h1{font-family:var(--display);text-transform:uppercase;font-size:24px;margin:0;letter-spacing:.02em}
   .bar small{color:#AEB5BE}
+  .barbtns{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+  .backup{background:none;color:#fff;border:1.5px solid #6B737D;border-radius:8px;font-weight:600;font-size:14px;padding:9px 14px;cursor:pointer}
+  .backup:hover{border-color:#fff}
+  .remind{background:var(--safety-bg);border-bottom:2px solid var(--safety);padding:10px 18px;font-size:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .remind[hidden]{display:none}
+  .howto{margin:0 0 8px;font-size:13px;color:var(--ink2)}
+  details.other{margin-top:12px;border-top:1px solid var(--faint);padding-top:8px}
+  details.other summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--ink2)}
+  details.other .drop{margin-top:8px}
   .print{background:var(--yellow);color:var(--ink);border:0;border-radius:8px;font-family:var(--display);font-weight:700;font-size:20px;text-transform:uppercase;padding:10px 22px;cursor:pointer}
   .print:disabled{opacity:.4;cursor:not-allowed}
   .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:14px;margin-top:14px}
@@ -101,7 +110,7 @@
   @page{size:letter;margin:0}
   @media print{
     html,body{background:#fff}
-    .app,.bar{display:none!important}
+    .app,.bar,.remind{display:none!important}
     #sheets{display:block}
     .sheet{break-after:page}
     .sheet:last-child{break-after:auto}
@@ -157,30 +166,31 @@
 </head>
 <body>
 <div class="bar">
-  <div><h1>Floor Sheet Maker</h1><small>Screenshot or Excel file of today's orders → check the list → print the floor sheets</small></div>
-  <button class="print" id="printBtn" disabled>🖨 Print sheets</button>
+  <div><h1>Floor Sheet Maker</h1><small>Paste the week's rows → check the list → print the floor sheets</small></div>
+  <div class="barbtns"><button class="backup" id="backupBtn" title="Every day printed this week, as one Excel file">⬇ Week backup (Excel)</button><button class="print" id="printBtn" disabled>🖨 Print sheets</button></div>
 </div>
+<div class="remind" id="remind" hidden></div>
 
 <div class="app">
   <div class="grid">
     <section class="card">
       <h2><span class="step">1</span>Today's orders</h2>
-      <div class="drop" id="drop" tabindex="0">
-        <b>Paste a screenshot here</b> (Ctrl+V)<br>
-        or drag in the image <b>or the Excel file</b>, or <u>click to choose one</u>.<br>
-        <small>Screenshot: Win+Shift+S → select the rows, <b>including the header row</b> with Tag Name, Dealer, Mods…<br>
-        Excel: only the <b>Truesdale</b> tab is read.</small>
-        <div id="thumb"></div>
-        <div class="progress" id="prog"><i></i></div>
-      </div>
-      <input type="file" id="file" accept="image/*,.xlsx,.xlsm,.xlsb,.xls" hidden>
-      <details style="margin-top:10px">
-        <summary style="cursor:pointer;font-weight:600">…or paste the rows from Excel (exact, works offline)</summary>
-        <textarea id="paste" placeholder="Copy the rows from the build sheet — including the header row — and paste here."></textarea>
-        <div class="row2"><button class="btn dark" id="readPaste">Read these rows</button></div>
-      </details>
+      <p class="howto">In the build sheet, select this week's rows (header row optional) → <b>Ctrl+C</b> → click in the box → <b>Ctrl+V</b>.</p>
+      <textarea id="paste" placeholder="Paste the rows here (Ctrl+V) — they're read straight away."></textarea>
+      <div class="row2"><button class="btn dark" id="readPaste">Read these rows</button><small style="color:var(--mute)">Typed or edited the box? Press this.</small></div>
       <div class="msg" id="msg"></div>
       <div class="picker" id="picker" hidden></div>
+      <details class="other" id="other">
+        <summary>Other ways: the Excel file or a screenshot</summary>
+        <div class="drop" id="drop" tabindex="0">
+          <b>Drag in the Excel file or a screenshot</b>, or <u>click to choose one</u>.<br>
+          A screenshot can also be pasted with Ctrl+V anywhere on the page.<br>
+          <small>Excel: only the <b>Truesdale</b> tab is read. Screenshot: Win+Shift+S → select the rows, <b>including the header row</b>. Both need internet.</small>
+          <div id="thumb"></div>
+          <div class="progress" id="prog"><i></i></div>
+        </div>
+        <input type="file" id="file" accept="image/*,.xlsx,.xlsm,.xlsb,.xls" hidden>
+      </details>
     </section>
 
     <section class="card">
@@ -241,7 +251,8 @@ const BLOCKS = ['Material shortage', 'Machine down', 'Rework / wrong cut', 'Wait
 const ROWS_PER_PAGE = 18
 const checkins = () => store.get('checkins', null) ?? CHECKINS
 const stationsOf = (d) => store.get('stations', {})[d.key] ?? d.stations
-const rowsFor = (d) => ROWS_PER_PAGE - Math.max(0, stationsOf(d).length - 3)
+// A note for the floor takes a row too.
+const rowsFor = (d) => ROWS_PER_PAGE - Math.max(0, stationsOf(d).length - 3) - ($('note').value.trim() ? 1 : 0)
 // Every column the build sheet can have, longest first for header matching.
 const SHEET_COLUMNS = ['Tag Name', 'Dealer', 'Truck', 'Date', 'Mods', 'V4T', 'Vin. Fix', 'Vin. Trap', 'Alum. Fix', 'Alum. Trap', 'XX', 'H2/4', 'PVC', 'I-A', 'Doors', 'Roof Panels', 'Roof Extr.', 'Track', 'Therm a deck', 'Acrylic', 'Deck', 'Valance', 'Rail', 'PATIO Door', 'Glass', 'Pergola', 'R. Screen', 'Nova Sun', 'Stairs', 'Mod Filler Panels']
 
@@ -362,7 +373,7 @@ function ordersFromGrid(grid) {
     for (const d of DEPARTMENTS) if (d.everyOrder) depts[d.key] = true
     if (section) section.count++
     const mods = cell(row, 'Mods')
-    out.push({ tag, dealer: /^pick\s*up/i.test(dealerRaw) ? '' : dealerRaw, depts, jobs, low: !!row.low, pickup: section?.iso ?? null, qty: /^\d+$/.test(mods) ? mods : '' })
+    out.push({ tag, truck: cell(row, 'Truck'), dealer: /^pick\s*up/i.test(dealerRaw) ? '' : dealerRaw, depts, jobs, low: !!row.low, pickup: section?.iso ?? null, qty: /^\d+$/.test(mods) ? mods : '' })
   }
   return { orders: out, sections: sections.filter((x) => x.count), shipped, done, layout, inferred }
 }
@@ -602,7 +613,7 @@ function showThumb(file) { const url = URL.createObjectURL(file); $('thumb').inn
 // ── The review list ──
 function renderList() {
   const tb = $('list')
-  if (!orders.length) { tb.innerHTML = `<tr><td colspan="8" class="empty">No orders yet — paste a screenshot or drop the Excel file above, or add them by hand.</td></tr>`; return }
+  if (!orders.length) { tb.innerHTML = `<tr><td colspan="8" class="empty">No orders yet — paste the rows above, or add them by hand.</td></tr>`; return }
   tb.innerHTML = orders.map((o, i) => `
     <tr class="${o.low ? 'low' : ''}" data-i="${i}">
       <td class="n">${i + 1}</td>
@@ -616,12 +627,12 @@ function renderList() {
 $('list').addEventListener('input', (e) => {
   const tr = e.target.closest('tr[data-i]'); if (!tr) return
   const o = orders[Number(tr.dataset.i)]
-  if (e.target.dataset.f) { o[e.target.dataset.f] = e.target.value; o.low = false; tr.classList.remove('low'); renderSheets() }
+  if (e.target.dataset.f) { o[e.target.dataset.f] = e.target.value; o.low = false; tr.classList.remove('low'); renderSheets(); saveToday() }
 })
 $('list').addEventListener('change', (e) => {
   const tr = e.target.closest('tr[data-i]'); if (!tr || !e.target.dataset.d) return
   orders[Number(tr.dataset.i)].depts[e.target.dataset.d] = e.target.checked
-  renderCounts(); renderSheets()
+  renderCounts(); renderSheets(); saveToday()
 })
 $('list').addEventListener('click', (e) => {
   const op = e.target.dataset.op; if (!op) return
@@ -709,7 +720,7 @@ $('setup').addEventListener('click', (e) => {
   if (ds.addCi || ds.addSt) { const ins = $('setup').querySelectorAll(ds.addCi ? '[data-ci]' : `[data-st="${ds.addSt}"]`); ins[ins.length - 1]?.focus() }
 })
 
-for (const id of ['date', 'ship', 'crew', 'note']) $(id).addEventListener('input', () => { if (id === 'note') store.set('note', $('note').value); renderSheets() })
+for (const id of ['date', 'ship', 'crew', 'note']) $(id).addEventListener('input', () => { if (id === 'note') store.set('note', $('note').value); renderSheets(); if (id === 'ship') saveToday() })
 
 // ── The printed sheets ──
 function sheetHtml(d, list, page, pages) {
@@ -798,15 +809,17 @@ function fitPreview() {
   box.querySelectorAll('.sheet').forEach((s) => { s.style.transform = `scale(${scale})`; s.style.marginBottom = `${-(1 - scale) * 1056 + 16}px` })
 }
 window.addEventListener('resize', fitPreview)
-function render() { renderList(); renderCounts(); renderSheets() }
+function render() { renderList(); renderCounts(); renderSheets(); saveToday() }
 
 // ── Input: paste, drop, pick, Excel text ──
+// Rows pasted into the box (or anywhere that isn't another field) are read
+// at once; a pasted picture goes to the screenshot reader.
 document.addEventListener('paste', (e) => {
-  if (e.target.closest?.('textarea, input')) return
+  if (e.target.closest?.('textarea, input') && e.target.id !== 'paste') return
   const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'))
-  if (item) { e.preventDefault(); readImage(item.getAsFile()); return }
+  if (item) { e.preventDefault(); $('other').open = true; readImage(item.getAsFile()); return }
   const text = e.clipboardData?.getData('text/plain')
-  if (text?.trim()) { e.preventDefault(); const r = readPasted(text); r.orders.length ? offer(r, r.how, 'paste') : setMsg('Nothing in that paste to build' + leftOff(r), 'err') }
+  if (text?.trim()) { e.preventDefault(); $('paste').value = ''; const r = readPasted(text); r.orders.length ? offer(r, r.how, 'paste') : setMsg(r.shipped || r.done ? 'Nothing in that paste to build' + leftOff(r) : "Couldn't find any orders in that paste — copy whole rows, from the Truck column across.", 'err') }
 })
 const drop = $('drop')
 drop.onclick = () => $('file').click()
@@ -821,13 +834,108 @@ $('readPaste').onclick = () => {
   offer(r, r.how, 'Excel paste'); $('paste').value = ''
 }
 $('printBtn').onclick = () => { renderSheets(); window.print() }
+// Ctrl+P prints too, so log the day on any print, not only the button.
+window.addEventListener('beforeprint', logDay)
+
+// ── Weekly Excel backup ──
+// Every print records that day's list (the latest print of a day wins).
+// The backup is one workbook per week: a Week tab with each order and what
+// was still open on it each day, then one tab per day as printed.
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+function mondayOf(isoDate) {
+  const d = new Date(isoDate + 'T00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d)
+}
+function logDay() {
+  const list = orders.filter((o) => o.tag.trim())
+  if (!list.length) return
+  const date = $('date').value || iso(new Date())
+  const log = store.get('log', {})
+  log[date] = { ship: $('ship').value, crew: $('crew').value.trim(), leads: store.get('leads', {}), orders: list.map(({ tag, truck, dealer, depts, qty, pickup }) => ({ tag, truck: truck ?? '', dealer, depts, qty: qty ?? '', pickup: pickup ?? '' })) }
+  // Keep about two months; the Excel files are the long-term copy.
+  const cutoff = iso(new Date(Date.now() - 62 * 864e5))
+  for (const k of Object.keys(log)) if (k < cutoff) delete log[k]
+  store.set('log', log)
+  const weeks = store.get('backedUp', {}); delete weeks[mondayOf(date)]; store.set('backedUp', weeks)
+  checkReminder()
+}
+function daysOfWeek(monday) {
+  const end = iso(new Date(new Date(monday + 'T00:00').getTime() + 7 * 864e5))
+  return Object.keys(store.get('log', {})).filter((k) => k >= monday && k < end).sort()
+}
+const shortDay = (k) => `${WEEKDAY[new Date(k + 'T00:00').getDay()]} ${Number(k.slice(5, 7))}-${Number(k.slice(8, 10))}`
+
+async function downloadWeek(monday) {
+  const days = daysOfWeek(monday)
+  if (!days.length) return alert(`Nothing printed in the week of ${nice(monday)} yet — the backup fills up each time you print.`)
+  const log = store.get('log', {})
+  const deptList = (o) => DEPARTMENTS.filter((d) => o.depts?.[d.key]).map((d) => d.name).join(', ')
+  // Week tab: every order seen this week, and what was on the floor sheets for it each day.
+  const byTag = new Map()
+  for (const k of days) for (const o of log[k].orders) {
+    const row = byTag.get(o.tag) ?? { o, per: {} }
+    row.o = o; row.per[k] = deptList(o) || '—'
+    byTag.set(o.tag, row)
+  }
+  const week = [[`Floor sheets — week of ${nice(monday)}`], [],
+    ['Tag name', 'Dealer', 'Truck', 'Pickup', '# of mods', ...days.map(shortDay)],
+    ...[...byTag.values()].map(({ o, per }) => [o.tag, o.dealer, o.truck, o.pickup, o.qty, ...days.map((k) => per[k] ?? 'not on sheets')])]
+  const dayTabs = days.map((k) => {
+    const e = log[k]
+    return [k, [[`${nice(k)} — pickup ${nice(e.ship) || '—'}${e.crew ? ` — crew ${e.crew}` : ''}`],
+      [DEPARTMENTS.map((d) => `${d.name} lead: ${e.leads?.[d.key] || '—'}`).join('   ')], [],
+      ['#', 'Tag name', 'Dealer', 'Truck', '# of mods', ...DEPARTMENTS.map((d) => d.name)],
+      ...e.orders.map((o, i) => [i + 1, o.tag, o.dealer, o.truck, o.qty, ...DEPARTMENTS.map((d) => (o.depts?.[d.key] ? '✓' : ''))])]]
+  })
+  const name = `Floor sheets week of ${monday}`
+  try {
+    await loadXlsx()
+    const wb = XLSX.utils.book_new()
+    const add = (rows, title, widths) => { const ws = XLSX.utils.aoa_to_sheet(rows); ws['!cols'] = widths.map((w) => ({ wch: w })); XLSX.utils.book_append_sheet(wb, ws, title) }
+    add(week, 'Week', [32, 30, 10, 11, 9, ...days.map(() => 24)])
+    for (const [k, rows] of dayTabs) add(rows, shortDay(k), [4, 32, 30, 10, 9, ...DEPARTMENTS.map(() => 8)])
+    XLSX.writeFile(wb, name + '.xlsx')
+  } catch {
+    // Offline: the same Week tab as a CSV, which Excel opens too.
+    const csv = week.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n')
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv' })); a.download = name + '.csv'; a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+  }
+  const weeks = store.get('backedUp', {}); weeks[monday] = true; store.set('backedUp', weeks)
+  checkReminder()
+}
+$('backupBtn').onclick = () => downloadWeek(mondayOf($('date').value || iso(new Date())))
+
+// A finished week that was printed but never backed up gets a reminder
+// across the top until it's downloaded.
+function checkReminder() {
+  const thisWeek = mondayOf(iso(new Date()))
+  const done = store.get('backedUp', {})
+  const pending = [...new Set(Object.keys(store.get('log', {})).map(mondayOf))].filter((m) => m < thisWeek && !done[m]).sort()
+  const r = $('remind')
+  if (!pending.length) { r.hidden = true; return }
+  const m = pending[pending.length - 1]
+  r.innerHTML = `<b>The week of ${nice(m)} hasn't been backed up yet.</b><button class="btn dark" id="remindGo">⬇ Download it (Excel)</button><button class="btn" id="remindSkip">Skip it</button>`
+  r.hidden = false
+  $('remindGo').onclick = () => downloadWeek(m)
+  $('remindSkip').onclick = () => { const w = store.get('backedUp', {}); w[m] = 'skipped'; store.set('backedUp', w); checkReminder() }
+}
+
+// Today's list survives a closed tab or a refresh, until tomorrow.
+function saveToday() { store.set('today', { date: iso(new Date()), orders, ship: $('ship').value }) }
+
 
 // ── Start ──
 $('date').value = iso(new Date())
 $('note').value = store.get('note', '')
+const kept = store.get('today', null)
+if (kept?.date === iso(new Date()) && kept.orders?.length) {
+  orders = kept.orders; if (kept.ship) $('ship').value = kept.ship
+  setMsg(`Today's list is back (${orders.length} order${orders.length === 1 ? '' : 's'}). Paste again to add more, or Clear to start over.`, 'ok')
+}
 renderLeads()
 renderSetup()
 render()
+checkReminder()
 </script>
 </body>
 </html>

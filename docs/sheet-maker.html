@@ -170,6 +170,8 @@
   .orders td.qty{width:0.55in;text-align:center;font-family:var(--display);font-weight:700;font-size:11pt}
   .sheet th.qty{width:0.55in}
   .orders td.box{}
+  .orders td.box{text-align:center}
+  .orders td.box .cdone{font-family:var(--display);font-weight:700;font-size:10pt;color:#B9B3A8}
   .orders td.box.first{border-left:2.5px solid var(--ink2)}
   .orders td.na{background:repeating-linear-gradient(135deg,#fff 0 3px,#D9D4CA 3px 4px);-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .orders td.reason{width:0.8in}
@@ -261,7 +263,7 @@ const DEPARTMENTS = [
     // Every order gets filler panels, so every order is on the Panel sheet.
     // The Roof Panels / Roof Extr. / Acrylic marks only say whether the
     // room also has a roof panel; those boxes are hatched when it doesn't.
-    everyOrder: true, hint: 'Filler on every order · hatched = not needed · ' },
+    everyOrder: true, hint: 'Filler on every order · hatched = not in order · C = done · ' },
 ]
 // Defaults; the PC can change the times and each department's stations
 // under "Check-in times & stations", kept on this PC.
@@ -367,7 +369,6 @@ function ordersFromGrid(grid) {
   const sections = [] // [{ iso, count }] in sheet order
   let section = null
   const shipped = [] // tags the Date column marks shipped / picked up
-  let done = 0       // finished in Mods, V4T and Track: on the Panel sheet only
   for (const row of grid.slice(start)) {
     const tag = cell(row, 'Tag Name')
     const dealerRaw = cell(row, 'Dealer')
@@ -379,27 +380,20 @@ function ordersFromGrid(grid) {
     }
     if (!tag || /^pick\s*up|^current\s*as\s*of/i.test(tag) || /tag\s*name/i.test(tag)) continue
     if (/ship|picked\s*up/i.test(cell(row, 'Date'))) { shipped.push(tag); continue }
+    // Every order goes on every department's sheet, as the build sheet
+    // lists it — a C never takes an order off. Each job only records what
+    // its cell said, for the boxes: 'na' blank (not part of this order),
+    // 'done' C, true anything else, null when the sheet has no such column.
     const jobs = {}
     const depts = {}
     for (const d of DEPARTMENTS) {
-      let open = false
+      depts[d.key] = true
       for (const [colName] of d.jobs) {
-        // A column this sheet doesn't have: unknown, so its boxes stay open.
         if (col(colName) === -1) { jobs[colName] = null; continue }
         const v = cell(row, colName)
-        const needed = v !== '' && v.toLowerCase() !== 'c'
-        jobs[colName] = needed
-        if (needed) open = true
+        jobs[colName] = v === '' ? 'na' : v.toLowerCase() === 'c' ? 'done' : true
       }
-      depts[d.key] = open
     }
-    // A sheet that had none of a department's columns tells us nothing
-    // about it, so don't silently leave that department off.
-    for (const d of DEPARTMENTS) if (d.jobs.every(([c]) => col(c) === -1)) { depts[d.key] = true; for (const [c] of d.jobs) jobs[c] = true }
-    // Nothing open anywhere is still an order this week: Panel owes it
-    // filler and the loading sheet needs it, so it stays in.
-    if (!DEPARTMENTS.some((d) => !d.everyOrder && depts[d.key])) done++
-    for (const d of DEPARTMENTS) if (d.everyOrder) depts[d.key] = true
     if (section) section.count++
     const mods = cell(row, 'Mods')
     // What the order has at all (blank = not part of this order; C or X =
@@ -412,7 +406,7 @@ function ordersFromGrid(grid) {
     }
     out.push({ tag, has, open, truck: cell(row, 'Truck'), dealer: /^pick\s*up/i.test(dealerRaw) ? '' : dealerRaw, depts, jobs, low: !!row.low, pickup: section?.iso ?? null, qty: /^\d+$/.test(mods) ? mods : '' })
   }
-  return { orders: out, sections: sections.filter((x) => x.count), shipped, done, layout, inferred }
+  return { orders: out, sections: sections.filter((x) => x.count), shipped, layout, inferred }
 }
 
 // A paste with no header row and no tag column found: take anything that looks
@@ -458,7 +452,7 @@ function readPasted(text) {
   const grid = gridFromClipboard(text)
   const parsed = ordersFromGrid(grid)
   if (parsed && (parsed.orders.length || parsed.shipped.length)) { rememberLayout(parsed); return { ...parsed, how: 'header' } }
-  return { orders: ordersFromLooseText(text), sections: [], shipped: [], done: 0, how: 'loose' }
+  return { orders: ordersFromLooseText(text), sections: [], shipped: [], how: 'loose' }
 }
 
 // ── Excel workbook: the Truesdale tab only ──
@@ -505,11 +499,10 @@ function rememberLayout(parsed) {
   if (parsed.layout?.some((h) => canon(h) === 'Mods') && parsed.layout.some((h) => canon(h) === 'Track')) store.set('layout', parsed.layout)
 }
 
-function leftOff({ shipped, done }) {
+function leftOff({ shipped }) {
   let t = '.'
   const n = shipped?.length ?? 0
   if (n) t = ` — left off ${n} already shipped (${shipped.slice(0, 4).join(', ')}${n > 4 ? '…' : ''}).`
-  if (done) t += ` ${done} finished in Mods, V4T and Track are on the Panel sheet only (filler).`
   return t
 }
 
@@ -690,11 +683,14 @@ function sheetHtml(d, list, page, pages) {
   const rows = Array.from({ length: perPage }, (_, i) => {
     const o = list[i]
     const n = page * perPage + i + 1
-    // A job the build sheet shows as not needed (blank) or already done
-    // (C) is hatched out, so nobody hunts for a box they'll never fill.
+    // Blank on the build sheet (not part of this order) is hatched out;
+    // C (already done) shows a light C so the lead sees it without the
+    // order leaving the sheet.
     const boxes = d.jobs.map(([col]) => {
-      const na = o && o.jobs && d.jobs.length > 1 && o.jobs[col] === false
-      return `<td class="box first${na ? ' na' : ''}"></td><td class="box${na ? ' na' : ''}"></td>`
+      const st = o?.jobs?.[col]
+      const na = st === 'na' || st === false
+      const c = st === 'done' ? '<span class="cdone">C</span>' : ''
+      return `<td class="box first${na ? ' na' : ''}">${c}</td><td class="box${na ? ' na' : ''}">${c}</td>`
     }).join('')
     const qty = d.qty ? `<td class="qty">${esc(o?.qty ?? '')}</td>` : ''
     return `<tr><td class="num">${o ? n : ''}</td><td class="tag">${o ? `<b${o.tag.length > 22 ? ' class="long"' : ''}>${esc(o.tag)}</b>` : ''}</td>${qty}${boxes}<td class="reason"></td></tr>`
@@ -716,7 +712,7 @@ function sheetHtml(d, list, page, pages) {
     </div>
     ${day.note ? `<div class="note">📣 ${esc(day.note)}</div>` : ''}
     <div>
-      <h2><span class="ttl">Today's orders</span> <small>${d.hint ?? (d.jobs.length > 1 ? 'Hatched = not needed · ' : '')}Top to bottom, in order · Stuck? Write a code and <b>tell the office now</b></small></h2>
+      <h2><span class="ttl">Today's orders</span> <small>${d.hint ?? 'Hatched = not in this order · C = already done · '}Top to bottom · Stuck? Write a code and <b>tell the office now</b></small></h2>
       <table class="orders">${cols}
         <thead><tr><th rowspan="2">#</th><th rowspan="2" style="text-align:left">Tag name</th>${d.qty ? `<th rowspan="2" class="qty">${esc(d.qty)}</th>` : ''}${jobHead}<th rowspan="2">Problem<br>code</th></tr><tr>${jobSub}</tr></thead>
         <tbody>${rows}</tbody>
@@ -872,12 +868,25 @@ const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 function mondayOf(isoDate) {
   const d = new Date(isoDate + 'T00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d)
 }
+// Where a department stood on an order, from its build-sheet cells:
+// 'open' if any job is still to do, 'C' if its jobs are all done, '' if
+// the order doesn't have that department. Columns the sheet doesn't have
+// (Filler) are left out; a typed-in order with nothing known is 'open'.
+// Panel with no roof items at all is 'filler'.
+function deptState(o, d) {
+  if (!o.depts?.[d.key]) return ''
+  const known = d.jobs.map(([c]) => o.jobs?.[c]).filter((x) => x != null)
+  if (!known.length) return 'open'
+  if (known.some((x) => x === true)) return 'open'
+  if (known.some((x) => x === 'done')) return 'C'
+  return d.everyOrder ? 'filler' : ''
+}
 function logDay() {
   const list = orders.filter((o) => o.tag.trim())
   if (!list.length) return
   const date = $('date').value || iso(new Date())
   const log = store.get('log', {})
-  log[date] = { ship: $('ship').value, crew: $('crew').value.trim(), leads: store.get('leads', {}), orders: list.map(({ tag, truck, dealer, depts, qty, pickup }) => ({ tag, truck: truck ?? '', dealer, depts, qty: qty ?? '', pickup: pickup ?? '' })) }
+  log[date] = { ship: $('ship').value, crew: $('crew').value.trim(), leads: store.get('leads', {}), orders: list.map((o) => ({ tag: o.tag, truck: o.truck ?? '', dealer: o.dealer, state: Object.fromEntries(DEPARTMENTS.map((d) => [d.key, deptState(o, d)])), qty: o.qty ?? '', pickup: o.pickup ?? '' })) }
   // Keep about two months; the Excel files are the long-term copy.
   const cutoff = iso(new Date(Date.now() - 62 * 864e5))
   for (const k of Object.keys(log)) if (k < cutoff) delete log[k]
@@ -895,23 +904,25 @@ async function downloadWeek(monday) {
   const days = daysOfWeek(monday)
   if (!days.length) return alert(`Nothing printed in the week of ${nice(monday)} yet — the backup fills up each time you print.`)
   const log = store.get('log', {})
-  const deptList = (o) => DEPARTMENTS.filter((d) => o.depts?.[d.key]).map((d) => d.name).join(', ')
+  // Older log entries (before states were kept) only know which sheets it was on.
+  const stateOf = (o, d) => o.state ? o.state[d.key] : o.depts?.[d.key] ? 'open' : ''
+  const deptList = (o) => DEPARTMENTS.filter((d) => stateOf(o, d) === 'open').map((d) => d.name).join(', ')
   // Week tab: every order seen this week, and what was on the floor sheets for it each day.
   const byTag = new Map()
   for (const k of days) for (const o of log[k].orders) {
     const row = byTag.get(o.tag) ?? { o, per: {} }
-    row.o = o; row.per[k] = deptList(o) || '—'
+    row.o = o; row.per[k] = deptList(o) || 'all done'
     byTag.set(o.tag, row)
   }
   const week = [[`Floor sheets — week of ${nice(monday)}`], [],
-    ['Tag name', 'Dealer', 'Truck', 'Pickup', '# of mods', ...days.map(shortDay)],
+    ['Tag name', 'Dealer', 'Truck', 'Pickup', '# of mods', ...days.map((k) => shortDay(k) + ' — still open')],
     ...[...byTag.values()].map(({ o, per }) => [o.tag, o.dealer, o.truck, o.pickup, o.qty, ...days.map((k) => per[k] ?? 'not on sheets')])]
   const dayTabs = days.map((k) => {
     const e = log[k]
     return [k, [[`${nice(k)} — pickup ${nice(e.ship) || '—'}${e.crew ? ` — crew ${e.crew}` : ''}`],
       [DEPARTMENTS.map((d) => `${d.name} lead: ${e.leads?.[d.key] || '—'}`).join('   ')], [],
       ['#', 'Tag name', 'Dealer', 'Truck', '# of mods', ...DEPARTMENTS.map((d) => d.name)],
-      ...e.orders.map((o, i) => [i + 1, o.tag, o.dealer, o.truck, o.qty, ...DEPARTMENTS.map((d) => (o.depts?.[d.key] ? '✓' : ''))])]]
+      ...e.orders.map((o, i) => [i + 1, o.tag, o.dealer, o.truck, o.qty, ...DEPARTMENTS.map((d) => stateOf(o, d))])]]
   })
   const name = `Floor sheets week of ${monday}`
   try {

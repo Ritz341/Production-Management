@@ -106,12 +106,36 @@
   .picker .chips .btn small{font-weight:400;color:var(--mute)}
 
   /* ───────── the printed sheets ───────── */
-  #sheets{display:none}
+  #sheets,#loading{display:none}
+  .tabs .tab{font-family:var(--body);text-transform:none;letter-spacing:0;font-size:13px;padding:5px 12px}
+  .tabs .tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .loadt tr.grp td{padding:0;border:0;height:auto}
+  .loadt tbody + tbody tr.grp td{padding-top:7px}
+  .ld-head{display:flex;justify-content:space-between;align-items:baseline;background:var(--ink);color:#fff;padding:4px 8px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .ld-head b{font-family:var(--display);font-size:15pt;text-transform:uppercase;letter-spacing:.02em}
+  .ld-head b small{font-family:var(--body);font-size:8.5pt;font-weight:400;text-transform:none;color:#C9CED4;margin-left:8px;letter-spacing:0}
+  .ld-head span{font-size:8.5pt;color:#E5E8EB}
+  .loadt{table-layout:fixed}
+  .loadt th{background:#3C434B!important;font-size:7pt!important}
+  .loadt td{height:0.3in;padding:0 4px;font-size:8.5pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .loadt td.num{text-align:center;font-family:var(--display);font-weight:700}
+  .loadt td.tg{font-family:var(--display);font-weight:700;font-size:10pt}
+  .loadt td.tg.long{font-size:8pt;letter-spacing:-.01em}
+  .loadt td.dl{color:var(--ink2);font-size:8pt}
+  .loadt td.bx{text-align:center}
+  .loadt td.bx.first{border-left:2.5px solid var(--ink2)}
+  .loadt td.na{background:repeating-linear-gradient(135deg,#fff 0 3px,#D9D4CA 3px 4px);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .loadt td i{font-style:normal;font-size:6.5pt;font-weight:700;color:var(--red);text-transform:uppercase}
+  .ld-key{font-size:8pt;color:var(--mute);margin:-2px 0 6px}
+  .ld-sum{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .ld-sum span{border:1px solid var(--line);border-radius:5px;padding:2px 7px;font-size:8.5pt}
   @page{size:letter;margin:0}
   @media print{
     html,body{background:#fff}
     .app,.bar,.remind{display:none!important}
     #sheets{display:block}
+    body.print-load #sheets{display:none}
+    body.print-load #loading{display:block}
     .sheet{break-after:page}
     .sheet:last-child{break-after:auto}
   }
@@ -167,7 +191,7 @@
 <body>
 <div class="bar">
   <div><h1>Floor Sheet Maker</h1><small>Paste the week's rows → check the list → print the floor sheets</small></div>
-  <div class="barbtns"><button class="backup" id="backupBtn" title="Every day printed this week, as one Excel file">⬇ Week backup (Excel)</button><button class="print" id="printBtn" disabled>🖨 Print sheets</button></div>
+  <div class="barbtns"><button class="backup" id="backupBtn" title="Every day printed this week, as one Excel file">⬇ Week backup (Excel)</button><button class="backup" id="loadBtn" disabled title="Every order in the list, grouped by truck">🚚 Print loading sheet</button><button class="print" id="printBtn" disabled>🖨 Print sheets</button></div>
 </div>
 <div class="remind" id="remind" hidden></div>
 
@@ -219,12 +243,14 @@
   </section>
 
   <section class="card preview" style="margin-top:14px">
-    <h2><span class="step">4</span>Preview <small style="font-family:var(--body);text-transform:none;letter-spacing:0;color:var(--mute);font-size:12px;font-weight:400">— exactly what prints</small></h2>
+    <h2 style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px"><span><span class="step">4</span>Preview <small style="font-family:var(--body);text-transform:none;letter-spacing:0;color:var(--mute);font-size:12px;font-weight:400">— exactly what prints</small></span>
+      <span class="tabs"><button class="btn tab on" data-view="floor">Floor sheets</button><button class="btn tab" data-view="load">Loading sheet</button></span></h2>
     <div id="preview"></div>
   </section>
 </div>
 
 <main id="sheets"></main>
+<main id="loading"></main>
 
 <script>
 // ── What each department's sheet is made of ──
@@ -244,6 +270,10 @@ const DEPARTMENTS = [
 // Defaults; the PC can change the times and each department's stations
 // under "Check-in times & stations", kept on this PC.
 const CHECKINS = ['11:30', '3:30']
+// What goes on the truck for each order, and the build-sheet columns that
+// say whether the order has it. Panel is on every order (filler).
+const LOAD_ITEMS = { mods: ['Mods'], v4t: ['V4T', 'Vin. Fix', 'Vin. Trap'], track: ['Track'], panel: ['Roof Panels', 'Roof Extr.', 'Acrylic'], doors: ['Doors'] }
+const LOAD_LABELS = { mods: 'Mods', v4t: 'V4T', track: 'Track', panel: 'Panel', doors: 'Doors' }
 // Same list, same order as the tablet's "report a problem" picker.
 const BLOCKS = ['Material shortage', 'Machine down', 'Rework / wrong cut', 'Waiting on another dept', 'Missing info / paperwork', 'Short-staffed', 'Order change', 'Other — write it']
 // Order rows per page with up to 3 count stations; each extra station
@@ -340,7 +370,8 @@ function ordersFromGrid(grid) {
   const out = []
   const sections = [] // [{ iso, count }] in sheet order
   let section = null
-  let shipped = 0, done = 0
+  const shipped = [] // tags the Date column marks shipped / picked up
+  let done = 0       // finished in Mods, V4T and Track: on the Panel sheet only
   for (const row of grid.slice(start)) {
     const tag = cell(row, 'Tag Name')
     const dealerRaw = cell(row, 'Dealer')
@@ -351,7 +382,7 @@ function ordersFromGrid(grid) {
       continue
     }
     if (!tag || /^pick\s*up|^current\s*as\s*of/i.test(tag) || /tag\s*name/i.test(tag)) continue
-    if (/ship|picked\s*up/i.test(cell(row, 'Date'))) { shipped++; continue }
+    if (/ship|picked\s*up/i.test(cell(row, 'Date'))) { shipped.push(tag); continue }
     const jobs = {}
     const depts = {}
     for (const d of DEPARTMENTS) {
@@ -369,11 +400,21 @@ function ordersFromGrid(grid) {
     // A sheet that had none of a department's columns tells us nothing
     // about it, so don't silently leave that department off.
     for (const d of DEPARTMENTS) if (d.jobs.every(([c]) => col(c) === -1)) { depts[d.key] = true; for (const [c] of d.jobs) jobs[c] = true }
-    if (!DEPARTMENTS.some((d) => depts[d.key])) { done++; continue }
+    // Nothing open anywhere is still an order this week: Panel owes it
+    // filler and the loading sheet needs it, so it stays in.
+    if (!DEPARTMENTS.some((d) => !d.everyOrder && depts[d.key])) done++
     for (const d of DEPARTMENTS) if (d.everyOrder) depts[d.key] = true
     if (section) section.count++
     const mods = cell(row, 'Mods')
-    out.push({ tag, truck: cell(row, 'Truck'), dealer: /^pick\s*up/i.test(dealerRaw) ? '' : dealerRaw, depts, jobs, low: !!row.low, pickup: section?.iso ?? null, qty: /^\d+$/.test(mods) ? mods : '' })
+    // What the order has at all (blank = not part of this order; C or X =
+    // it is), for the loading sheet. null when the sheet lacks the column.
+    const has = {}, open = {}
+    for (const [k, cols] of Object.entries(LOAD_ITEMS)) {
+      const present = cols.filter((c) => col(c) !== -1)
+      has[k] = k === 'panel' ? true : present.length ? present.some((c) => cell(row, c) !== '') : null
+      open[k] = present.some((c) => { const v = cell(row, c); return v !== '' && v.toLowerCase() !== 'c' })
+    }
+    out.push({ tag, has, open, truck: cell(row, 'Truck'), dealer: /^pick\s*up/i.test(dealerRaw) ? '' : dealerRaw, depts, jobs, low: !!row.low, pickup: section?.iso ?? null, qty: /^\d+$/.test(mods) ? mods : '' })
   }
   return { orders: out, sections: sections.filter((x) => x.count), shipped, done, layout, inferred }
 }
@@ -395,11 +436,33 @@ function ordersFromLooseText(text) {
   return out
 }
 
+// Excel puts a cell that holds a line break in quotes; splitting on every
+// newline would cut that order in two. Walk the text instead.
+function gridFromClipboard(text) {
+  const rows = []
+  let row = [], cellText = '', quoted = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') { cellText += '"'; i++ }
+      else if (ch === '"') quoted = false
+      else cellText += ch
+    } else if (ch === '"' && cellText === '') quoted = true
+    else if (ch === '\t') { row.push(cellText); cellText = '' }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++
+      row.push(cellText); rows.push(row); row = []; cellText = ''
+    } else cellText += ch
+  }
+  if (cellText !== '' || row.length) { row.push(cellText); rows.push(row) }
+  return rows.filter((r) => r.some((c) => c.trim()))
+}
+
 function readPasted(text) {
-  const grid = text.split(/\r?\n/).filter((l) => l.trim()).map((l) => l.split('\t'))
+  const grid = gridFromClipboard(text)
   const parsed = ordersFromGrid(grid)
-  if (parsed && (parsed.orders.length || parsed.shipped || parsed.done)) { rememberLayout(parsed); return { ...parsed, how: 'header' } }
-  return { orders: ordersFromLooseText(text), sections: [], shipped: 0, done: 0, how: 'loose' }
+  if (parsed && (parsed.orders.length || parsed.shipped.length)) { rememberLayout(parsed); return { ...parsed, how: 'header' } }
+  return { orders: ordersFromLooseText(text), sections: [], shipped: [], done: 0, how: 'loose' }
 }
 
 // ── OCR: rebuild the table from where each word sits ──
@@ -500,7 +563,7 @@ async function readImage(file) {
     if (rebuilt) rebuilt.grid.forEach((r, i) => { r.low = rebuilt.lowRows.has(i) })
     let parsed = rebuilt ? ordersFromGrid(rebuilt.grid) : null
     let how = 'header'
-    if (!parsed?.orders.length) { parsed = { orders: ordersFromLooseText(data.text ?? ''), sections: [], shipped: parsed?.shipped ?? 0, done: parsed?.done ?? 0 }; how = 'loose' }
+    if (!parsed?.orders.length) { parsed = { orders: ordersFromLooseText(data.text ?? ''), sections: [], shipped: parsed?.shipped ?? [], done: parsed?.done ?? 0 }; how = 'loose' }
     if (!parsed.orders.length) return setMsg("Couldn't find any orders in that image. Try a sharper screenshot that includes the Tag Name header — or use the Excel file.", 'err')
     offer(parsed, how, 'screenshot')
   } catch (e) {
@@ -555,10 +618,11 @@ function rememberLayout(parsed) {
 }
 
 function leftOff({ shipped, done }) {
-  const bits = []
-  if (shipped) bits.push(`${shipped} already shipped`)
-  if (done) bits.push(`${done} with nothing left for Mods, V4T, Track or Panel`)
-  return bits.length ? ` — left off ${bits.join(' and ')}.` : '.'
+  let t = '.'
+  const n = shipped?.length ?? 0
+  if (n) t = ` — left off ${n} already shipped (${shipped.slice(0, 4).join(', ')}${n > 4 ? '…' : ''}).`
+  if (done) t += ` ${done} finished in Mods, V4T and Track are on the Panel sheet only (filler).`
+  return t
 }
 
 // More than one pickup in what was read: ask which one today's sheets are
@@ -796,13 +860,86 @@ function buildSheets() {
   }).join('')
 }
 
+// ── Loading sheet: every order in the list, grouped by truck ──
+// A box per item the order has (hatched when the build sheet shows it
+// isn't part of the order), "open" in red where the build sheet still had
+// work outstanding when this was printed, then Packaged and On truck.
+function buildLoading() {
+  const list = orders.filter((o) => o.tag.trim())
+  if (!list.length) return ''
+  const groups = []
+  for (const o of list) {
+    const t = (o.truck || '').trim() || 'No truck'
+    let g = groups.find((x) => x.truck.toLowerCase() === t.toLowerCase())
+    if (!g) groups.push(g = { truck: t, orders: [] })
+    g.orders.push(o)
+  }
+  // Lay groups onto pages; a group moves to the next page rather than
+  // splitting, unless it's bigger than a page on its own. Sizes in inches,
+  // measured off the printed page.
+  const ROW = 0.3, BAR = 0.42, FIRST = 7.9, CAP = 8.6
+  const pages = [[]]
+  let used = 0, cap = FIRST
+  for (const g of groups) {
+    let rest = g.orders, part = 0
+    while (rest.length) {
+      if (used && used + BAR + Math.min(rest.length, 3) * ROW > cap) { pages.push([]); used = 0; cap = CAP }
+      const fit = Math.max(1, Math.floor((cap - used - BAR) / ROW))
+      const take = rest.slice(0, fit)
+      pages[pages.length - 1].push({ truck: g.truck, total: g.orders.length, orders: take, start: g.orders.length - rest.length, cont: part++ > 0 })
+      used += BAR + take.length * ROW
+      rest = rest.slice(fit)
+    }
+  }
+  const items = Object.keys(LOAD_ITEMS)
+  const span = 5 + items.length
+  const pickup = nice($('ship').value) || '—'
+  const summary = groups.map((g) => `<span><b>${esc(g.truck)}</b> ${g.orders.length}</span>`).join('')
+  return pages.map((page, pi) => `
+  <section class="sheet">
+    <div class="top">
+      <div><div class="kicker">Sunspace Truesdale · Loading sheet${pages.length > 1 ? ` · page ${pi + 1} of ${pages.length}` : ''}</div><h1>Loading</h1></div>
+      <div class="sf" style="grid-template-columns:auto auto">
+        <span><b>Pickup</b><span class="val" style="min-width:1in">${esc(pickup)}</span></span>
+        <span><b>Orders</b><span class="val" style="min-width:.45in">${list.length}</span></span>
+        <span><b>Printed</b><span class="val" style="min-width:1in">${esc(nice($('date').value))}</span></span>
+        <span><b>Trucks</b><span class="val" style="min-width:.45in">${groups.length}</span></span>
+      </div>
+    </div>
+    ${pi === 0 ? `<div class="ld-sum">${summary}</div><div class="ld-key">Tick each item as it's packaged, then On truck as it's loaded. Hatched = not part of that order. <b style="color:var(--red)">OPEN</b> = still being built when this was printed — check before it goes on.</div>` : ''}
+    <table class="loadt">
+      <colgroup><col style="width:.3in"><col style="width:2.15in"><col>${items.map(() => '<col style="width:.5in">').join('')}<col style="width:.62in"><col style="width:.62in"></colgroup>
+      <thead><tr><th>#</th><th style="text-align:left">Tag name</th><th style="text-align:left">Dealer</th>${items.map((k) => `<th>${LOAD_LABELS[k]}</th>`).join('')}<th>Packaged</th><th>On truck</th></tr></thead>
+      ${page.map((g) => `<tbody>
+        <tr class="grp"><td colspan="${span}"><div class="ld-head"><b>${esc(g.truck)}<small>${g.total} order${g.total === 1 ? '' : 's'}${g.cont ? ' · continued' : ''}</small></b><span>Loaded by ____________ &nbsp; Checked ____________ &nbsp; Time ______</span></div></td></tr>
+        ${g.orders.map((o, i) => `<tr><td class="num">${g.start + i + 1}</td><td class="tg${o.tag.length > 24 ? ' long' : ''}">${esc(o.tag)}</td><td class="dl">${esc(o.dealer.replace(/\s+/g, ' '))}</td>${items.map((k, j) => {
+          const has = o.has?.[k]
+          return `<td class="bx${j ? '' : ' first'}${has === false ? ' na' : ''}">${has !== false && o.open?.[k] ? '<i>open</i>' : ''}</td>`
+        }).join('')}<td class="bx first"></td><td class="bx"></td></tr>`).join('')}
+      </tbody>`).join('')}
+    </table>
+    <div class="foot" style="margin-top:auto"><span>Signed ____________________</span></div>
+  </section>`).join('')
+}
+
+let previewView = 'floor'
 function renderSheets() {
   const html = buildSheets()
+  const load = buildLoading()
   $('sheets').innerHTML = html
-  $('preview').innerHTML = html
+  $('loading').innerHTML = load
+  $('preview').innerHTML = previewView === 'load' ? load || '<p class="empty">The loading sheet fills in once there are orders.</p>' : html
   fitPreview()
-  $('printBtn').disabled = !orders.some((o) => o.tag.trim())
+  const any = orders.some((o) => o.tag.trim())
+  $('printBtn').disabled = !any
+  $('loadBtn').disabled = !any
 }
+document.querySelector('.tabs').addEventListener('click', (e) => {
+  const v = e.target.dataset.view; if (!v) return
+  previewView = v
+  document.querySelectorAll('.tabs .tab').forEach((b) => b.classList.toggle('on', b.dataset.view === v))
+  renderSheets()
+})
 function fitPreview() {
   const box = $('preview'); const w = box.clientWidth
   const scale = Math.min(1, (w - 8) / 816)
@@ -819,7 +956,7 @@ document.addEventListener('paste', (e) => {
   const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'))
   if (item) { e.preventDefault(); $('other').open = true; readImage(item.getAsFile()); return }
   const text = e.clipboardData?.getData('text/plain')
-  if (text?.trim()) { e.preventDefault(); $('paste').value = ''; const r = readPasted(text); r.orders.length ? offer(r, r.how, 'paste') : setMsg(r.shipped || r.done ? 'Nothing in that paste to build' + leftOff(r) : "Couldn't find any orders in that paste — copy whole rows, from the Truck column across.", 'err') }
+  if (text?.trim()) { e.preventDefault(); $('paste').value = ''; const r = readPasted(text); r.orders.length ? offer(r, r.how, 'paste') : setMsg(r.shipped.length ? 'Nothing in that paste to build' + leftOff(r) : "Couldn't find any orders in that paste — copy whole rows, from the Truck column across.", 'err') }
 })
 const drop = $('drop')
 drop.onclick = () => $('file').click()
@@ -830,12 +967,14 @@ drop.ondragleave = () => drop.classList.remove('over')
 drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = [...e.dataTransfer.files].find((x) => isWorkbook(x) || x.type.startsWith('image/')) ?? e.dataTransfer.files[0]; if (f) readFile(f) }
 $('readPaste').onclick = () => {
   const r = readPasted($('paste').value)
-  if (!r.orders.length) return setMsg(r.shipped || r.done ? 'Nothing in that paste to build' + leftOff(r) : "Couldn't find any orders in that paste. Include the header row (Tag Name, Dealer, Mods…).", 'err')
+  if (!r.orders.length) return setMsg(r.shipped.length ? 'Nothing in that paste to build' + leftOff(r) : "Couldn't find any orders in that paste. Include the header row (Tag Name, Dealer, Mods…).", 'err')
   offer(r, r.how, 'Excel paste'); $('paste').value = ''
 }
-$('printBtn').onclick = () => { renderSheets(); window.print() }
+$('printBtn').onclick = () => { document.body.classList.remove('print-load'); renderSheets(); window.print() }
+$('loadBtn').onclick = () => { document.body.classList.add('print-load'); renderSheets(); window.print() }
+window.addEventListener('afterprint', () => document.body.classList.remove('print-load'))
 // Ctrl+P prints too, so log the day on any print, not only the button.
-window.addEventListener('beforeprint', logDay)
+window.addEventListener('beforeprint', () => { if (!document.body.classList.contains('print-load')) logDay() })
 
 // ── Weekly Excel backup ──
 // Every print records that day's list (the latest print of a day wins).

@@ -75,7 +75,7 @@
   .srow .sl{width:100%;font-weight:600;color:var(--ink2)}
   .srow .it{display:inline-flex;align-items:center;border:1px solid var(--faint);border-radius:7px;background:#fff}
   .srow .it input{border:0;padding:5px 6px;font-size:13px;min-width:0;width:170px;border-radius:7px}
-  .srow .it input.time{width:64px}
+  .srow .it input.time{width:104px}
   .srow .it button{border:0;background:none;color:var(--mute);cursor:pointer;padding:0 7px;font-size:13px}
   .srow .it button:hover{color:var(--red)}
   .leads-note{grid-column:1/-1;font-size:12px;color:var(--mute);margin-top:-4px}
@@ -161,9 +161,9 @@
   .orders td{height:0.355in;padding:0 4px;font-size:8.5pt}
   .sheet th.sub i{display:block;font-style:normal;font-weight:400;text-transform:none;letter-spacing:0;color:#C9CED4;font-size:6.5pt;margin-top:1px}
   .orders td.num{width:0.34in;text-align:center;font-family:var(--display);font-weight:700;font-size:11pt}
-  .orders td.tag{overflow:hidden;white-space:nowrap;max-width:1px}
+  .orders td.tag{overflow:hidden;white-space:normal;word-break:normal;overflow-wrap:normal;line-height:1.05}
   .orders td.tag b{font-family:var(--display);font-size:10.5pt}
-  .orders td.tag b{font-size:11.5pt}
+  .orders td.tag b{font-size:10.5pt}
   .orders td.tag b.long{font-size:9pt;letter-spacing:-.01em}
   .sheet h2 .ttl{white-space:nowrap;margin-right:10px}
   .sheet h2 small{text-align:right}
@@ -174,15 +174,23 @@
   .orders td.box .cdone{font-family:var(--display);font-weight:700;font-size:10pt;color:#B9B3A8}
   .orders td.box.first{border-left:2.5px solid var(--ink2)}
   .orders td.na{background:repeating-linear-gradient(135deg,#fff 0 3px,#D9D4CA 3px 4px);-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .orders td.reason{width:0.8in}
-  .bottom{display:grid;grid-template-columns:1.25fr 1fr;gap:10px;margin-top:auto}
-  .counts-t td{height:0.3in;text-align:center}
-  .counts-t td.st{text-align:left;padding:0 5px;font-weight:600;font-size:8.5pt;white-space:nowrap}
-  .counts-t th.time{width:0.62in}
+  .sheet th.qty{font-size:7pt;line-height:1.05}
+  .bottom{display:grid;grid-template-columns:1.6fr 1fr;gap:10px;margin-top:auto}
+  .counts-t table{table-layout:fixed}
+  .counts-t th{font-size:7.2pt}
+  .counts-t th .u{font-weight:400;text-transform:none;letter-spacing:0;color:#C9CED4;font-size:6.5pt}
+  .counts-t td{height:0.34in;text-align:center}
+  .counts-t td.tm{text-align:left;padding:0 5px;font-weight:700;font-family:var(--display);font-size:10pt;white-space:nowrap}
+  .counts-t .tmh{width:0.95in}
+  .counts-t .ppl{width:0.65in}
+  .counts-t td.ppl{background:#FAF8F4;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .counts-t tr.tot td{border-top:2px solid var(--ink)}
   .cnote{font-size:7.8pt;color:var(--mute);margin-top:3px}
   .codes{border:1.5px solid var(--red);border-radius:6px;padding:6px 8px;background:var(--red-bg);-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .codes ol{margin:0;padding:0;list-style:none;columns:2;column-gap:10px;font-size:8.2pt;line-height:1.35}
+  .codes ol{margin:0;padding:0;list-style:none;font-size:8pt;line-height:1.3;display:grid;grid-template-columns:1fr 1fr;column-gap:8px}
   .codes li b{display:inline-block;width:1.25em;font-family:var(--display);font-size:10pt;color:var(--red)}
+  .codes .stops{margin-top:5px;padding-top:4px;border-top:1px solid #e3b5b5;font-size:8pt}
+  .codes .stops b{color:var(--ink)}
   .codes .qc{margin-top:5px;padding-top:4px;border-top:1px solid #e3b5b5;font-size:8pt}
   .foot{display:flex;justify-content:flex-end;font-size:7.8pt;color:var(--mute);border-top:1px solid var(--faint);padding-top:4px}
   .preview .sheet{margin:16px auto;box-shadow:0 2px 14px rgba(0,0,0,.18);transform-origin:top center}
@@ -256,7 +264,13 @@
 //           become its Start/Done pairs (short label for the sheet).
 // stations: the count check-in rows.
 const DEPARTMENTS = [
-  { key: 'mods',  name: 'Mods',  jobs: [['Mods', 'Mods']], stations: ['Framing (frames)', 'Staging (finished mods)'], unit: 'mods', qty: '# of mods' },
+  { key: 'mods',  name: 'Mods',  jobs: [['Mods', 'Mods']], stations: ['Framing (frames)', 'Staging (finished mods)'], unit: 'mods',
+    // Small write-in columns after the tag; '# of mods' is filled in when
+    // the build sheet has a number. Corner posts are cut on the manual saw
+    // and packaged with the mods.
+    extra: [['# of mods', 'qty'], ['# of corner posts']],
+    // A Pause box between Start and Done, for a job stopped part-way.
+    pause: true },
   { key: 'v4t',   name: 'V4T',   jobs: [['V4T', 'V4T'], ['Vin. Fix', 'Vin. Fix'], ['Vin. Trap', 'Vin. Trap']], stations: ['Vents cut', 'Vents built & glazed', 'Frames built & squared'], unit: 'inserts' },
   { key: 'track', name: 'Track', jobs: [['Track', 'Track']], stations: ['Tracks done'], unit: 'tracks' },
   { key: 'panel', name: 'Panel', jobs: [['Roof Panels', 'Roof Panels'], ['Roof Extr.', 'Roof Extr.'], ['Acrylic', 'Acrylic'], ['Mod Filler Panels', 'Filler']], stations: ['Roof panels', 'Mod filler panels', 'Acrylic panels'], unit: 'panels', note: ' Each bench counts its own panels.',
@@ -267,20 +281,28 @@ const DEPARTMENTS = [
 ]
 // Defaults; the PC can change the times and each department's stations
 // under "Check-in times & stations", kept on this PC.
-const CHECKINS = ['11:30', '3:30']
+// The day's time blocks: for each one the lead writes how many people
+// worked and how much got done in that block, so output can be read
+// against crew size as people move around. The PC can change them.
+const CHECKINS = ['7:00–9:00', '9:15–12:00', '12:30–2:00', '2:15–4:00']
 // What goes on the truck for each order (not on the loading sheet yet —
 // kept on each order for when it is), and the build-sheet columns that
 // say whether the order has it. Panel is on every order (filler).
 const LOAD_ITEMS = { mods: ['Mods'], v4t: ['V4T', 'Vin. Fix', 'Vin. Trap'], track: ['Track'], panel: ['Roof Panels', 'Roof Extr.', 'Acrylic'], doors: ['Doors'] }
 // Same list, same order as the tablet's "report a problem" picker.
 const BLOCKS = ['Material shortage', 'Machine down', 'Rework / wrong cut', 'Waiting on another dept', 'Missing info / paperwork', 'Short-staffed', 'Order change', 'Other — write it']
-// Order rows per page with up to 3 count stations; each extra station
-// takes one order row so the page still fits.
-const ROWS_PER_PAGE = 18
-const checkins = () => store.get('checkins', null) ?? CHECKINS
+// Stops that aren't problems: a short code, or just write it.
+const STOPS = [['B', 'break'], ['LB', 'lunch break'], ['EOS', 'end of shift']]
+// Order rows per page with up to 4 time blocks; each extra block takes
+// one order row so the page still fits.
+const ROWS_PER_PAGE = 15
+// Saved under a new key: the old check-in times (11:30, 3:30) were points
+// in time, not blocks, so they don't carry over.
+const checkins = () => store.get('blocks', null) ?? CHECKINS
 const stationsOf = (d) => store.get('stations', {})[d.key] ?? d.stations
 // A note for the floor takes a row too.
-const rowsFor = (d) => ROWS_PER_PAGE - Math.max(0, stationsOf(d).length - 3) - ($('note').value.trim() ? 1 : 0)
+// More than 4 stations makes the count table's headings wrap taller.
+const rowsFor = (d) => ROWS_PER_PAGE - Math.max(0, checkins().length - 4) - (stationsOf(d).length > 4 ? 1 : 0) - ($('note').value.trim() ? 1 : 0)
 // Every column the build sheet can have, longest first for header matching.
 const SHEET_COLUMNS = ['Tag Name', 'Dealer', 'Truck', 'Date', 'Mods', 'V4T', 'Vin. Fix', 'Vin. Trap', 'Alum. Fix', 'Alum. Trap', 'XX', 'H2/4', 'PVC', 'I-A', 'Doors', 'Roof Panels', 'Roof Extr.', 'Track', 'Therm a deck', 'Acrylic', 'Deck', 'Valance', 'Rail', 'PATIO Door', 'Glass', 'Pergola', 'R. Screen', 'Nova Sun', 'Stairs', 'Mod Filler Panels']
 
@@ -633,7 +655,7 @@ function renderSetup() {
   const item = (attrs, v, cls = '') => `<span class="it"><input class="${cls}" ${attrs} value="${esc(v)}"><button ${attrs.replace(/data-(\w+)=/g, 'data-del-$1=')} title="Remove">✕</button></span>`
   const times = checkins()
   $('setup').innerHTML = `
-    <div class="srow"><span class="sl">When leads write their counts (${times.length} time${times.length === 1 ? '' : 's'} a day)</span>
+    <div class="srow"><span class="sl">Time blocks — people and output are written for each (${times.length} a day)</span>
       ${times.map((t, i) => item(`data-ci="${i}"`, t, 'time')).join('')}
       ${times.length < 6 ? '<button class="btn tiny" data-add-ci="1">+ Time</button>' : ''}</div>
     ${DEPARTMENTS.map((d) => { const st = stationsOf(d); return `
@@ -645,7 +667,7 @@ function renderSetup() {
 function setStations(key, list) { const all = store.get('stations', {}); all[key] = list; store.set('stations', all) }
 $('setup').addEventListener('input', (e) => {
   const t = e.target
-  if (t.dataset.ci != null) { const c = [...checkins()]; c[Number(t.dataset.ci)] = t.value; store.set('checkins', c) }
+  if (t.dataset.ci != null) { const c = [...checkins()]; c[Number(t.dataset.ci)] = t.value; store.set('blocks', c) }
   else if (t.dataset.st) { const st = [...stationsOf(DEPARTMENTS.find((d) => d.key === t.dataset.st))]; st[Number(t.dataset.i)] = t.value; setStations(t.dataset.st, st) }
   else return
   renderSheets()
@@ -653,11 +675,11 @@ $('setup').addEventListener('input', (e) => {
 $('setup').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return
   const ds = b.dataset
-  if (ds.addCi) store.set('checkins', [...checkins(), ''])
-  else if (ds.delCi != null) { const c = checkins().filter((_, i) => i !== Number(ds.delCi)); if (!c.length) return; store.set('checkins', c) }
+  if (ds.addCi) store.set('blocks', [...checkins(), ''])
+  else if (ds.delCi != null) { const c = checkins().filter((_, i) => i !== Number(ds.delCi)); if (!c.length) return; store.set('blocks', c) }
   else if (ds.addSt) setStations(ds.addSt, [...stationsOf(DEPARTMENTS.find((d) => d.key === ds.addSt)), ''])
   else if (ds.delSt) { const st = stationsOf(DEPARTMENTS.find((d) => d.key === ds.delSt)).filter((_, i) => i !== Number(ds.delI)); if (!st.length) return; setStations(ds.delSt, st) }
-  else if (ds.reset) { if (!confirm('Put the check-in times and stations back to the defaults?')) return; store.set('checkins', null); store.set('stations', {}) }
+  else if (ds.reset) { if (!confirm('Put the time blocks and stations back to the defaults?')) return; store.set('blocks', null); store.set('stations', {}) }
   else return
   renderSetup(); renderSheets()
   // The rows were just redrawn, so find the new box afresh.
@@ -667,17 +689,26 @@ $('setup').addEventListener('click', (e) => {
 for (const id of ['date', 'ship', 'crew', 'note']) $(id).addEventListener('input', () => { if (id === 'note') store.set('note', $('note').value); renderSheets(); if (id === 'ship') saveToday() })
 
 // ── The printed sheets ──
+// Long tags wrap only after a dash or before the order number, never
+// mid-word: FOSTER_168004 stays whole, 142-BIRCH-BARK-WALLS-86_166190
+// breaks as 142-BIRCH-BARK- / WALLS-86_166190.
+const tagBreaks = (tag) => esc(tag).replace(/-/g, '-<wbr>').replace(/_/g, '<wbr>_')
+
 function sheetHtml(d, list, page, pages) {
   const day = { date: nice($('date').value), ship: nice($('ship').value), crew: $('crew').value.trim(), note: $('note').value.trim() }
   const lead = store.get('leads', {})[d.key] ?? ''
-  const jobHead = d.jobs.map(([, label]) => `<th class="job" colspan="2">${esc(label)}</th>`).join('')
-  // The first job's headings carry an example, which says "write the clock
-  // time here" without a paragraph of rules on the page.
-  const jobSub = d.jobs.map((_, j) => `<th class="sub">Start${j ? '' : '<i>e.g. 7:40</i>'}</th><th class="sub">Done${j ? '' : '<i>e.g. 9:15</i>'}</th>`).join('')
-  // Start/Done boxes get all the room the tag name doesn't need: wide on
-  // Mods and Track, still big enough for a written time on Panel's four.
-  const boxW = Math.min(0.9, Math.max(0.5, (7.6 - 0.34 - 2.4 - (d.qty ? 0.55 : 0) - 0.75) / (2 * d.jobs.length)))
-  const cols = `<colgroup><col style="width:.34in"><col>${d.qty ? '<col style="width:.55in">' : ''}${d.jobs.map(() => `<col style="width:${boxW}in"><col style="width:${boxW}in">`).join('')}<col style="width:.75in"></colgroup>`
+  // Each job is Start · (Pause) · Done; the first job's headings carry an
+  // example, which says "write the clock time here" without any rules.
+  const steps = d.pause ? [['Start', '7:40'], ['Pause', '10:05'], ['Done', '11:20']] : [['Start', '7:40'], ['Done', '9:15']]
+  const extra = d.extra ?? []
+  const jobHead = d.jobs.map(([, label]) => `<th class="job" colspan="${steps.length}">${esc(label)}</th>`).join('')
+  const jobSub = d.jobs.map((_, j) => steps.map(([name, eg]) => `<th class="sub">${name}${j ? '' : `<i>e.g. ${eg}</i>`}</th>`).join('')).join('')
+  // Widths in inches across the 7.6in page: the tag gets 1.65 (long tags
+  // wrap), the write-in counts 0.55 each, the time boxes up to 0.85 each,
+  // and Problem code / comments takes what's left (at least 1.4).
+  const nBoxes = d.jobs.length * steps.length
+  const boxW = Math.min(0.85, Math.max(0.5, (7.6 - 0.34 - 1.65 - extra.length * 0.55 - 1.4) / nBoxes))
+  const cols = `<colgroup><col style="width:.34in"><col style="width:1.65in">${extra.map(() => '<col style="width:.55in">').join('')}${Array.from({ length: nBoxes }, () => `<col style="width:${boxW}in">`).join('')}<col></colgroup>`
   const perPage = rowsFor(d)
   const times = checkins()
   const rows = Array.from({ length: perPage }, (_, i) => {
@@ -690,12 +721,13 @@ function sheetHtml(d, list, page, pages) {
       const st = o?.jobs?.[col]
       const na = st === 'na' || st === false
       const c = st === 'done' ? '<span class="cdone">C</span>' : ''
-      return `<td class="box first${na ? ' na' : ''}">${c}</td><td class="box${na ? ' na' : ''}">${c}</td>`
+      return steps.map((_, k) => `<td class="box${k ? '' : ' first'}${na ? ' na' : ''}">${k === steps.length - 1 || k === 0 ? c : ''}</td>`).join('')
     }).join('')
-    const qty = d.qty ? `<td class="qty">${esc(o?.qty ?? '')}</td>` : ''
-    return `<tr><td class="num">${o ? n : ''}</td><td class="tag">${o ? `<b${o.tag.length > 22 ? ' class="long"' : ''}>${esc(o.tag)}</b>` : ''}</td>${qty}${boxes}<td class="reason"></td></tr>`
+    const ext = extra.map(([, field]) => `<td class="qty">${field ? esc(o?.[field] ?? '') : ''}</td>`).join('')
+    return `<tr><td class="num">${o ? n : ''}</td><td class="tag">${o ? `<b${o.tag.length > 16 ? ' class="long"' : ''}>${tagBreaks(o.tag)}</b>` : ''}</td>${ext}${boxes}<td class="reason"></td></tr>`
   }).join('')
-  const counts = stationsOf(d).map((s) => `<tr><td class="st">${esc(s)}</td>${times.map(() => '<td></td>').join('')}</tr>`).join('')
+  const stations = stationsOf(d)
+  const blocks = times.map((t) => `<tr><td class="tm">${esc(t)}</td><td class="ppl"></td>${stations.map(() => '<td></td>').join('')}</tr>`).join('')
   const codes = BLOCKS.map((b, i) => `<li><b>${i + 1}</b>${esc(b)}</li>`).join('')
   const val = (v, w) => `<span class="val" style="min-width:${w}">${esc(v) || '&nbsp;'}</span>`
   return `
@@ -714,19 +746,23 @@ function sheetHtml(d, list, page, pages) {
     <div>
       <h2><span class="ttl">Today's orders</span> <small>${d.hint ?? 'Hatched = not in this order · C = already done · '}Top to bottom · Stuck? Write a code and <b>tell the office now</b></small></h2>
       <table class="orders">${cols}
-        <thead><tr><th rowspan="2">#</th><th rowspan="2" style="text-align:left">Tag name</th>${d.qty ? `<th rowspan="2" class="qty">${esc(d.qty)}</th>` : ''}${jobHead}<th rowspan="2">Problem<br>code</th></tr><tr>${jobSub}</tr></thead>
+        <thead><tr><th rowspan="2">#</th><th rowspan="2" style="text-align:left">Tag name</th>${extra.map(([label]) => `<th rowspan="2" class="qty">${esc(label)}</th>`).join('')}${jobHead}<th rowspan="2" style="text-align:left">Problem code / comments</th></tr><tr>${jobSub}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
     <div class="bottom">
       <div class="counts-t">
-        <h2>Count check-ins <small>How many ${esc(d.unit)} done so far today</small></h2>
-        <table><thead><tr><th style="text-align:left">Station</th>${times.map((t) => `<th class="time"${times.length > 4 ? ' style="width:0.45in"' : ''}>${esc(t)}</th>`).join('')}</tr></thead><tbody>${counts}</tbody></table>
-        <div class="cnote">Running total since the start of the shift. The office collects it at each time and updates the TV.${d.note ? esc(d.note) : ''}</div>
+        <h2>People &amp; output by time block <small>Fill in at the end of each block</small></h2>
+        <table>
+          <thead><tr><th style="text-align:left" class="tmh">Time</th><th class="ppl">People<br>working</th>${stations.map((x) => `<th>${esc(x)}<br><span class="u">done in block</span></th>`).join('')}</tr></thead>
+          <tbody>${blocks}<tr class="tot"><td class="tm">Day total</td><td class="ppl"></td>${stations.map(() => '<td></td>').join('')}</tr></tbody>
+        </table>
+        <div class="cnote">How many people worked in that block, and how many ${esc(d.unit)} were finished in that block — not a running total. If people moved in or out part-way, write it (e.g. 4→3).${d.note ? esc(d.note) : ''}</div>
       </div>
       <div class="codes">
         <h2 style="color:var(--red)">Problem codes</h2>
         <ol>${codes}</ol>
+        <div class="stops"><b>Stopped, no problem?</b> ${STOPS.map(([c, w]) => `<b>${c}</b> ${w}`).join(' · ')} — or just write it.</div>
         <div class="qc"><b>Bad part from another department?</b> Write <b>Q</b>, the department and what's wrong (e.g. <i>Q · Panel · 2" short</i>), and bring it to the office.</div>
       </div>
     </div>

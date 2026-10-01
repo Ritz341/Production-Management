@@ -76,6 +76,11 @@
   .srow .it{display:inline-flex;align-items:center;border:1px solid var(--faint);border-radius:7px;background:#fff}
   .srow .it input{border:0;padding:5px 6px;font-size:13px;min-width:0;width:170px;border-radius:7px}
   .srow .it input.time{width:104px}
+  .srow.jobs .sl small{font-weight:400;color:var(--mute)}
+  .srow .it.job input{width:190px}
+  .srow .it.job input.m{width:150px;border-right:1px solid var(--faint);border-radius:7px 0 0 7px;font-weight:600}
+  .srow .it.job select{border:0;border-left:1px solid var(--faint);padding:5px;font-size:12px;color:var(--ink2);background:none}
+  .sheet th.mach{background:#000;font-size:8.5pt;letter-spacing:.06em}
   .srow .it button{border:0;background:none;color:var(--mute);cursor:pointer;padding:0 7px;font-size:13px}
   .srow .it button:hover{color:var(--red)}
   .leads-note{grid-column:1/-1;font-size:12px;color:var(--mute);margin-top:-4px}
@@ -242,7 +247,7 @@
       <span><button class="btn" id="addRow">+ Add order</button> <button class="btn" id="clearAll">Clear</button></span>
     </h2>
     <table class="review">
-      <thead><tr><th>#</th><th>Tag name</th><th>Dealer</th><th class="dept">Mods</th><th class="dept">V4T</th><th class="dept">Track</th><th class="dept">Panel</th><th></th></tr></thead>
+      <thead><tr id="reviewHead"></tr></thead>
       <tbody id="list"></tbody>
     </table>
     <div class="counts" id="counts"></div>
@@ -260,9 +265,11 @@
 
 <script>
 // ── What each department's sheet is made of ──
-// jobs:     the build-sheet columns that belong to the department, which
-//           become its Start/Done pairs (short label for the sheet).
-// stations: the count check-in rows.
+// jobs:     [build-sheet column, label, machine?] — each becomes Start/Done
+//           boxes; the column says whether the order has that job (blank =
+//           hatched, C = done). Jobs sharing a machine sit under one heading.
+// stations: the columns of the people & output table.
+// editJobs: the PC can change the jobs (and machines) under setup.
 const DEPARTMENTS = [
   { key: 'mods',  name: 'Mods',  jobs: [['Mods', 'Mods']], stations: ['Framing (frames)', 'Staging (finished mods)'], unit: 'mods',
     // Small write-in columns after the tag; '# of mods' is filled in when
@@ -278,7 +285,20 @@ const DEPARTMENTS = [
     // The Roof Panels / Roof Extr. / Acrylic marks only say whether the
     // room also has a roof panel; those boxes are hatched when it doesn't.
     everyOrder: true, hint: 'Filler on every order · hatched = not in order · C = done · ' },
+  // The cutting sheets. A job follows the build-sheet column of what it
+  // feeds: frames and corner posts follow Mods, uprights, vents and
+  // framing follow V4T, traps and vinyl fix their own columns.
+  { key: 'cnc', name: 'CNC', editJobs: true, unit: 'pieces',
+    jobs: [['Mods', 'Mods frames', 'SC220'], ['V4T', 'V4T uprights', 'SC220'], ['V4T', 'Vents — cut & drill', 'TA144']],
+    stations: ['SC220 — pieces cut', 'TA144 — vents cut & drilled'] },
+  { key: 'manual', name: 'Manual cut', editJobs: true, unit: 'pieces',
+    jobs: [['V4T', 'V4T framing — cut & punch', 'Manual saw / punch'], ['Vin. Trap', 'V4T trap — cut to length', 'Manual saw / punch'], ['Vin. Fix', 'Vinyl fix — cut to length', 'Manual saw / punch'], ['Mods', 'Corner posts', 'Manual saw / punch']],
+    stations: ['V4T framing', 'Traps', 'Vinyl fix', 'Corner posts'] },
 ]
+// The jobs a sheet shows: the PC's own list if it changed them, else the default.
+const jobsOf = (d) => (d.editJobs && store.get('jobs', {})[d.key]) || d.jobs
+// Build-sheet status columns a job can follow.
+const STATUS_COLS = ['Mods', 'V4T', 'Vin. Fix', 'Vin. Trap', 'Alum. Fix', 'Alum. Trap', 'XX', 'H2/4', 'PVC', 'I-A', 'Doors', 'Roof Panels', 'Roof Extr.', 'Track', 'Therm a deck', 'Acrylic', 'Deck', 'Valance', 'Rail', 'PATIO Door', 'Glass', 'Pergola', 'R. Screen', 'Nova Sun', 'Stairs', 'Mod Filler Panels']
 // Defaults; the PC can change the times and each department's stations
 // under "Check-in times & stations", kept on this PC.
 // The day's time blocks: for each one the lead writes how many people
@@ -302,7 +322,8 @@ const checkins = () => store.get('blocks', null) ?? CHECKINS
 const stationsOf = (d) => store.get('stations', {})[d.key] ?? d.stations
 // A note for the floor takes a row too.
 // More than 4 stations makes the count table's headings wrap taller.
-const rowsFor = (d) => ROWS_PER_PAGE - Math.max(0, checkins().length - 4) - (stationsOf(d).length > 4 ? 1 : 0) - ($('note').value.trim() ? 1 : 0)
+// A sheet with machine headings has a third heading row.
+const rowsFor = (d) => ROWS_PER_PAGE - Math.max(0, checkins().length - 4) - (stationsOf(d).length > 4 ? 1 : 0) - (jobsOf(d).some((j) => j[2]) ? 1 : 0) - ($('note').value.trim() ? 1 : 0)
 // Every column the build sheet can have, longest first for header matching.
 const SHEET_COLUMNS = ['Tag Name', 'Dealer', 'Truck', 'Date', 'Mods', 'V4T', 'Vin. Fix', 'Vin. Trap', 'Alum. Fix', 'Alum. Trap', 'XX', 'H2/4', 'PVC', 'I-A', 'Doors', 'Roof Panels', 'Roof Extr.', 'Track', 'Therm a deck', 'Acrylic', 'Deck', 'Valance', 'Rail', 'PATIO Door', 'Glass', 'Pergola', 'R. Screen', 'Nova Sun', 'Stairs', 'Mod Filler Panels']
 
@@ -408,13 +429,11 @@ function ordersFromGrid(grid) {
     // 'done' C, true anything else, null when the sheet has no such column.
     const jobs = {}
     const depts = {}
-    for (const d of DEPARTMENTS) {
-      depts[d.key] = true
-      for (const [colName] of d.jobs) {
-        if (col(colName) === -1) { jobs[colName] = null; continue }
-        const v = cell(row, colName)
-        jobs[colName] = v === '' ? 'na' : v.toLowerCase() === 'c' ? 'done' : true
-      }
+    for (const d of DEPARTMENTS) depts[d.key] = true
+    for (const colName of STATUS_COLS) {
+      if (col(colName) === -1) { jobs[colName] = null; continue }
+      const v = cell(row, colName)
+      jobs[colName] = v === '' ? 'na' : v.toLowerCase() === 'c' ? 'done' : true
     }
     if (section) section.count++
     const mods = cell(row, 'Mods')
@@ -577,9 +596,10 @@ function addOrders(found, how, source, parsed) {
 function setMsg(text, kind) { const m = $('msg'); m.textContent = text; m.className = 'msg ' + (kind || '') }
 
 // ── The review list ──
+$('reviewHead').innerHTML = `<th>#</th><th>Tag name</th><th>Dealer</th>${DEPARTMENTS.map((d) => `<th class="dept">${d.name}</th>`).join('')}<th></th>`
 function renderList() {
   const tb = $('list')
-  if (!orders.length) { tb.innerHTML = `<tr><td colspan="8" class="empty">No orders yet — paste the rows above, or add them by hand.</td></tr>`; return }
+  if (!orders.length) { tb.innerHTML = `<tr><td colspan="${4 + DEPARTMENTS.length}" class="empty">No orders yet — paste the rows above, or add them by hand.</td></tr>`; return }
   tb.innerHTML = orders.map((o, i) => `
     <tr class="${o.low ? 'low' : ''}" data-i="${i}">
       <td class="n">${i + 1}</td>
@@ -658,6 +678,10 @@ function renderSetup() {
     <div class="srow"><span class="sl">Time blocks — people and output are written for each (${times.length} a day)</span>
       ${times.map((t, i) => item(`data-ci="${i}"`, t, 'time')).join('')}
       ${times.length < 6 ? '<button class="btn tiny" data-add-ci="1">+ Time</button>' : ''}</div>
+    ${DEPARTMENTS.filter((d) => d.editJobs).map((d) => { const js = jobsOf(d); return `
+    <div class="srow jobs"><span class="sl">${d.name} sheet — machines &amp; jobs <small>(the column says which build-sheet column tells whether an order has it)</small></span>
+      ${js.map(([c, label, m], i) => `<span class="it job"><input data-jm="${d.key}" data-i="${i}" value="${esc(m ?? '')}" placeholder="Machine" class="m"><input data-jl="${d.key}" data-i="${i}" value="${esc(label)}" placeholder="Job"><select data-jc="${d.key}" data-i="${i}">${STATUS_COLS.map((x) => `<option${x === c ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select><button data-del-job="${d.key}" data-del-i="${i}" title="Remove">✕</button></span>`).join('')}
+      ${js.length < 6 ? `<button class="btn tiny" data-add-job="${d.key}">+ Job</button>` : ''}</div>` }).join('')}
     ${DEPARTMENTS.map((d) => { const st = stationsOf(d); return `
     <div class="srow"><span class="sl">${d.name} stations</span>
       ${st.map((x, i) => item(`data-st="${d.key}" data-i="${i}"`, x)).join('')}
@@ -665,13 +689,24 @@ function renderSetup() {
     <div class="srow"><button class="btn tiny" data-reset="1">Back to the defaults</button></div>`
 }
 function setStations(key, list) { const all = store.get('stations', {}); all[key] = list; store.set('stations', all) }
+function setJobs(key, list) { const all = store.get('jobs', {}); all[key] = list; store.set('jobs', all) }
+const deptBy = (k) => DEPARTMENTS.find((d) => d.key === k)
 $('setup').addEventListener('input', (e) => {
   const t = e.target
   if (t.dataset.ci != null) { const c = [...checkins()]; c[Number(t.dataset.ci)] = t.value; store.set('blocks', c) }
   else if (t.dataset.st) { const st = [...stationsOf(DEPARTMENTS.find((d) => d.key === t.dataset.st))]; st[Number(t.dataset.i)] = t.value; setStations(t.dataset.st, st) }
-  else return
+  else if (t.dataset.jm || t.dataset.jl || t.dataset.jc) {
+    const k = t.dataset.jm || t.dataset.jl || t.dataset.jc
+    const js = jobsOf(deptBy(k)).map((j) => [...j])
+    const i = Number(t.dataset.i)
+    if (t.dataset.jm) js[i][2] = t.value
+    else if (t.dataset.jl) js[i][1] = t.value
+    else js[i][0] = t.value
+    setJobs(k, js)
+  } else return
   renderSheets()
 })
+$('setup').addEventListener('change', (e) => { if (e.target.dataset.jc) e.target.dispatchEvent(new Event('input', { bubbles: true })) })
 $('setup').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return
   const ds = b.dataset
@@ -679,11 +714,13 @@ $('setup').addEventListener('click', (e) => {
   else if (ds.delCi != null) { const c = checkins().filter((_, i) => i !== Number(ds.delCi)); if (!c.length) return; store.set('blocks', c) }
   else if (ds.addSt) setStations(ds.addSt, [...stationsOf(DEPARTMENTS.find((d) => d.key === ds.addSt)), ''])
   else if (ds.delSt) { const st = stationsOf(DEPARTMENTS.find((d) => d.key === ds.delSt)).filter((_, i) => i !== Number(ds.delI)); if (!st.length) return; setStations(ds.delSt, st) }
-  else if (ds.reset) { if (!confirm('Put the time blocks and stations back to the defaults?')) return; store.set('blocks', null); store.set('stations', {}) }
+  else if (ds.addJob) { const js = jobsOf(deptBy(ds.addJob)); setJobs(ds.addJob, [...js, ['Mods', '', js[js.length - 1]?.[2] ?? '']]) }
+  else if (ds.delJob) { const js = jobsOf(deptBy(ds.delJob)).filter((_, i) => i !== Number(ds.delI)); if (!js.length) return; setJobs(ds.delJob, js) }
+  else if (ds.reset) { if (!confirm('Put the time blocks, stations and cutting jobs back to the defaults?')) return; store.set('blocks', null); store.set('stations', {}); store.set('jobs', {}) }
   else return
   renderSetup(); renderSheets()
   // The rows were just redrawn, so find the new box afresh.
-  if (ds.addCi || ds.addSt) { const ins = $('setup').querySelectorAll(ds.addCi ? '[data-ci]' : `[data-st="${ds.addSt}"]`); ins[ins.length - 1]?.focus() }
+  if (ds.addCi || ds.addSt || ds.addJob) { const ins = $('setup').querySelectorAll(ds.addCi ? '[data-ci]' : ds.addSt ? `[data-st="${ds.addSt}"]` : `[data-jl="${ds.addJob}"]`); ins[ins.length - 1]?.focus() }
 })
 
 for (const id of ['date', 'ship', 'crew', 'note']) $(id).addEventListener('input', () => { if (id === 'note') store.set('note', $('note').value); renderSheets(); if (id === 'ship') saveToday() })
@@ -701,12 +738,19 @@ function sheetHtml(d, list, page, pages) {
   // example, which says "write the clock time here" without any rules.
   const steps = d.pause ? [['Start', '7:40'], ['Pause', '10:05'], ['Done', '11:20']] : [['Start', '7:40'], ['Done', '9:15']]
   const extra = d.extra ?? []
-  const jobHead = d.jobs.map(([, label]) => `<th class="job" colspan="${steps.length}">${esc(label)}</th>`).join('')
-  const jobSub = d.jobs.map((_, j) => steps.map(([name, eg]) => `<th class="sub">${name}${j ? '' : `<i>e.g. ${eg}</i>`}</th>`).join('')).join('')
+  const jobs = jobsOf(d)
+  const jobHead = jobs.map(([, label]) => `<th class="job" colspan="${steps.length}">${esc(label)}</th>`).join('')
+  const jobSub = jobs.map((_, j) => steps.map(([name, eg]) => `<th class="sub">${name}${j ? '' : `<i>e.g. ${eg}</i>`}</th>`).join('')).join('')
+  // Jobs on the same machine, next to each other, share a heading above.
+  const machines = []
+  for (const [, , m] of jobs) { const last = machines[machines.length - 1]; if (last && last.m === (m || '')) last.n++; else machines.push({ m: m || '', n: 1 }) }
+  const byMachine = machines.some((x) => x.m)
+  const machineHead = machines.map((x) => `<th class="job mach" colspan="${x.n * steps.length}">${esc(x.m)}</th>`).join('')
+  const hRows = byMachine ? 3 : 2
   // Widths in inches across the 7.6in page: the tag gets 1.65 (long tags
   // wrap), the write-in counts 0.55 each, the time boxes up to 0.85 each,
   // and Problem code / comments takes what's left (at least 1.4).
-  const nBoxes = d.jobs.length * steps.length
+  const nBoxes = jobs.length * steps.length
   const boxW = Math.min(0.85, Math.max(0.5, (7.6 - 0.34 - 1.65 - extra.length * 0.55 - 1.4) / nBoxes))
   const cols = `<colgroup><col style="width:.34in"><col style="width:1.65in">${extra.map(() => '<col style="width:.55in">').join('')}${Array.from({ length: nBoxes }, () => `<col style="width:${boxW}in">`).join('')}<col></colgroup>`
   const perPage = rowsFor(d)
@@ -717,7 +761,7 @@ function sheetHtml(d, list, page, pages) {
     // Blank on the build sheet (not part of this order) is hatched out;
     // C (already done) shows a light C so the lead sees it without the
     // order leaving the sheet.
-    const boxes = d.jobs.map(([col]) => {
+    const boxes = jobs.map(([col]) => {
       const st = o?.jobs?.[col]
       const na = st === 'na' || st === false
       const c = st === 'done' ? '<span class="cdone">C</span>' : ''
@@ -746,7 +790,7 @@ function sheetHtml(d, list, page, pages) {
     <div>
       <h2><span class="ttl">Today's orders</span> <small>${d.hint ?? 'Hatched = not in this order · C = already done · '}Top to bottom · Stuck? Write a code and <b>tell the office now</b></small></h2>
       <table class="orders">${cols}
-        <thead><tr><th rowspan="2">#</th><th rowspan="2" style="text-align:left">Tag name</th>${extra.map(([label]) => `<th rowspan="2" class="qty">${esc(label)}</th>`).join('')}${jobHead}<th rowspan="2" style="text-align:left">Problem code / comments</th></tr><tr>${jobSub}</tr></thead>
+        <thead><tr><th rowspan="${hRows}">#</th><th rowspan="${hRows}" style="text-align:left">Tag name</th>${extra.map(([label]) => `<th rowspan="${hRows}" class="qty">${esc(label)}</th>`).join('')}${byMachine ? machineHead : jobHead}<th rowspan="${hRows}" style="text-align:left">Problem code / comments</th></tr>${byMachine ? `<tr>${jobHead}</tr>` : ''}<tr>${jobSub}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
@@ -907,7 +951,7 @@ function mondayOf(isoDate) {
 // Panel with no roof items at all is 'filler'.
 function deptState(o, d) {
   if (!o.depts?.[d.key]) return ''
-  const known = d.jobs.map(([c]) => o.jobs?.[c]).filter((x) => x != null)
+  const known = jobsOf(d).map(([c]) => o.jobs?.[c]).filter((x) => x != null)
   if (!known.length) return 'open'
   if (known.some((x) => x === true)) return 'open'
   if (known.some((x) => x === 'done')) return 'C'

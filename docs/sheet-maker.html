@@ -95,6 +95,8 @@
   .review input.d{width:100%;border:1px solid transparent;border-radius:6px;padding:5px 6px;color:var(--mute)}
   .review input.d:hover,.review input.d:focus{border-color:var(--faint)}
   .review .dept{text-align:center;width:66px}
+  .review th .an{display:block;font-size:10px;text-transform:none;letter-spacing:0;font-weight:400;white-space:nowrap}
+  .review th .an button{border:0;background:none;padding:0 2px;color:var(--ink2);cursor:pointer;text-decoration:underline;font-size:10px}
   .review .dept input{width:18px;height:18px;accent-color:var(--ink)}
   .review .ops{white-space:nowrap;width:92px;text-align:right}
   .review .ops button{border:0;background:none;cursor:pointer;color:var(--mute);font-size:15px;padding:2px 5px}
@@ -163,7 +165,13 @@
   .sheet th.job{border-left:2.5px solid #fff}
   .sheet th.sub{background:#3C434B;font-size:7pt;padding:2px}
   .orders{table-layout:fixed}
-  .orders td{height:0.355in;padding:0 4px;font-size:8.5pt}
+  .orders td{height:var(--rowh,0.355in);padding:0 4px;font-size:8.5pt}
+  .orders.dense td{padding:0 3px;line-height:1}
+  .orders.dense td.tag{white-space:nowrap;text-overflow:ellipsis}
+  .orders.dense td.tag b,.orders.dense td.tag b.long{font-size:var(--tagfs)}
+  .orders.dense td.tag b.long{letter-spacing:-.02em}
+  .orders.dense td.num,.orders.dense td.qty{font-size:var(--numfs)}
+  .orders.dense td.box .cdone{font-size:var(--numfs)}
   .sheet th.sub i{display:block;font-style:normal;font-weight:400;text-transform:none;letter-spacing:0;color:#C9CED4;font-size:6.5pt;margin-top:1px}
   .orders td.num{width:0.34in;text-align:center;font-family:var(--display);font-weight:700;font-size:11pt}
   .orders td.tag{overflow:hidden;white-space:normal;word-break:normal;overflow-wrap:normal;line-height:1.05}
@@ -244,7 +252,7 @@
   <section class="card" style="margin-top:14px">
     <h2 style="display:flex;justify-content:space-between;align-items:baseline">
       <span><span class="step">3</span>Check the list <small style="font-family:var(--body);text-transform:none;letter-spacing:0;color:var(--mute);font-size:12px;font-weight:400">— in build order. Fix a tag if needed, untick a department that isn’t building it.</small></span>
-      <span><button class="btn" id="addRow">+ Add order</button> <button class="btn" id="clearAll">Clear</button></span>
+      <span><button class="btn" id="tickAll">✓ Tick all</button> <button class="btn" id="untickAll">Untick all</button> <button class="btn" id="addRow">+ Add order</button> <button class="btn" id="clearAll">Clear</button></span>
     </h2>
     <table class="review">
       <thead><tr id="reviewHead"></tr></thead>
@@ -284,7 +292,7 @@ const DEPARTMENTS = [
     // Every order gets filler panels, so every order is on the Panel sheet.
     // The Roof Panels / Roof Extr. / Acrylic marks only say whether the
     // room also has a roof panel; those boxes are hatched when it doesn't.
-    everyOrder: true, hint: 'Filler on every order · hatched = not in order · C = done · ' },
+    everyOrder: true, hint: 'Filler on every order · ' },
   // The cutting sheets. A job follows the build-sheet column of what it
   // feeds: frames and corner posts follow Mods, uprights, vents and
   // framing follow V4T, traps and vinyl fix their own columns.
@@ -596,7 +604,18 @@ function addOrders(found, how, source, parsed) {
 function setMsg(text, kind) { const m = $('msg'); m.textContent = text; m.className = 'msg ' + (kind || '') }
 
 // ── The review list ──
-$('reviewHead').innerHTML = `<th>#</th><th>Tag name</th><th>Dealer</th>${DEPARTMENTS.map((d) => `<th class="dept">${d.name}</th>`).join('')}<th></th>`
+// Each department heading has its own all / none for that column.
+$('reviewHead').innerHTML = `<th>#</th><th>Tag name</th><th>Dealer</th>${DEPARTMENTS.map((d) => `<th class="dept">${d.name}<span class="an"><button data-all="${d.key}">all</button>·<button data-none="${d.key}">none</button></span></th>`).join('')}<th></th>`
+function tick(keys, on) {
+  for (const o of orders) for (const k of keys) o.depts[k] = on
+  render()
+}
+$('reviewHead').addEventListener('click', (e) => {
+  const { all, none } = e.target.dataset
+  if (all) tick([all], true); else if (none) tick([none], false)
+})
+$('tickAll').onclick = () => tick(DEPARTMENTS.map((d) => d.key), true)
+$('untickAll').onclick = () => tick(DEPARTMENTS.map((d) => d.key), false)
 function renderList() {
   const tb = $('list')
   if (!orders.length) { tb.innerHTML = `<tr><td colspan="${4 + DEPARTMENTS.length}" class="empty">No orders yet — paste the rows above, or add them by hand.</td></tr>`; return }
@@ -731,7 +750,7 @@ for (const id of ['date', 'ship', 'crew', 'note']) $(id).addEventListener('input
 // breaks as 142-BIRCH-BARK- / WALLS-86_166190.
 const tagBreaks = (tag) => esc(tag).replace(/-/g, '-<wbr>').replace(/_/g, '<wbr>_')
 
-function sheetHtml(d, list, page, pages) {
+function sheetHtml(d, list, page, pages, perPage = rowsFor(d), rowH = ROW_H) {
   const day = { date: nice($('date').value), ship: nice($('ship').value), crew: $('crew').value.trim(), note: $('note').value.trim() }
   const lead = store.get('leads', {})[d.key] ?? ''
   // Each job is Start · (Pause) · Done; the first job's headings carry an
@@ -750,10 +769,14 @@ function sheetHtml(d, list, page, pages) {
   // Widths in inches across the 7.6in page: the tag gets 1.65 (long tags
   // wrap), the write-in counts 0.55 each, the time boxes up to 0.85 each,
   // and Problem code / comments takes what's left (at least 1.4).
+  // Squeezed rows: tags go on one line in a smaller size, and the tag
+  // column widens a little to take them.
+  const dense = rowH < ROW_H - 1e-6
+  const tagW = dense ? 2.05 : 1.65
+  const scale = rowH / ROW_H
   const nBoxes = jobs.length * steps.length
-  const boxW = Math.min(0.85, Math.max(0.5, (7.6 - 0.34 - 1.65 - extra.length * 0.55 - 1.4) / nBoxes))
-  const cols = `<colgroup><col style="width:.34in"><col style="width:1.65in">${extra.map(() => '<col style="width:.55in">').join('')}${Array.from({ length: nBoxes }, () => `<col style="width:${boxW}in">`).join('')}<col></colgroup>`
-  const perPage = rowsFor(d)
+  const boxW = Math.min(0.85, Math.max(0.5, (7.6 - 0.34 - tagW - extra.length * 0.55 - 1.2) / nBoxes))
+  const cols = `<colgroup><col style="width:.34in"><col style="width:${tagW}in">${extra.map(() => '<col style="width:.55in">').join('')}${Array.from({ length: nBoxes }, () => `<col style="width:${boxW}in">`).join('')}<col></colgroup>`
   const times = checkins()
   const rows = Array.from({ length: perPage }, (_, i) => {
     const o = list[i]
@@ -788,8 +811,8 @@ function sheetHtml(d, list, page, pages) {
     </div>
     ${day.note ? `<div class="note">📣 ${esc(day.note)}</div>` : ''}
     <div>
-      <h2><span class="ttl">Today's orders</span> <small>${d.hint ?? 'Hatched = not in this order · C = already done · '}Top to bottom · Stuck? Write a code and <b>tell the office now</b></small></h2>
-      <table class="orders">${cols}
+      <h2><span class="ttl">Today's orders</span> <small>${d.hint ?? ''}Top to bottom · Stuck? Write a code and <b>tell the office now</b></small></h2>
+      <table class="orders${dense ? ' dense' : ''}" style="--rowh:${rowH.toFixed(3)}in;--tagfs:${dense ? Math.max(7.5, Math.min(10, 10.5 * scale + 1.5)).toFixed(1) : 10.5}pt;--numfs:${dense ? Math.max(8, 11 * scale + 1).toFixed(1) : 11}pt">${cols}
         <thead><tr><th rowspan="${hRows}">#</th><th rowspan="${hRows}" style="text-align:left">Tag name</th>${extra.map(([label]) => `<th rowspan="${hRows}" class="qty">${esc(label)}</th>`).join('')}${byMachine ? machineHead : jobHead}<th rowspan="${hRows}" style="text-align:left">Problem code / comments</th></tr>${byMachine ? `<tr>${jobHead}</tr>` : ''}<tr>${jobSub}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -814,12 +837,19 @@ function sheetHtml(d, list, page, pages) {
   </section>`
 }
 
+// One page per department: when there are more orders than the page's
+// normal rows, the rows (and their text) shrink to fit them all, down to
+// MIN_ROW; only past that does a department run onto a second page.
+const ROW_H = 0.355, MIN_ROW = 0.18
 function buildSheets() {
   return DEPARTMENTS.map((d) => {
     const list = orders.filter((o) => o.tag.trim() && o.depts[d.key])
-    const per = rowsFor(d)
+    const base = rowsFor(d)
+    const space = base * ROW_H
+    const rowH = list.length > base ? Math.max(MIN_ROW, space / list.length) : ROW_H
+    const per = Math.max(base, Math.floor(space / rowH + 1e-6))
     const pages = Math.max(1, Math.ceil(list.length / per))
-    return Array.from({ length: pages }, (_, p) => sheetHtml(d, list.slice(p * per, (p + 1) * per), p, pages)).join('')
+    return Array.from({ length: pages }, (_, p) => sheetHtml(d, list.slice(p * per, (p + 1) * per), p, pages, per, rowH)).join('')
   }).join('')
 }
 
@@ -1044,6 +1074,8 @@ $('note').value = store.get('note', '')
 const kept = store.get('today', null)
 if (kept?.date === iso(new Date()) && kept.orders?.length) {
   orders = kept.orders; if (kept.ship) $('ship').value = kept.ship
+  // A sheet added since this list was saved starts ticked for every order.
+  for (const o of orders) for (const d of DEPARTMENTS) if (o.depts && !(d.key in o.depts)) o.depts[d.key] = true
   setMsg(`Today's list is back (${orders.length} order${orders.length === 1 ? '' : 's'}). Paste again to add more, or Clear to start over.`, 'ok')
 }
 renderLeads()

@@ -22,6 +22,16 @@ export default function ShippingView() {
   const [jobs, setJobs] = useState({}) // orderId -> [{ rank, blocked }]
   const [loading, setLoading] = useState(true)
   const [showPicked, setShowPicked] = useState(false)
+  // Within a pickup, list the orders under their truck. Remembered per
+  // device: the dock PC wants it on, a tablet may not.
+  const [byTruck, setByTruck] = useState(() => {
+    try {
+      return localStorage.getItem('shipping:byTruck') === '1'
+    } catch {
+      return false
+    }
+  })
+  const [printDate, setPrintDate] = useState(null) // the pickup whose loading sheet is printing
   const [error, setError] = useState('')
 
   async function load() {
@@ -106,6 +116,41 @@ export default function ShippingView() {
       })
   }, [orders, jobs, shipDateOf, showPicked])
 
+  function chooseByTruck(on) {
+    setByTruck(on)
+    try {
+      localStorage.setItem('shipping:byTruck', on ? '1' : '0')
+    } catch {
+      /* private window: just don't remember it */
+    }
+  }
+
+  // Trucks in the order they first appear in a list, so the sheet follows the
+  // build sheet's own order (QC#1, USA#6, …) rather than alphabetical.
+  function trucksOf(list) {
+    const out = []
+    for (const o of list) {
+      const name = (o.truck_route ?? '').trim() || 'No truck'
+      let t = out.find((x) => x.name.toLowerCase() === name.toLowerCase())
+      if (!t) out.push((t = { name, orders: [] }))
+      t.orders.push(o)
+    }
+    return out
+  }
+
+  // Printing waits a render so the sheet is on the page, and the print view
+  // is torn down when the dialog closes.
+  useEffect(() => {
+    if (!printDate) return
+    const done = () => setPrintDate(null)
+    window.addEventListener('afterprint', done)
+    const t = setTimeout(() => window.print(), 50)
+    return () => {
+      clearTimeout(t)
+      window.removeEventListener('afterprint', done)
+    }
+  }, [printDate])
+
   // Checks the write actually landed. It used to flip the card and move
   // on — offline, or with a permission rule filtering the row, the dock
   // saw "picked up" and nothing was recorded.
@@ -128,12 +173,74 @@ export default function ShippingView() {
     } else setError('')
   }
 
+  const renderCard = (o, g) => {
+    const r = g.readiness.get(o.id)
+    const picked = !!o.actual_pickup_date
+    return (
+      <article
+        key={o.id}
+        className={`bg-white rounded-xl border overflow-hidden flex ${picked ? 'border-paperDim opacity-70' : 'border-paperDim'}`}
+      >
+        <div
+          className={`w-1.5 shrink-0 ${
+            picked ? 'bg-steelLight' : r.blocked ? 'bg-andonRed' : r.ready ? 'bg-andonGreen' : 'bg-safety'
+          }`}
+        />
+        <div className="flex-1 min-w-0 px-4 py-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="font-display text-xl font-bold text-charcoal truncate">{o.tag_name}</div>
+            <div className="text-sm text-steelLight truncate">
+              {o.dealer}
+              {o.truck_route ? ` · ${o.truck_route}` : ''}
+            </div>
+            <div className="text-sm mt-0.5">
+              {picked ? (
+                <span className="text-steelLight">
+                  Picked up {new Date(o.actual_pickup_date).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}
+                </span>
+              ) : r.ready ? (
+                <span className="font-semibold text-andonGreen">✓ Ready to load</span>
+              ) : (
+                <span className={r.blocked ? 'font-semibold text-andonRed' : 'text-steel'}>
+                  {r.blocked ? 'Blocked · ' : ''}
+                  {r.total ? `${r.done} of ${r.total} departments done` : 'No departments on this order'}
+                </span>
+              )}
+            </div>
+          </div>
+          {picked ? (
+            <button onClick={() => setPicked(o, false)} disabled={!live} className="text-sm text-steelLight underline disabled:opacity-40">
+              Undo
+            </button>
+          ) : (
+            <button
+              onClick={() => setPicked(o, true)}
+              disabled={!live}
+              className={`shrink-0 rounded-lg font-display font-bold px-4 py-2.5 whitespace-nowrap disabled:opacity-40 ${
+                r.ready ? 'bg-safety text-charcoal' : 'border border-paperDim text-steel'
+              }`}
+            >
+              {r.ready ? 'Picked up' : 'Picked up anyway…'}
+            </button>
+          )}
+        </div>
+      </article>
+    )
+  }
+
+  const printGroup = printDate ? groups.find((g) => g.date === printDate) : null
+
   return (
-    <div className="min-h-full bg-paper">
+    <>
+    <div className={`min-h-full bg-paper ${printGroup ? 'print:hidden' : ''}`}>
       <NotificationBanner />
       <header className="bg-charcoal px-5 py-4 flex items-center justify-between border-b-4 border-safety">
         <h1 className="font-display text-3xl font-bold text-paper leading-none">Shipping</h1>
         <div className="flex items-center gap-3">
+          <label className="text-sm text-floorMute flex items-center gap-1.5">
+            <input type="checkbox" checked={byTruck} onChange={(e) => chooseByTruck(e.target.checked)} />
+            By truck
+          </label>
           <label className="text-sm text-floorMute flex items-center gap-1.5">
             <input type="checkbox" checked={showPicked} onChange={(e) => setShowPicked(e.target.checked)} />
             Show picked up
@@ -166,73 +273,120 @@ export default function ShippingView() {
                   )}
                 </h2>
                 {g.waiting > 0 && (
-                  <div className="text-sm font-semibold tabular-nums">
-                    <span className={g.ready === g.waiting ? 'text-andonGreen' : 'text-charcoal'}>{g.ready}</span>
-                    <span className="text-steelLight"> of {g.waiting} ready to load</span>
+                  <div className="flex items-center gap-3">
+                    <div className="text-sm font-semibold tabular-nums">
+                      <span className={g.ready === g.waiting ? 'text-andonGreen' : 'text-charcoal'}>{g.ready}</span>
+                      <span className="text-steelLight"> of {g.waiting} ready to load</span>
+                    </div>
+                    <button
+                      onClick={() => setPrintDate(g.date)}
+                      className="text-sm font-semibold border border-paperDim rounded-lg px-3 py-1.5 text-steel hover:text-charcoal"
+                    >
+                      🖨 Loading sheet
+                    </button>
                   </div>
                 )}
               </div>
 
-              <div className="space-y-2">
-                {g.list.map((o) => {
-                  const r = g.readiness.get(o.id)
-                  const picked = !!o.actual_pickup_date
-                  return (
-                    <article
-                      key={o.id}
-                      className={`bg-white rounded-xl border overflow-hidden flex ${picked ? 'border-paperDim opacity-70' : 'border-paperDim'}`}
-                    >
-                      <div
-                        className={`w-1.5 shrink-0 ${
-                          picked ? 'bg-steelLight' : r.blocked ? 'bg-andonRed' : r.ready ? 'bg-andonGreen' : 'bg-safety'
-                        }`}
-                      />
-                      <div className="flex-1 min-w-0 px-4 py-3 flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="font-display text-xl font-bold text-charcoal truncate">{o.tag_name}</div>
-                          <div className="text-sm text-steelLight truncate">
-                            {o.dealer}
-                            {o.truck_route ? ` · ${o.truck_route}` : ''}
-                          </div>
-                          <div className="text-sm mt-0.5">
-                            {picked ? (
-                              <span className="text-steelLight">
-                                Picked up {new Date(o.actual_pickup_date).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}
-                              </span>
-                            ) : r.ready ? (
-                              <span className="font-semibold text-andonGreen">✓ Ready to load</span>
-                            ) : (
-                              <span className={r.blocked ? 'font-semibold text-andonRed' : 'text-steel'}>
-                                {r.blocked ? 'Blocked · ' : ''}
-                                {r.total ? `${r.done} of ${r.total} departments done` : 'No departments on this order'}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        {picked ? (
-                          <button onClick={() => setPicked(o, false)} disabled={!live} className="text-sm text-steelLight underline disabled:opacity-40">
-                            Undo
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setPicked(o, true)}
-                            disabled={!live}
-                            className={`shrink-0 rounded-lg font-display font-bold px-4 py-2.5 whitespace-nowrap disabled:opacity-40 ${
-                              r.ready ? 'bg-safety text-charcoal' : 'border border-paperDim text-steel'
-                            }`}
-                          >
-                            {r.ready ? 'Picked up' : 'Picked up anyway…'}
-                          </button>
-                        )}
+              {byTruck ? (
+                <div className="space-y-4">
+                  {trucksOf(g.list).map((t) => (
+                    <div key={t.name}>
+                      <div className="flex items-baseline gap-2 mb-1.5">
+                        <h3 className="font-display font-bold text-lg text-charcoal uppercase">{t.name}</h3>
+                        <span className="text-sm text-steelLight">
+                          {t.orders.length} order{t.orders.length === 1 ? '' : 's'}
+                        </span>
                       </div>
-                    </article>
-                  )
-                })}
-              </div>
+                      <div className="space-y-2">{t.orders.map((o) => renderCard(o, g))}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-2">{g.list.map((o) => renderCard(o, g))}</div>
+              )}
             </section>
           )
         })}
       </main>
     </div>
+
+    {printGroup && <LoadingSheet group={printGroup} trucks={trucksOf(printGroup.list.filter((o) => !o.actual_pickup_date))} />}
+    </>
+  )
+}
+
+/**
+ * The paper loading sheet for one pickup: every order still to go, grouped
+ * by truck, numbered straight through. Kept plain — a tick box per order and
+ * room for a note; the counts and the name are left for whoever loads. An
+ * order that isn't fully built says so in its note, so it isn't loaded on
+ * trust.
+ */
+function LoadingSheet({ group, trucks }) {
+  let n = 0
+  const total = trucks.reduce((sum, t) => sum + t.orders.length, 0)
+  return (
+    <section className="hidden print:block bg-white text-black p-6 text-[10pt]">
+      <div className="flex items-end justify-between border-b-4 border-black pb-2 mb-3">
+        <div>
+          <div className="text-[8pt] tracking-widest uppercase text-gray-600 font-bold">Sunspace Truesdale · Loading sheet</div>
+          <h1 className="font-display text-4xl font-bold uppercase leading-none">Loading</h1>
+        </div>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[9pt]">
+          <span>
+            <b>Pickup</b> {group.date === 'none' ? '—' : shortDate(group.date)}
+          </span>
+          <span>
+            <b>Orders</b> <span className="inline-block w-14 border-b border-black">&nbsp;</span>
+          </span>
+          <span>
+            <b>Printed</b> {shortDate(new Date().toISOString().slice(0, 10))}
+          </span>
+          <span>
+            <b>Trucks</b> <span className="inline-block w-14 border-b border-black">&nbsp;</span>
+          </span>
+          <span className="col-span-2">
+            <b>Loaded by</b> <span className="inline-block w-56 border-b border-black">&nbsp;</span>
+          </span>
+        </div>
+      </div>
+      <p className="text-[8pt] text-gray-600 mb-2">
+        Tick <b>On truck</b> as each order goes on. {total} order{total === 1 ? '' : 's'} on this pickup.
+      </p>
+      {trucks.map((t) => (
+        <table key={t.name} className="w-full border-collapse mb-3 break-inside-avoid-page">
+          <thead>
+            <tr>
+              <th colSpan={4} className="bg-black text-white text-left font-display text-lg uppercase px-2 py-1">
+                {t.name}
+              </th>
+            </tr>
+            <tr className="bg-gray-200 text-[7pt] uppercase">
+              <th className="border border-gray-500 w-10">#</th>
+              <th className="border border-gray-500 text-left px-1">Tag name</th>
+              <th className="border border-gray-500 w-24">On truck</th>
+              <th className="border border-gray-500 text-left px-1 w-56">Note</th>
+            </tr>
+          </thead>
+          <tbody>
+            {t.orders.map((o) => {
+              const list = group.readiness.get(o.id)
+              n += 1
+              return (
+                <tr key={o.id} style={{ height: '0.3in' }}>
+                  <td className="border border-gray-500 text-center font-display font-bold">{n}</td>
+                  <td className="border border-gray-500 px-1 font-display font-bold text-[10pt] break-all">{o.tag_name}</td>
+                  <td className="border border-gray-500"></td>
+                  <td className="border border-gray-500 px-1 text-[8pt] text-gray-600">
+                    {list && !list.ready ? (list.total ? `${list.done} of ${list.total} built` : 'not started') : ''}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      ))}
+    </section>
   )
 }

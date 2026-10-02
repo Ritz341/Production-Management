@@ -20,6 +20,7 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
   const [source, setSource] = useState(null) // 'file' | 'paste' | 'ocr'
   const [dragging, setDragging] = useState(false)
   const [ocrProgress, setOcrProgress] = useState(0)
+  const [pasteText, setPasteText] = useState('')
 
   // Paste is bound to the document so admin can just hit Ctrl+V on arrival
   // without hunting for a box to focus first.
@@ -155,6 +156,14 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
       const file = imageItem.getAsFile()
       if (file) runImport(() => parseScreenshot(file, setOcrProgress), 'ocr')
     }
+  }
+
+  // The visible paste box: the same exact-text route as Ctrl+V on the page,
+  // for when the admin would rather click somewhere than hit the shortcut.
+  function readPasteBox(text) {
+    if (!text.trim()) return
+    setPasteText('')
+    runImport(() => parseClipboardText(text), 'paste')
   }
 
   function toggleStale(id) {
@@ -301,10 +310,29 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
           <kbd className="px-1 border border-paperDim bg-paper">V</kbd> to paste rows copied from Excel.
         </p>
         <p className="text-xs text-steelLight">
-          Pasting copied cells is exact — Excel puts the real values on the clipboard. You can select rows from partway
-          down the sheet without the header row; just start the selection at column A so the columns line up. A
-          screenshot has to be read by OCR, which guesses, so use it only when the file isn't available.
+          Pasting copied cells is exact — Excel puts the real values on the clipboard. The header row is optional: you
+          can copy rows from partway down the sheet, starting at the Date, Truck or Dealer column, and the columns are
+          lined up from the tag names. A screenshot has to be read by OCR, which guesses, so use it only when the
+          file isn't available.
         </p>
+        <textarea
+          value={pasteText}
+          onChange={(e) => setPasteText(e.target.value)}
+          onPaste={(e) => {
+            const text = e.clipboardData?.getData('text/plain') ?? ''
+            if (!text.includes('\t')) return
+            e.preventDefault()
+            readPasteBox(text)
+          }}
+          placeholder="Or click here and paste the rows (Ctrl+V) — they're read straight away."
+          rows={3}
+          className="w-full border border-paperDim p-2 font-mono text-xs"
+        />
+        {pasteText.trim() && (
+          <button onClick={() => readPasteBox(pasteText)} className="bg-charcoal text-paper font-display font-bold px-4 py-2 text-sm">
+            Read these rows
+          </button>
+        )}
         <input type="file" accept=".xlsx,.xls,image/*" onChange={handleFile} className="text-sm" />
       </div>
 
@@ -356,9 +384,10 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
           )}
           {parsed.inferredColumns && (
             <p className="bg-safety/10 border border-safety p-3 text-sm text-charcoal">
-              No header row in this selection, so columns were matched by position against the sheet's normal layout
-              (Date, Truck, Dealer, Tag Name, then the status columns). The values themselves are exact — but glance
-              down the table below to confirm the statuses line up under the right departments.
+              No header row in this selection, so the Tag Name column was found by its values and the others matched by
+              position against the sheet's normal layout (Date, Truck, Dealer, Tag Name, then the status columns). The
+              values themselves are exact — but glance down the table below to confirm the statuses line up under the
+              right departments.
             </p>
           )}
           <section>

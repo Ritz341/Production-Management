@@ -200,10 +200,10 @@
   .counts-t td.tm{text-align:left;padding:0 5px;font-weight:700;font-family:var(--display);font-size:10pt;white-space:nowrap}
   .counts-t .tmh{width:1.3in}
   .counts-t .ppl{width:0.48in}
-  .counts-t .dt{width:0.6in}
   .counts-t td.tm{font-size:9pt;white-space:normal;line-height:1.05}
   .counts-t td.ppl{background:#FAF8F4;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .counts-t td.dt{border-left:2px solid var(--ink)}
+  .counts-t td.ppl{font-family:var(--display);font-weight:700;font-size:11pt}
+  .counts-t td.tm{border-right:2px solid var(--ink)}
   .cnote{font-size:7.8pt;color:var(--mute);margin-top:3px}
   .codes{border:1.5px solid var(--red);border-radius:6px;padding:6px 8px;background:var(--red-bg);-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .codes ol{margin:0;padding:0;list-style:none;font-size:8pt;line-height:1.3;display:grid;grid-template-columns:1fr 1fr;column-gap:8px}
@@ -806,7 +806,8 @@ function sheetHtml(d, list, page, pages, perPage = rowsFor(d), rowH = ROW_H) {
     return `<tr><td class="num">${o ? n : ''}</td><td class="tag">${o ? `<b${o.tag.length > 16 ? ' class="long"' : ''}>${tagBreaks(o.tag)}</b>` : ''}</td>${ext}${boxes}<td class="reason"></td></tr>`
   }).join('')
   const stations = stationsOf(d)
-  const countRows = stations.map((x) => `<tr><td class="tm">${esc(x)}</td><td class="ppl"></td>${times.map(() => '<td></td>').join('')}<td class="dt"></td></tr>`).join('')
+  // Laid out as the floor drew it: Crew, then the station, then the blocks.
+  const countRows = stations.map((x) => `<tr><td class="ppl"></td><td class="tm">${esc(x)}</td>${times.map(() => '<td></td>').join('')}</tr>`).join('')
   const codes = BLOCKS.map((b, i) => `<li><b>${i + 1}</b>${esc(b)}</li>`).join('')
   const val = (v, w) => `<span class="val" style="min-width:${w}">${esc(v) || '&nbsp;'}</span>`
   return `
@@ -833,10 +834,10 @@ function sheetHtml(d, list, page, pages, perPage = rowsFor(d), rowH = ROW_H) {
       <div class="counts-t">
         <h2>Daily count <small>Fill in at the end of each time block</small></h2>
         <table>
-          <thead><tr><th style="text-align:left" class="tmh">Station</th><th class="ppl">Crew</th>${times.map((t) => `<th>${esc(t)}</th>`).join('')}<th class="dt">Day total</th></tr></thead>
+          <thead><tr><th class="ppl">Crew</th><th style="text-align:left" class="tmh">Station</th>${times.map((t) => `<th>${esc(t)}</th>`).join('')}</tr></thead>
           <tbody>${countRows}</tbody>
         </table>
-        <div class="cnote">Crew = people on that station. Each time box = how many ${esc(d.unit)} were finished in that block, not a running total. If the crew changes, write it in the box too (e.g. 12 · 4→3).${d.note ? esc(d.note) : ''}</div>
+        <div class="cnote">Crew = how many people on that station. Each time box = how many ${esc(d.unit)} were finished in that block, not a running total. If the crew changes, write it in the box too (e.g. 12 · 4→3).${d.note ? esc(d.note) : ''}</div>
       </div>
       <div class="codes">
         <h2 style="color:var(--red)">Problem codes</h2>

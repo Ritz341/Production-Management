@@ -306,14 +306,9 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
         className={`border-2 border-dashed p-5 space-y-3 ${dragging ? 'border-safety bg-safety/10' : 'border-paperDim'}`}
       >
         <p className="text-sm font-medium text-steel">
-          Drop the Truesdale sheet here, or press <kbd className="px-1 border border-paperDim bg-paper">Ctrl</kbd>+
-          <kbd className="px-1 border border-paperDim bg-paper">V</kbd> to paste rows copied from Excel.
-        </p>
-        <p className="text-xs text-steelLight">
-          Pasting copied cells is exact — Excel puts the real values on the clipboard. The header row is optional: you
-          can copy rows from partway down the sheet, starting at the Date, Truck or Dealer column, and the columns are
-          lined up from the tag names. A screenshot has to be read by OCR, which guesses, so use it only when the
-          file isn't available.
+          In the build sheet, select this week's rows (the header row is optional) →{' '}
+          <kbd className="px-1 border border-paperDim bg-paper">Ctrl</kbd>+<kbd className="px-1 border border-paperDim bg-paper">C</kbd> → click
+          the box → <kbd className="px-1 border border-paperDim bg-paper">Ctrl</kbd>+<kbd className="px-1 border border-paperDim bg-paper">V</kbd>.
         </p>
         <textarea
           value={pasteText}
@@ -324,16 +319,33 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
             e.preventDefault()
             readPasteBox(text)
           }}
-          placeholder="Or click here and paste the rows (Ctrl+V) — they're read straight away."
-          rows={3}
+          placeholder="Paste the rows here (Ctrl+V) — they're read straight away."
+          rows={4}
           className="w-full border border-paperDim p-2 font-mono text-xs"
         />
-        {pasteText.trim() && (
-          <button onClick={() => readPasteBox(pasteText)} className="bg-charcoal text-paper font-display font-bold px-4 py-2 text-sm">
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => readPasteBox(pasteText)}
+            disabled={!pasteText.trim() || busy}
+            className="bg-charcoal text-paper font-display font-bold px-4 py-2 text-sm disabled:opacity-40"
+          >
             Read these rows
           </button>
-        )}
-        <input type="file" accept=".xlsx,.xls,image/*" onChange={handleFile} className="text-sm" />
+          <span className="text-xs text-steelLight">
+            Pasted cells are exact — Excel puts the real values on the clipboard. Copy from the Date, Truck or Dealer
+            column; the columns are lined up from the tag names.
+          </span>
+        </div>
+        <details className="pt-2 border-t border-paperDim">
+          <summary className="cursor-pointer text-sm font-medium text-steel">Other ways: the Excel file or a screenshot</summary>
+          <div className="pt-3 space-y-2">
+            <p className="text-xs text-steelLight">
+              Drop the Truesdale sheet here, or choose a file. A screenshot has to be read by OCR, which guesses, so use it
+              only when the rows can't be copied.
+            </p>
+            <input type="file" accept=".xlsx,.xls,image/*" onChange={handleFile} className="text-sm" />
+          </div>
+        </details>
       </div>
 
       {busy && ocrProgress > 0 && (

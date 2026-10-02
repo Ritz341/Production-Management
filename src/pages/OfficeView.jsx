@@ -6,6 +6,7 @@ import { buildNumbers, byBuildOrder, daysUntil, relativeDay, shortDate } from '.
 import { PANEL_TYPES, ROOM_SHAPES, WINDOW_TYPES, difficulty, orderPersonDays, pickupLoads, roomSize, useSettings } from '../lib/catalog'
 import WeekLoad from '../components/WeekLoad.jsx'
 import { dbErrorText } from '../lib/dbError'
+import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
 
 /**
  * Office: prints the build paperwork and enters each order's details
@@ -131,6 +132,7 @@ export default function OfficeView() {
 
   return (
     <div className="min-h-full bg-paper">
+      <NotificationBanner />
       <header className="bg-charcoal px-5 py-4 flex items-center justify-between gap-3 border-b-4 border-safety flex-wrap">
         <div>
           <h1 className="font-display text-3xl font-bold text-paper leading-none">Office</h1>
@@ -144,6 +146,7 @@ export default function OfficeView() {
             <input type="checkbox" checked={onlyNotReady} onChange={(e) => setOnlyNotReady(e.target.checked)} className="w-4 h-4" />
             Only paperwork not ready
           </label>
+          <NotificationBell />
           <button onClick={signOut} className="text-sm text-floorMute hover:text-paper">
             Sign out
           </button>

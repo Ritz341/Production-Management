@@ -83,6 +83,9 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       const { data: eventRows } = await supabase
         .from('bt_events')
         .select('id, event_type, message, created_at')
+        // Every Start / Done also wrote a second, older event type; the
+        // feed shows the one that carries the detail.
+        .not('event_type', 'in', '(column_started,column_completed)')
         .order('created_at', { ascending: false })
         .limit(25)
       const { data: crew } = await supabase.from('bt_crew_days').select('work_date, department_id, people')

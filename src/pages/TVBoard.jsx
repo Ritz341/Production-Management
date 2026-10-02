@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
+import { TVAlerts } from '../components/NotificationBanner.jsx'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { DONE_RANK, HEADLINE_TONE_CLASS, buildNumbers, byBuildOrder, daysUntil, relativeDay, stageRank, weekHeadline } from '../lib/schedule'
 import { CUT_CHIPS, blockText, checkinBlocks, clockLabel, countedProcesses, fmtQty, isoDate, planLine, processesFor, productiveMinutesPerDay, rateFor, ratePerHourOf, useSettings, weekPace, workingMinutesBetween } from '../lib/catalog'
@@ -354,6 +355,9 @@ export default function TVBoard({ department }) {
 
   return (
     <div className="h-full bg-floor text-paper flex flex-col overflow-hidden">
+      {/* Stop alerts (a ship date moved, orders taken off, a quality problem
+          for this department) — read-only here, clears itself after 4 hours. */}
+      <TVAlerts department={department} />
       {/* ── Top strip: who, when it ships, clock ── */}
       {showControls && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-charcoal/95 border border-floorLine px-4 py-2 shadow-2xl">

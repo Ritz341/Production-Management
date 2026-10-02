@@ -1,24 +1,42 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { useAuth } from '../lib/AuthContext.jsx'
 import { useConnection } from '../lib/ConnectionContext.jsx'
+import { isMuted, playAlert, setMuted } from '../lib/alertSound'
 
-// Full-width red banner, stays until Acknowledge is tapped directly on
-// it — too important to bury in a dropdown. A ship date moving, and an
-// order being taken off the build while someone may be part-way
-// through building it, both qualify: carrying on is the wrong thing to
-// do and the floor has to be stopped, not merely informed.
-const BANNER_TYPES = ['ship_date_changed', 'orders_removed']
-// Order status changes: quieter — a bell icon with a badge count;
-// opening the dropdown and clicking an entry is what acknowledges it.
-const BELL_TYPE = 'order_status_changed'
+/**
+ * Notifications.
+ *
+ * Every event is written with a LEVEL and an AUDIENCE by the database
+ * (schema_v22.sql — one place decides, so this file never guesses):
+ *
+ *   stop     a red banner that stays until THIS login taps "Got it".
+ *            A ship date moving, orders taken off the build, a quality
+ *            problem. Beeps when it arrives.
+ *   headsup  the bell: a block, or a job another department was waiting
+ *            on finishing. Cleared one at a time or all at once; gone
+ *            after 12 hours either way.
+ *   fyi      a toast for a few seconds: a new order, a pickup.
+ *   quiet    nothing here — still in the admin activity feed.
+ *
+ * An event is for a login when its audience has 'all', the login's
+ * 'role:<role>', or 'dept:<name>' for any department the login works.
+ * Acknowledging is per login (bt_event_acks), so one tablet tapping
+ * "Got it" no longer clears the alert off every other tablet unseen.
+ */
+
+const STOP_WINDOW_MS = 24 * 3600 * 1000
+const HEADSUP_WINDOW_MS = 12 * 3600 * 1000
+const TOAST_MS = 6000
 
 // ── One subscription for the whole screen ──
-// The banner and the bell are separate components now — the bell sits
-// in each page's header — but they read the same events. Two components
-// joining the same realtime topic is an error, so, as with useSettings,
-// one shared channel feeds every caller and is dropped with the last.
-let state = { banner: [], bell: [], toasts: [] }
+// The banner and the bell are separate components — the bell sits in each
+// page's header — but read the same events. Two components joining one
+// realtime topic is an error, so one shared channel feeds every caller
+// and is dropped with the last.
+let state = { stop: [], headsup: [], toasts: [] }
 let channel = null
+let current = { key: null, me: null }
 const listeners = new Set()
 
 function set(patch) {
@@ -26,73 +44,147 @@ function set(patch) {
   for (const l of listeners) l(state)
 }
 
-function start() {
-  // Anything still unacknowledged, so a change that happened while this
-  // tablet was off or asleep still shows up.
-  supabase
+const forMe = (e, tokens) => (e.audience ?? []).some((t) => t === 'all' || tokens.includes(t))
+const pgArray = (tokens) => `{${tokens.map((t) => `"${t.replace(/"/g, '')}"`).join(',')}}`
+
+async function start(me) {
+  const since = (ms) => new Date(Date.now() - ms).toISOString()
+  const cols = 'id, message, event_type, kind, level, audience, created_at'
+
+  // Anything still unanswered, so an alert raised while this tablet was
+  // asleep or off is waiting when it wakes.
+  const { data: acked } = await supabase.from('bt_event_acks').select('event_id').gte('acked_at', since(STOP_WINDOW_MS * 2))
+  const ackedIds = new Set((acked ?? []).map((a) => a.event_id))
+  const { data: rows } = await supabase
     .from('bt_events')
-    .select('id, message, event_type, created_at')
-    .in('event_type', BANNER_TYPES)
-    .is('acknowledged_at', null)
+    .select(cols)
+    .in('level', ['stop', 'headsup'])
+    .gte('created_at', since(STOP_WINDOW_MS))
+    .overlaps('audience', pgArray(['all', ...me.tokens]))
     .order('created_at', { ascending: true })
-    .then(({ data }) => set({ banner: data ?? [] }))
-  supabase
-    .from('bt_events')
-    .select('id, message, event_type, created_at')
-    .eq('event_type', BELL_TYPE)
-    .is('acknowledged_at', null)
-    .order('created_at', { ascending: false })
-    .then(({ data }) => set({ bell: data ?? [] }))
+  if (current.me !== me) return // signed out / switched while loading
+  const open = (rows ?? []).filter((e) => !ackedIds.has(e.id))
+  set({
+    stop: open.filter((e) => e.level === 'stop'),
+    headsup: open
+      .filter((e) => e.level === 'headsup' && Date.now() - new Date(e.created_at) < HEADSUP_WINDOW_MS)
+      .reverse(),
+  })
 
   channel = supabase
-    .channel('bt-events-global')
+    .channel(`bt-alerts-${me.userId ?? 'anon'}`)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bt_events' }, ({ new: e }) => {
-      if (BANNER_TYPES.includes(e.event_type)) set({ banner: [...state.banner, e] })
-      else if (e.event_type === BELL_TYPE) set({ bell: [e, ...state.bell] })
-      else {
-        set({ toasts: [...state.toasts, { id: e.id, message: e.message, type: e.event_type }] })
-        setTimeout(() => set({ toasts: state.toasts.filter((t) => t.id !== e.id) }), 7000)
+      if (e.level === 'quiet' || !forMe(e, me.tokens)) return
+      if (e.level === 'stop') {
+        set({ stop: [...state.stop, e] })
+        playAlert('stop')
+      } else if (e.level === 'headsup') {
+        set({ headsup: [e, ...state.headsup] })
+        playAlert('headsup')
+      } else {
+        set({ toasts: [...state.toasts, e] })
+        setTimeout(() => set({ toasts: state.toasts.filter((t) => t.id !== e.id) }), TOAST_MS)
       }
     })
-    // Another tablet acknowledging the same alert removes it here too.
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bt_events' }, ({ new: e }) => {
-      if (!e.acknowledged_at) return
-      set({ banner: state.banner.filter((a) => a.id !== e.id), bell: state.bell.filter((a) => a.id !== e.id) })
+    // The same login on another device answering an alert answers it here.
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bt_event_acks' }, ({ new: a }) => {
+      if (a.user_id !== me.userId) return
+      set({ stop: state.stop.filter((e) => e.id !== a.event_id), headsup: state.headsup.filter((e) => e.id !== a.event_id) })
     })
     .subscribe()
 }
 
+function stop() {
+  if (channel) supabase.removeChannel(channel)
+  channel = null
+  current = { key: null, me: null }
+  state = { stop: [], headsup: [], toasts: [] }
+}
+
+/** This login's audience tokens: its role and every department it works. */
+function useMe() {
+  const { session, profile } = useAuth() ?? {}
+  const [deptNames, setDeptNames] = useState([])
+  const ids = (profile?.combinedDepartmentIds ?? []).join(',')
+
+  useEffect(() => {
+    if (!ids) return setDeptNames([])
+    let alive = true
+    supabase
+      .from('bt_departments')
+      .select('name')
+      .in('id', ids.split(',').map(Number))
+      .then(({ data }) => alive && setDeptNames((data ?? []).map((d) => d.name)))
+    return () => {
+      alive = false
+    }
+  }, [ids])
+
+  const tokens = [...(profile?.role ? [`role:${profile.role}`] : []), ...deptNames.map((n) => `dept:${n}`)]
+  return { userId: session?.user?.id ?? null, tokens, key: `${session?.user?.id}|${tokens.join(',')}` }
+}
+
 function useAlerts() {
+  const me = useMe()
   const [s, setS] = useState(state)
+
   useEffect(() => {
     listeners.add(setS)
     setS(state)
-    if (!channel) start()
     return () => {
       listeners.delete(setS)
-      if (listeners.size === 0 && channel) {
-        supabase.removeChannel(channel)
-        channel = null
-        state = { banner: [], bell: [], toasts: [] }
-      }
+      if (listeners.size === 0) stop()
     }
   }, [])
+
+  // (Re)start when the login, or the departments it works, changes.
+  useEffect(() => {
+    if (!me.userId || current.key === me.key) return
+    if (channel) stop()
+    const mine = { userId: me.userId, tokens: me.tokens }
+    current = { key: me.key, me: mine }
+    start(mine)
+  }, [me.key])
+
+  // Heads-ups don't pile up for ever: after 12 hours they drop off.
+  useEffect(() => {
+    const t = setInterval(() => {
+      const keep = state.headsup.filter((e) => Date.now() - new Date(e.created_at) < HEADSUP_WINDOW_MS)
+      if (keep.length !== state.headsup.length) set({ headsup: keep })
+    }, 60000)
+    return () => clearInterval(t)
+  }, [])
+
   return s
 }
 
-async function acknowledge(id, { fromBanner }) {
+// Gone at once; put back if the write fails, so an alert is never lost
+// silently.
+async function acknowledge(ids) {
+  const list = Array.isArray(ids) ? ids : [ids]
   const before = state
-  // Optimistic: gone at once, put back if the write fails so an alert
-  // is never silently lost.
-  if (fromBanner) set({ banner: state.banner.filter((a) => a.id !== id) })
-  else set({ bell: state.bell.filter((a) => a.id !== id) })
-  const { data: userData } = await supabase.auth.getUser()
+  set({ stop: state.stop.filter((e) => !list.includes(e.id)), headsup: state.headsup.filter((e) => !list.includes(e.id)) })
   const { error } = await supabase
-    .from('bt_events')
-    .update({ acknowledged_at: new Date().toISOString(), acknowledged_by: userData?.user?.id })
-    .eq('id', id)
-  if (error) set({ banner: before.banner, bell: before.bell })
+    .from('bt_event_acks')
+    .upsert(list.map((event_id) => ({ event_id })), { onConflict: 'event_id,user_id', ignoreDuplicates: true })
+  if (error) set({ stop: before.stop, headsup: before.headsup })
 }
+
+const ICON = {
+  ship_date_changed: '📅',
+  orders_removed: '🚫',
+  quality_issue: '⚑',
+  order_added: '🆕',
+  order_picked_up: '🚚',
+}
+const headsupIcon = (e) => (e.kind === 'blocked' ? '🚫' : e.kind === 'unblocked' ? '▶️' : e.kind === 'done' ? '✅' : '🔔')
+
+// Some messages are written with their own emoji already (⚑ Quality…,
+// 🚫 Mods … BLOCKED); don't put a second one in front.
+const withIcon = (icon, message) => (/^\p{Extended_Pictographic}/u.test(message) ? message : `${icon} ${message}`)
+
+/** "V4T on TAG → Done" is only news to the department waiting on it. */
+const headsupText = (e) => (e.kind === 'done' ? `Ready for you: ${e.message.replace(' → Done', ' is done')}` : e.message)
 
 /**
  * Banners, toasts and the connection warning — everything that has to
@@ -100,7 +192,7 @@ async function acknowledge(id, { fromBanner }) {
  */
 export default function NotificationBanner() {
   const { online, live } = useConnection()
-  const { banner, toasts } = useAlerts()
+  const { stop: stops, toasts } = useAlerts()
 
   // The realtime socket takes a moment to connect on every load, which
   // used to flash "Reconnecting…" each time a screen opened. Only say
@@ -118,8 +210,7 @@ export default function NotificationBanner() {
           look connected while the realtime socket itself is dead, so
           this checks both. Silent while healthy (the header's own Live
           dot says so); a full-width strip when it isn't, because a tap
-          that won't save is worth interrupting for. It used to be a
-          dot pinned bottom-left, over whatever card was there. ── */}
+          that won't save is worth interrupting for. ── */}
       {downLong && (
         <div
           role="status"
@@ -132,37 +223,36 @@ export default function NotificationBanner() {
         </div>
       )}
 
-      {/* ── Ship date / removed orders — full width, until Acknowledge ── */}
-      {banner.length > 0 && (
-        <div className="sticky top-0 z-[70] space-y-px">
-          {banner.map((a) => (
+      {/* ── Stop alerts — full width, until THIS login taps Got it ── */}
+      {stops.length > 0 && (
+        <div role="alert" className="sticky top-0 z-[70] space-y-px">
+          {stops.map((a) => (
             <div key={a.id} className="px-4 py-3 flex items-center justify-between gap-3 font-medium text-sm text-paper bg-andonRed">
               <span>
-                {a.event_type === 'orders_removed' ? '🚫' : '📅'} {a.message}
+                {withIcon(ICON[a.event_type] ?? '⚠', a.message)}
               </span>
               <button
-                onClick={() => acknowledge(a.id, { fromBanner: true })}
+                onClick={() => acknowledge(a.id)}
                 className="bg-paper/90 text-charcoal text-xs font-bold px-3 py-1.5 rounded whitespace-nowrap shrink-0"
               >
-                Acknowledge
+                Got it
               </button>
             </div>
           ))}
         </div>
       )}
 
-      {/* ── Ephemeral toasts — auto-dismiss ── */}
+      {/* ── FYI toasts — a few seconds, then gone ── */}
       {toasts.length > 0 && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[60] space-y-2 w-full max-w-md px-3">
           {toasts.map((t) => (
             <div
               key={t.id}
               className={`px-4 py-3 shadow-lg font-medium text-sm border-l-4 bg-white text-charcoal ${
-                t.type === 'order_picked_up' ? 'border-andonBlue' : t.type === 'column_started' ? 'border-safetyDark' : 'border-andonGreen'
+                t.event_type === 'order_picked_up' ? 'border-andonBlue' : 'border-andonGreen'
               }`}
             >
-              {t.type === 'order_picked_up' ? '🚚 ' : t.type === 'column_started' ? '▶️ ' : '✅ '}
-              {t.message}
+              {withIcon(ICON[t.event_type] ?? '•', t.message)}
             </div>
           ))}
         </div>
@@ -172,16 +262,19 @@ export default function NotificationBanner() {
 }
 
 /**
- * The order-status bell, for a page header beside Sign out.
+ * The heads-up bell, for a page header beside Sign out.
  *
- * It used to float in the bottom-left corner of every screen, which is
- * where the Blocked lane starts on a tablet, where the Grid's selection
- * boxes are, and on a phone, on top of the big Done button. A header
- * has room for it and nothing underneath it.
+ * Only what concerns this login: a job it was waiting on finishing, and
+ * for the office a block or an unblock. Ordinary Starts and Dones on
+ * other departments' tablets never get here.
  */
 export function NotificationBell({ tone = 'dark' }) {
-  const { bell } = useAlerts()
+  const { headsup } = useAlerts()
   const [open, setOpen] = useState(false)
+  const [muted, setMutedState] = useState(isMuted())
+  // On a tablet the bell can sit near the left edge; a menu that always
+  // opens leftwards then runs off the screen. Open toward the room there is.
+  const [alignLeft, setAlignLeft] = useState(false)
   const ref = useRef(null)
 
   // Tapping anywhere else closes it — a dropdown left open on a shared
@@ -196,35 +289,56 @@ export function NotificationBell({ tone = 'dark' }) {
   return (
     <div ref={ref} className="relative">
       <button
-        onClick={() => setOpen((v) => !v)}
-        aria-label={`Order status changes${bell.length ? ` — ${bell.length} new` : ''}`}
+        onClick={() => {
+          if (!open && ref.current) setAlignLeft(ref.current.getBoundingClientRect().right < 340)
+          setOpen((v) => !v)
+        }}
+        aria-label={`Heads-up${headsup.length ? ` — ${headsup.length} new` : ''}`}
         aria-expanded={open}
         className={`relative w-9 h-9 rounded-full flex items-center justify-center text-base ${
           tone === 'dark' ? 'hover:bg-white/10' : 'hover:bg-charcoal/10'
         }`}
       >
-        🔔
-        {bell.length > 0 && (
+        {muted ? '🔕' : '🔔'}
+        {headsup.length > 0 && (
           <span className="absolute -top-0.5 -right-0.5 bg-andonRed text-paper text-[11px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center tabular-nums">
-            {bell.length > 99 ? '99+' : bell.length}
+            {headsup.length > 99 ? '99+' : headsup.length}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 max-w-[90vw] max-h-[70vh] overflow-y-auto bg-white shadow-xl border border-paperDim rounded-lg z-[75]">
-          <div className="px-3 py-2 bg-charcoal text-paper text-sm font-semibold sticky top-0 rounded-t-lg">
-            Order status changes ({bell.length})
+        <div className={`absolute ${alignLeft ? 'left-0' : 'right-0'} top-full mt-2 w-80 max-w-[90vw] max-h-[70vh] overflow-y-auto bg-white shadow-xl border border-paperDim rounded-lg z-[75]`}>
+          <div className="px-3 py-2 bg-charcoal text-paper text-sm font-semibold sticky top-0 rounded-t-lg flex items-center justify-between gap-2">
+            <span>Heads-up ({headsup.length})</span>
+            <span className="flex items-center gap-3 text-xs font-normal">
+              <button
+                onClick={() => {
+                  setMuted(!muted)
+                  setMutedState(!muted)
+                }}
+                className="underline"
+              >
+                {muted ? 'Sound off' : 'Sound on'}
+              </button>
+              {headsup.length > 0 && (
+                <button onClick={() => acknowledge(headsup.map((e) => e.id))} className="underline">
+                  Clear all
+                </button>
+              )}
+            </span>
           </div>
-          {bell.length === 0 && <p className="p-4 text-sm text-steelLight">Nothing new.</p>}
+          {headsup.length === 0 && <p className="p-4 text-sm text-steelLight">Nothing new.</p>}
           <ul>
-            {bell.map((a) => (
+            {headsup.map((a) => (
               <li key={a.id} className="border-b border-paperDim last:border-0">
                 <button
-                  onClick={() => acknowledge(a.id, { fromBanner: false })}
+                  onClick={() => acknowledge(a.id)}
                   className="w-full text-left px-3 py-2.5 text-sm text-charcoal hover:bg-paper flex flex-col gap-0.5"
                 >
-                  <span>{a.message}</span>
+                  <span>
+                    {withIcon(headsupIcon(a), headsupText(a))}
+                  </span>
                   <span className="text-xs text-steelLight">
                     {new Date(a.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} — tap to clear
                   </span>
@@ -234,6 +348,56 @@ export function NotificationBell({ tone = 'dark' }) {
           </ul>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Stop alerts on a TV board. Read-only: a TV has no one to tap Got it, so
+ * an alert simply stays up for four hours — long enough for everyone on the
+ * floor to have walked past it — then clears itself. Everything shown here
+ * is also on the tablets, where it has to be acknowledged.
+ */
+const TV_WINDOW_MS = 4 * 3600 * 1000
+export function TVAlerts({ department }) {
+  const [alerts, setAlerts] = useState([])
+
+  useEffect(() => {
+    let alive = true
+    const tokens = ['all', `dept:${department}`]
+    const live = (e) => e.level === 'stop' && forMe(e, tokens) && Date.now() - new Date(e.created_at) < TV_WINDOW_MS
+
+    supabase
+      .from('bt_events')
+      .select('id, message, event_type, level, audience, created_at')
+      .eq('level', 'stop')
+      .gte('created_at', new Date(Date.now() - TV_WINDOW_MS).toISOString())
+      .overlaps('audience', pgArray(tokens))
+      .order('created_at', { ascending: true })
+      .then(({ data }) => alive && setAlerts((data ?? []).filter(live)))
+
+    const ch = supabase
+      .channel(`tv-alerts-${department}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bt_events' }, ({ new: e }) => {
+        if (live(e)) setAlerts((prev) => [...prev, e])
+      })
+      .subscribe()
+    const t = setInterval(() => setAlerts((prev) => prev.filter(live)), 60000)
+    return () => {
+      alive = false
+      clearInterval(t)
+      supabase.removeChannel(ch)
+    }
+  }, [department])
+
+  if (alerts.length === 0) return null
+  // One slim strip, however many: the board underneath is laid out to fill
+  // the screen, so every row added here is a row taken from it.
+  return (
+    <div role="alert" className="bg-andonRed text-paper px-8 py-2 font-display font-bold text-[1.6vw] leading-tight flex items-center gap-x-8 gap-y-1 flex-wrap">
+      {alerts.map((a) => (
+        <span key={a.id}>{withIcon(ICON[a.event_type] ?? '⚠', a.message)}</span>
+      ))}
     </div>
   )
 }

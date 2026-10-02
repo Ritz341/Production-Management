@@ -22,7 +22,12 @@ with wanted(email, role, department, display_name) as (
     ('v4t@sunspace.local',       'crew',      'V4T',   'V4T Tablet'),
     ('panel@sunspace.local',     'crew',      'Panel', 'Panel Tablet'),
     ('track@sunspace.local',     'crew',      'Track', 'Track Tablet'),
-    ('door@sunspace.local',      'crew',      'Door',  'Door Tablet')
+    ('door@sunspace.local',      'crew',      'Door',  'Door Tablet'),
+    -- Cutting stations (schema_v21.sql): each CNC / saw station opens the
+    -- site on its own screen and marks its jobs Start / Done.
+    ('sc220@sunspace.local',     'crew',      'SC220',      'SC220 CNC'),
+    ('ta144@sunspace.local',     'crew',      'TA144',      'TA144 CNC'),
+    ('manual@sunspace.local',    'crew',      'Manual Cut', 'Manual Cut')
 ),
 linked as (
   insert into bt_profiles (user_id, role, department_id, display_name)
@@ -51,6 +56,7 @@ from (values
     ('admin@sunspace.local'), ('office@sunspace.local'), ('logistics@sunspace.local'),
     ('quality@sunspace.local'), ('shipping@sunspace.local'), ('mods@sunspace.local'),
     ('v4t@sunspace.local'), ('panel@sunspace.local'), ('track@sunspace.local'), ('door@sunspace.local'),
+    ('sc220@sunspace.local'), ('ta144@sunspace.local'), ('manual@sunspace.local'),
     ('tv-mods@sunspace.local'), ('tv-v4t@sunspace.local')
   ) as w(email)
 left join auth.users u on lower(u.email) = lower(w.email)

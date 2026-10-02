@@ -83,10 +83,47 @@ export const RECOMMENDED_PROCESSES = {
   // `independent` is what says so — see planLine(). Without it the
   // three would be read as one chain, and an acrylic bench with nobody
   // on it would show as the thing holding up roof and filler.
+  // The cutting stations. Each cuts several different things that don't
+  // feed one another (frames and uprights are not two steps of one line),
+  // so every job is its own `independent` bench, as on Panel.
+  SC220: [
+    { id: 'sc220_frames', name: 'Mods frames', line: 'Frames', unit: 'frames', minutesEach: null, perFinished: 1, counted: true, independent: true },
+    { id: 'sc220_uprights', name: 'V4T uprights', line: 'Uprights', unit: 'pieces', minutesEach: null, perFinished: 1, counted: true, independent: true },
+  ],
+  TA144: [
+    { id: 'ta144_vents', name: 'Vents cut & drilled', line: 'Vents', unit: 'vents', minutesEach: null, perFinished: 1, counted: true, independent: true },
+  ],
+  'Manual Cut': [
+    { id: 'manual_framing', name: 'V4T framing', line: 'Framing', unit: 'pieces', minutesEach: null, perFinished: 1, counted: true, independent: true },
+    { id: 'manual_traps', name: 'Traps', line: 'Traps', unit: 'pieces', minutesEach: null, perFinished: 1, counted: true, independent: true },
+    { id: 'manual_vinyl_fix', name: 'Vinyl fix', line: 'Vinyl fix', unit: 'pieces', minutesEach: null, perFinished: 1, counted: true, independent: true },
+    { id: 'manual_corner_posts', name: 'Corner posts', line: 'Corner posts', unit: 'pieces', minutesEach: null, perFinished: 1, counted: true, independent: true },
+  ],
   Panel: [
     { id: 'roof_panels', name: 'Roof panels', line: 'Roof panel', unit: 'panels', minutesEach: null, perFinished: 1, counted: true, independent: true },
     { id: 'filler_panels', name: 'Mod filler panels', line: 'Filler panel', unit: 'panels', minutesEach: null, perFinished: 1, counted: true, independent: true },
     { id: 'acrylic_panels', name: 'Acrylic panels', line: 'Acrylic panel', unit: 'panels', minutesEach: null, perFinished: 1, counted: true, independent: true },
+  ],
+}
+
+/**
+ * The cut jobs each department waits on, as [status column, short label].
+ * The cutting stations' tablets mark these Start / Done (schema_v21.sql
+ * creates them per order), and the Mods and V4T TVs show them on each
+ * queued order so the floor sees whether its material has been cut. A job
+ * an order doesn't have simply isn't shown.
+ */
+export const CUT_CHIPS = {
+  Mods: [
+    ['SC220 Frames', 'Frames'],
+    ['Manual Corner Posts', 'Corner posts'],
+  ],
+  V4T: [
+    ['SC220 Uprights', 'Uprights'],
+    ['TA144 Vents', 'Vents'],
+    ['Manual Framing', 'Framing'],
+    ['Manual Traps', 'Traps'],
+    ['Manual Vinyl Fix', 'Vinyl fix'],
   ],
 }
 

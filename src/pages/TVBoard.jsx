@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { DONE_RANK, HEADLINE_TONE_CLASS, buildNumbers, byBuildOrder, daysUntil, relativeDay, stageRank, weekHeadline } from '../lib/schedule'
-import { blockText, checkinBlocks, clockLabel, countedProcesses, fmtQty, isoDate, planLine, processesFor, productiveMinutesPerDay, rateFor, ratePerHourOf, useSettings, weekPace, workingMinutesBetween } from '../lib/catalog'
+import { CUT_CHIPS, blockText, checkinBlocks, clockLabel, countedProcesses, fmtQty, isoDate, planLine, processesFor, productiveMinutesPerDay, rateFor, ratePerHourOf, useSettings, weekPace, workingMinutesBetween } from '../lib/catalog'
 
 /**
  * The 65" board above a department, on its own PC in full-screen Chrome.
@@ -180,6 +180,17 @@ export default function TVBoard({ department }) {
     return worst >= DONE_RANK ? 'done' : worst === 1 ? 'doing' : 'todo'
   }
   const queue = useMemo(() => orders.filter((o) => lane(o) !== 'done'), [orders, columnIds])
+
+  // The cut jobs this department waits on (CUT_CHIPS), for one order: only
+  // the ones the order actually has, each done / being cut / not cut yet.
+  const idByName = useMemo(() => Object.fromEntries(Object.entries(columnName).map(([id, n]) => [n, Number(id)])), [columnName])
+  const cutChips = (o) =>
+    (CUT_CHIPS[dept?.name] ?? []).flatMap(([name, label]) => {
+      const cell = o.others?.[idByName[name]]
+      if (!cell) return []
+      const rank = stageRank(cell.stage)
+      return [{ label, state: cell.blocked ? 'blocked' : rank >= DONE_RANK ? 'done' : rank === 1 ? 'doing' : 'todo' }]
+    })
   const blocked = useMemo(
     () => orders.flatMap((o) => columnIds.filter((id) => o.cells[id]?.blocked).map((id) => ({ o, id, cell: o.cells[id] }))),
     [orders, columnIds]
@@ -589,6 +600,26 @@ export default function TVBoard({ department }) {
                           {l === 'blocked' ? 'BLOCKED' : l === 'doing' ? 'In progress' : 'Not started'} · {o.dealer}
                           {i > 0 && dueTodayIds.has(o.id) && <span className="text-safety font-bold"> · TODAY</span>}
                         </span>
+                        {cutChips(o).length > 0 && (
+                          <span className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
+                            {cutChips(o).map((c) => (
+                              <span
+                                key={c.label}
+                                className={`rounded-md border px-2 py-[1px] text-[0.95vw] font-bold leading-snug whitespace-nowrap ${
+                                  c.state === 'blocked'
+                                    ? 'bg-andonRed border-andonRed text-white'
+                                    : c.state === 'done'
+                                      ? 'bg-[#16301F] border-[#4CC46F] text-[#7FD49A]'
+                                      : c.state === 'doing'
+                                        ? 'bg-[#4A3A0C] border-safety text-[#FFD966]'
+                                        : 'bg-charcoal/80 border-floorLine text-paper/80'
+                                }`}
+                              >
+                                ✂ {c.label} {c.state === 'done' ? '✓' : c.state === 'doing' ? 'cutting' : c.state === 'blocked' ? 'stuck' : 'not cut'}
+                              </span>
+                            ))}
+                          </span>
+                        )}
                       </span>
                       {due != null && (
                         <span

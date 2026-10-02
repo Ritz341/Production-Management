@@ -83,6 +83,10 @@
   .sheet th.mach{background:#000;font-size:8.5pt;letter-spacing:.06em}
   .srow .it button{border:0;background:none;color:var(--mute);cursor:pointer;padding:0 7px;font-size:13px}
   .srow .it button:hover{color:var(--red)}
+  .copies{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-top:12px;font-size:12px;font-weight:600;color:var(--ink2)}
+  .copies .sl{width:100%}
+  .copies label{display:inline-flex;align-items:center;gap:5px}
+  .copies input{width:48px;border:1px solid var(--faint);border-radius:7px;padding:5px 6px;font-size:14px}
   .leads-note{grid-column:1/-1;font-size:12px;color:var(--mute);margin-top:-4px}
   .full{grid-column:1/-1}
 
@@ -194,10 +198,12 @@
   .counts-t th .u{font-weight:400;text-transform:none;letter-spacing:0;color:#C9CED4;font-size:6.5pt}
   .counts-t td{height:0.34in;text-align:center}
   .counts-t td.tm{text-align:left;padding:0 5px;font-weight:700;font-family:var(--display);font-size:10pt;white-space:nowrap}
-  .counts-t .tmh{width:0.95in}
-  .counts-t .ppl{width:0.65in}
+  .counts-t .tmh{width:1.3in}
+  .counts-t .ppl{width:0.48in}
+  .counts-t .dt{width:0.6in}
+  .counts-t td.tm{font-size:9pt;white-space:normal;line-height:1.05}
   .counts-t td.ppl{background:#FAF8F4;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .counts-t tr.tot td{border-top:2px solid var(--ink)}
+  .counts-t td.dt{border-left:2px solid var(--ink)}
   .cnote{font-size:7.8pt;color:var(--mute);margin-top:3px}
   .codes{border:1.5px solid var(--red);border-radius:6px;padding:6px 8px;background:var(--red-bg);-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .codes ol{margin:0;padding:0;list-style:none;font-size:8pt;line-height:1.3;display:grid;grid-template-columns:1fr 1fr;column-gap:8px}
@@ -245,6 +251,7 @@
         <label class="f full">Note for the floor <input type="text" id="note" placeholder="e.g. Safety meeting 2:15 — printed on every sheet"></label>
       </div>
       <div class="leads" id="leads"></div>
+      <div class="copies"><span class="sl">Copies to print</span><span id="copies"></span></div>
       <details class="setup"><summary>Check-in times &amp; stations</summary><div id="setup"></div></details>
     </section>
   </div>
@@ -286,21 +293,25 @@ const DEPARTMENTS = [
     extra: [['# of mods', 'qty'], ['# of corner posts']],
     // A Pause box between Start and Done, for a job stopped part-way.
     pause: true },
-  { key: 'v4t',   name: 'V4T',   jobs: [['V4T', 'V4T'], ['Vin. Fix', 'Vin. Fix'], ['Vin. Trap', 'Vin. Trap']], stations: ['Vents cut', 'Vents built & glazed', 'Frames built & squared'], unit: 'inserts' },
+  { key: 'v4t',   name: 'V4T',   jobs: [['V4T', 'V4T'], ['Vin. Fix', 'Vin. Fix'], ['Vin. Trap', 'Vin. Trap']], stations: ['Vents building', 'Vents glazing', 'Frames built', 'Frames squared'], unit: 'inserts' },
   { key: 'track', name: 'Track', jobs: [['Track', 'Track']], stations: ['Tracks done'], unit: 'tracks' },
   { key: 'panel', name: 'Panel', jobs: [['Roof Panels', 'Roof Panels'], ['Roof Extr.', 'Roof Extr.'], ['Acrylic', 'Acrylic'], ['Mod Filler Panels', 'Filler']], stations: ['Roof panels', 'Mod filler panels', 'Acrylic panels'], unit: 'panels', note: ' Each bench counts its own panels.',
     // Every order gets filler panels, so every order is on the Panel sheet.
     // The Roof Panels / Roof Extr. / Acrylic marks only say whether the
     // room also has a roof panel; those boxes are hatched when it doesn't.
     everyOrder: true, hint: 'Filler on every order · ' },
-  // The cutting sheets. A job follows the build-sheet column of what it
-  // feeds: frames and corner posts follow Mods, uprights, vents and
-  // framing follow V4T, traps and vinyl fix their own columns.
-  { key: 'cnc', name: 'CNC', editJobs: true, unit: 'pieces',
-    jobs: [['Mods', 'Mods frames', 'SC220'], ['V4T', 'V4T uprights', 'SC220'], ['V4T', 'Vents — cut & drill', 'TA144']],
-    stations: ['SC220 — pieces cut', 'TA144 — vents cut & drilled'] },
+  // The cutting sheets, one per CNC machine plus the manual saw. A job
+  // follows the build-sheet column of what it feeds: frames and corner
+  // posts follow Mods, uprights, vents and framing follow V4T, traps and
+  // vinyl fix their own columns.
+  { key: 'sc220', name: 'SC220', kicker: 'CNC', editJobs: true, unit: 'pieces',
+    jobs: [['Mods', 'Mods frames'], ['V4T', 'V4T uprights']],
+    stations: ['Mods frames', 'V4T uprights'] },
+  { key: 'ta144', name: 'TA144', kicker: 'CNC', editJobs: true, unit: 'vents',
+    jobs: [['V4T', 'Vents — cut & drill']],
+    stations: ['Vents cut & drilled'] },
   { key: 'manual', name: 'Manual cut', editJobs: true, unit: 'pieces',
-    jobs: [['V4T', 'V4T framing — cut & punch', 'Manual saw / punch'], ['Vin. Trap', 'V4T trap — cut to length', 'Manual saw / punch'], ['Vin. Fix', 'Vinyl fix — cut to length', 'Manual saw / punch'], ['Mods', 'Corner posts', 'Manual saw / punch']],
+    jobs: [['V4T', 'V4T framing — cut & punch'], ['Vin. Trap', 'V4T trap — cut to length'], ['Vin. Fix', 'Vinyl fix — cut to length'], ['Mods', 'Corner posts']],
     stations: ['V4T framing', 'Traps', 'Vinyl fix', 'Corner posts'] },
 ]
 // The jobs a sheet shows: the PC's own list if it changed them, else the default.
@@ -331,7 +342,8 @@ const stationsOf = (d) => store.get('stations', {})[d.key] ?? d.stations
 // A note for the floor takes a row too.
 // More than 4 stations makes the count table's headings wrap taller.
 // A sheet with machine headings has a third heading row.
-const rowsFor = (d) => ROWS_PER_PAGE - Math.max(0, checkins().length - 4) - (stationsOf(d).length > 4 ? 1 : 0) - (jobsOf(d).some((j) => j[2]) ? 1 : 0) - ($('note').value.trim() ? 1 : 0)
+// Each station past four adds a row to the daily count.
+const rowsFor = (d) => ROWS_PER_PAGE - Math.max(0, stationsOf(d).length - 4) - (jobsOf(d).some((j) => j[2]) ? 1 : 0) - ($('note').value.trim() ? 1 : 0)
 // Every column the build sheet can have, longest first for header matching.
 const SHEET_COLUMNS = ['Tag Name', 'Dealer', 'Truck', 'Date', 'Mods', 'V4T', 'Vin. Fix', 'Vin. Trap', 'Alum. Fix', 'Alum. Trap', 'XX', 'H2/4', 'PVC', 'I-A', 'Doors', 'Roof Panels', 'Roof Extr.', 'Track', 'Therm a deck', 'Acrylic', 'Deck', 'Valance', 'Rail', 'PATIO Door', 'Glass', 'Pergola', 'R. Screen', 'Nova Sun', 'Stairs', 'Mod Filler Panels']
 
@@ -698,8 +710,8 @@ function renderSetup() {
       ${times.map((t, i) => item(`data-ci="${i}"`, t, 'time')).join('')}
       ${times.length < 6 ? '<button class="btn tiny" data-add-ci="1">+ Time</button>' : ''}</div>
     ${DEPARTMENTS.filter((d) => d.editJobs).map((d) => { const js = jobsOf(d); return `
-    <div class="srow jobs"><span class="sl">${d.name} sheet — machines &amp; jobs <small>(the column says which build-sheet column tells whether an order has it)</small></span>
-      ${js.map(([c, label, m], i) => `<span class="it job"><input data-jm="${d.key}" data-i="${i}" value="${esc(m ?? '')}" placeholder="Machine" class="m"><input data-jl="${d.key}" data-i="${i}" value="${esc(label)}" placeholder="Job"><select data-jc="${d.key}" data-i="${i}">${STATUS_COLS.map((x) => `<option${x === c ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select><button data-del-job="${d.key}" data-del-i="${i}" title="Remove">✕</button></span>`).join('')}
+    <div class="srow jobs"><span class="sl">${d.name} sheet — jobs <small>(the first box groups jobs under a heading, optional; the column says which build-sheet column tells whether an order has it)</small></span>
+      ${js.map(([c, label, m], i) => `<span class="it job"><input data-jm="${d.key}" data-i="${i}" value="${esc(m ?? '')}" placeholder="Heading (optional)" class="m"><input data-jl="${d.key}" data-i="${i}" value="${esc(label)}" placeholder="Job"><select data-jc="${d.key}" data-i="${i}">${STATUS_COLS.map((x) => `<option${x === c ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select><button data-del-job="${d.key}" data-del-i="${i}" title="Remove">✕</button></span>`).join('')}
       ${js.length < 6 ? `<button class="btn tiny" data-add-job="${d.key}">+ Job</button>` : ''}</div>` }).join('')}
     ${DEPARTMENTS.map((d) => { const st = stationsOf(d); return `
     <div class="srow"><span class="sl">${d.name} stations</span>
@@ -733,7 +745,7 @@ $('setup').addEventListener('click', (e) => {
   else if (ds.delCi != null) { const c = checkins().filter((_, i) => i !== Number(ds.delCi)); if (!c.length) return; store.set('blocks', c) }
   else if (ds.addSt) setStations(ds.addSt, [...stationsOf(DEPARTMENTS.find((d) => d.key === ds.addSt)), ''])
   else if (ds.delSt) { const st = stationsOf(DEPARTMENTS.find((d) => d.key === ds.delSt)).filter((_, i) => i !== Number(ds.delI)); if (!st.length) return; setStations(ds.delSt, st) }
-  else if (ds.addJob) { const js = jobsOf(deptBy(ds.addJob)); setJobs(ds.addJob, [...js, ['Mods', '', js[js.length - 1]?.[2] ?? '']]) }
+  else if (ds.addJob) { const js = jobsOf(deptBy(ds.addJob)); setJobs(ds.addJob, [...js, ['Mods', '', js[js.length - 1]?.[2] ?? '']].map((j) => [...j])) }
   else if (ds.delJob) { const js = jobsOf(deptBy(ds.delJob)).filter((_, i) => i !== Number(ds.delI)); if (!js.length) return; setJobs(ds.delJob, js) }
   else if (ds.reset) { if (!confirm('Put the time blocks, stations and cutting jobs back to the defaults?')) return; store.set('blocks', null); store.set('stations', {}); store.set('jobs', {}) }
   else return
@@ -794,13 +806,13 @@ function sheetHtml(d, list, page, pages, perPage = rowsFor(d), rowH = ROW_H) {
     return `<tr><td class="num">${o ? n : ''}</td><td class="tag">${o ? `<b${o.tag.length > 16 ? ' class="long"' : ''}>${tagBreaks(o.tag)}</b>` : ''}</td>${ext}${boxes}<td class="reason"></td></tr>`
   }).join('')
   const stations = stationsOf(d)
-  const blocks = times.map((t) => `<tr><td class="tm">${esc(t)}</td><td class="ppl"></td>${stations.map(() => '<td></td>').join('')}</tr>`).join('')
+  const countRows = stations.map((x) => `<tr><td class="tm">${esc(x)}</td><td class="ppl"></td>${times.map(() => '<td></td>').join('')}<td class="dt"></td></tr>`).join('')
   const codes = BLOCKS.map((b, i) => `<li><b>${i + 1}</b>${esc(b)}</li>`).join('')
   const val = (v, w) => `<span class="val" style="min-width:${w}">${esc(v) || '&nbsp;'}</span>`
   return `
   <section class="sheet">
     <div class="top">
-      <div><div class="kicker">Sunspace Truesdale · Lead sheet${pages > 1 ? ` · page ${page + 1} of ${pages}` : ''}</div><h1>${esc(d.name)}</h1></div>
+      <div><div class="kicker">Sunspace Truesdale · ${d.kicker ? esc(d.kicker) + ' · ' : ''}Lead sheet${pages > 1 ? ` · page ${page + 1} of ${pages}` : ''}</div><h1>${esc(d.name)}</h1></div>
       <div class="sf">
         <span><b>Date</b>${val(day.date, '1in')}</span>
         <span><b>Lead</b>${val(lead, '1.1in')}</span>
@@ -819,12 +831,12 @@ function sheetHtml(d, list, page, pages, perPage = rowsFor(d), rowH = ROW_H) {
     </div>
     <div class="bottom">
       <div class="counts-t">
-        <h2>People &amp; output by time block <small>Fill in at the end of each block</small></h2>
+        <h2>Daily count <small>Fill in at the end of each time block</small></h2>
         <table>
-          <thead><tr><th style="text-align:left" class="tmh">Time</th><th class="ppl">People<br>working</th>${stations.map((x) => `<th>${esc(x)}<br><span class="u">done in block</span></th>`).join('')}</tr></thead>
-          <tbody>${blocks}<tr class="tot"><td class="tm">Day total</td><td class="ppl"></td>${stations.map(() => '<td></td>').join('')}</tr></tbody>
+          <thead><tr><th style="text-align:left" class="tmh">Station</th><th class="ppl">Crew</th>${times.map((t) => `<th>${esc(t)}</th>`).join('')}<th class="dt">Day total</th></tr></thead>
+          <tbody>${countRows}</tbody>
         </table>
-        <div class="cnote">How many people worked in that block, and how many ${esc(d.unit)} were finished in that block — not a running total. If people moved in or out part-way, write it (e.g. 4→3).${d.note ? esc(d.note) : ''}</div>
+        <div class="cnote">Crew = people on that station. Each time box = how many ${esc(d.unit)} were finished in that block, not a running total. If the crew changes, write it in the box too (e.g. 12 · 4→3).${d.note ? esc(d.note) : ''}</div>
       </div>
       <div class="codes">
         <h2 style="color:var(--red)">Problem codes</h2>
@@ -841,16 +853,32 @@ function sheetHtml(d, list, page, pages, perPage = rowsFor(d), rowH = ROW_H) {
 // normal rows, the rows (and their text) shrink to fit them all, down to
 // MIN_ROW; only past that does a department run onto a second page.
 const ROW_H = 0.355, MIN_ROW = 0.18
-function buildSheets() {
+// How many copies of each department's sheet print (0 leaves it out);
+// the preview shows each once.
+const copiesOf = (d) => { const n = Number(store.get('copies', {})[d.key]); return Number.isFinite(n) && n >= 0 ? Math.min(n, 9) : 1 }
+function renderCopies() {
+  $('copies').innerHTML = DEPARTMENTS.map((d) => `<label>${d.name} <input type="number" min="0" max="9" data-copies="${d.key}" value="${copiesOf(d)}"></label>`).join('')
+}
+$('copies').addEventListener('input', (e) => {
+  const k = e.target.dataset.copies; if (!k) return
+  const all = store.get('copies', {}); all[k] = e.target.value === '' ? 1 : Math.max(0, Math.min(9, Math.round(Number(e.target.value)) || 0)); store.set('copies', all)
+  renderSheets()
+})
+function buildSheets(forPrint = false) {
   return DEPARTMENTS.map((d) => {
-    const list = orders.filter((o) => o.tag.trim() && o.depts[d.key])
-    const base = rowsFor(d)
-    const space = base * ROW_H
-    const rowH = list.length > base ? Math.max(MIN_ROW, space / list.length) : ROW_H
-    const per = Math.max(base, Math.floor(space / rowH + 1e-6))
-    const pages = Math.max(1, Math.ceil(list.length / per))
-    return Array.from({ length: pages }, (_, p) => sheetHtml(d, list.slice(p * per, (p + 1) * per), p, pages, per, rowH)).join('')
+    const times = forPrint ? copiesOf(d) : 1
+    if (!times) return ''
+    return Array.from({ length: times }, () => buildDept(d)).join('')
   }).join('')
+}
+function buildDept(d) {
+  const list = orders.filter((o) => o.tag.trim() && o.depts[d.key])
+  const base = rowsFor(d)
+  const space = base * ROW_H
+  const rowH = list.length > base ? Math.max(MIN_ROW, space / list.length) : ROW_H
+  const per = Math.max(base, Math.floor(space / rowH + 1e-6))
+  const pages = Math.max(1, Math.ceil(list.length / per))
+  return Array.from({ length: pages }, (_, p) => sheetHtml(d, list.slice(p * per, (p + 1) * per), p, pages, per, rowH)).join('')
 }
 
 // ── Loading sheet: every order in the list, grouped by truck ──
@@ -915,7 +943,7 @@ let previewView = 'floor'
 function renderSheets() {
   const html = buildSheets()
   const load = buildLoading()
-  $('sheets').innerHTML = html
+  $('sheets').innerHTML = buildSheets(true)
   $('loading').innerHTML = load
   $('preview').innerHTML = previewView === 'load' ? load || '<p class="empty">The loading sheet fills in once there are orders.</p>' : html
   fitPreview()
@@ -1079,6 +1107,7 @@ if (kept?.date === iso(new Date()) && kept.orders?.length) {
   setMsg(`Today's list is back (${orders.length} order${orders.length === 1 ? '' : 's'}). Paste again to add more, or Clear to start over.`, 'ok')
 }
 renderLeads()
+renderCopies()
 renderSetup()
 render()
 checkReminder()

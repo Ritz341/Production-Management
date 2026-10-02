@@ -68,15 +68,15 @@ export const RECOMMENDED_PROCESSES = {
   ],
   // Two lines running in parallel that meet at the squaring rack.
   // buffer = orders that can wait between this step and the next.
+  // Cutting and drilling vents (TA144) and cutting and punching frame parts
+  // (SC220 / the manual saw) are the cutting sheets' work, not V4T's count.
+  // The ids are the ones counts were already saved under; only the names
+  // and what's counted changed.
   V4T: [
-    { id: 'vents_cut', name: 'Vents cut', line: 'Vents', unit: 'vents', minutesEach: null, perFinished: 4, counted: true },
-    { id: 'vents_built', name: 'Vents built', line: 'Vents', unit: 'vents', minutesEach: null, perFinished: 4, counted: false },
-    { id: 'vents_glazed', name: 'Vents glazed', line: 'Vents', unit: 'vents', minutesEach: null, perFinished: 4, counted: true, buffer: 4 },
-    { id: 'frame_cut', name: 'Frame parts cut to size', line: 'Frames', unit: 'inserts', minutesEach: null, perFinished: 1, counted: false },
-    { id: 'frame_punch', name: 'Frame parts punched', line: 'Frames', unit: 'inserts', minutesEach: null, perFinished: 1, counted: true, buffer: 4 },
+    { id: 'vents_built', name: 'Vents building', line: 'Vents', unit: 'vents', minutesEach: null, perFinished: 4, counted: true },
+    { id: 'vents_glazed', name: 'Vents glazing', line: 'Vents', unit: 'vents', minutesEach: null, perFinished: 4, counted: true, buffer: 4 },
     { id: 'frames_built', name: 'Frames built', line: 'Frames', unit: 'inserts', minutesEach: null, perFinished: 1, counted: true, buffer: 4 },
-    { id: 'assembled', name: 'Vents into frame · squared & checked', line: 'Assembly', unit: 'inserts', minutesEach: null, perFinished: 1, counted: true },
-    { id: 'screened', name: 'Screened · ready for Mods', line: 'Assembly', unit: 'inserts', minutesEach: null, perFinished: 1, counted: true },
+    { id: 'assembled', name: 'Frames squared', line: 'Assembly', unit: 'inserts', minutesEach: null, perFinished: 1, counted: true },
   ],
   // Panel is one tablet over three benches that don't feed each other:
   // roof panels, the filler panels that go into a mod, and acrylic.
@@ -100,7 +100,9 @@ export const DEFAULT_SETTINGS = {
   // { Mods: { perPerson: 3, unit: 'mods' }, V4T: { perPerson: 12, unit: 'inserts' } }.
   rates: {},
   // When departments enter their count during the day (end of each block).
-  checkin_times: ['09:30', '11:30', '13:30', '16:00'],
+  // These are where the paper sheets' time blocks end — 7:00–9:00,
+  // 9:15–12:00, 12:30–2:00, 2:15–4:00 — i.e. the start of each break.
+  checkin_times: ['09:00', '12:00', '14:00', '16:00'],
   // Stations inside a department, in the order work flows through them.
   // minutesEach: minutes for ONE person to make ONE unit (null = not set)
   // — what a time study measures. perFinished: how many of this step's

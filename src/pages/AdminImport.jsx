@@ -20,6 +20,7 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
   const [source, setSource] = useState(null) // 'file' | 'paste' | 'ocr'
   const [dragging, setDragging] = useState(false)
   const [ocrProgress, setOcrProgress] = useState(0)
+  const [pasteText, setPasteText] = useState('')
 
   // Paste is bound to the document so admin can just hit Ctrl+V on arrival
   // without hunting for a box to focus first.
@@ -155,6 +156,14 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
       const file = imageItem.getAsFile()
       if (file) runImport(() => parseScreenshot(file, setOcrProgress), 'ocr')
     }
+  }
+
+  // The visible paste box: the same exact-text route as Ctrl+V on the page,
+  // for when the admin would rather click somewhere than hit the shortcut.
+  function readPasteBox(text) {
+    if (!text.trim()) return
+    setPasteText('')
+    runImport(() => parseClipboardText(text), 'paste')
   }
 
   function toggleStale(id) {
@@ -297,15 +306,46 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
         className={`border-2 border-dashed p-5 space-y-3 ${dragging ? 'border-safety bg-safety/10' : 'border-paperDim'}`}
       >
         <p className="text-sm font-medium text-steel">
-          Drop the Truesdale sheet here, or press <kbd className="px-1 border border-paperDim bg-paper">Ctrl</kbd>+
-          <kbd className="px-1 border border-paperDim bg-paper">V</kbd> to paste rows copied from Excel.
+          In the build sheet, select this week's rows (the header row is optional) →{' '}
+          <kbd className="px-1 border border-paperDim bg-paper">Ctrl</kbd>+<kbd className="px-1 border border-paperDim bg-paper">C</kbd> → click
+          the box → <kbd className="px-1 border border-paperDim bg-paper">Ctrl</kbd>+<kbd className="px-1 border border-paperDim bg-paper">V</kbd>.
         </p>
-        <p className="text-xs text-steelLight">
-          Pasting copied cells is exact — Excel puts the real values on the clipboard. You can select rows from partway
-          down the sheet without the header row; just start the selection at column A so the columns line up. A
-          screenshot has to be read by OCR, which guesses, so use it only when the file isn't available.
-        </p>
-        <input type="file" accept=".xlsx,.xls,image/*" onChange={handleFile} className="text-sm" />
+        <textarea
+          value={pasteText}
+          onChange={(e) => setPasteText(e.target.value)}
+          onPaste={(e) => {
+            const text = e.clipboardData?.getData('text/plain') ?? ''
+            if (!text.includes('\t')) return
+            e.preventDefault()
+            readPasteBox(text)
+          }}
+          placeholder="Paste the rows here (Ctrl+V) — they're read straight away."
+          rows={4}
+          className="w-full border border-paperDim p-2 font-mono text-xs"
+        />
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => readPasteBox(pasteText)}
+            disabled={!pasteText.trim() || busy}
+            className="bg-charcoal text-paper font-display font-bold px-4 py-2 text-sm disabled:opacity-40"
+          >
+            Read these rows
+          </button>
+          <span className="text-xs text-steelLight">
+            Pasted cells are exact — Excel puts the real values on the clipboard. Copy from the Date, Truck or Dealer
+            column; the columns are lined up from the tag names.
+          </span>
+        </div>
+        <details className="pt-2 border-t border-paperDim">
+          <summary className="cursor-pointer text-sm font-medium text-steel">Other ways: the Excel file or a screenshot</summary>
+          <div className="pt-3 space-y-2">
+            <p className="text-xs text-steelLight">
+              Drop the Truesdale sheet here, or choose a file. A screenshot has to be read by OCR, which guesses, so use it
+              only when the rows can't be copied.
+            </p>
+            <input type="file" accept=".xlsx,.xls,image/*" onChange={handleFile} className="text-sm" />
+          </div>
+        </details>
       </div>
 
       {busy && ocrProgress > 0 && (
@@ -356,9 +396,10 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
           )}
           {parsed.inferredColumns && (
             <p className="bg-safety/10 border border-safety p-3 text-sm text-charcoal">
-              No header row in this selection, so columns were matched by position against the sheet's normal layout
-              (Date, Truck, Dealer, Tag Name, then the status columns). The values themselves are exact — but glance
-              down the table below to confirm the statuses line up under the right departments.
+              No header row in this selection, so the Tag Name column was found by its values and the others matched by
+              position against the sheet's normal layout (Date, Truck, Dealer, Tag Name, then the status columns). The
+              values themselves are exact — but glance down the table below to confirm the statuses line up under the
+              right departments.
             </p>
           )}
           <section>

@@ -1,0 +1,1117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Floor Sheet Maker</title>
+<!--
+  Floor Sheet Maker — the day's paper sheets for the floor, from the
+  build sheet's rows.
+
+  For the weeks before the tablets: the PC copies the week's rows from the
+  build sheet, pastes them here, checks the list, and prints one sheet
+  each for Mods, V4T, Track and Panel with the orders already written in,
+  plus a loading sheet by truck.
+
+  One file, nothing to install: open it in Chrome. Pasting works offline.
+  Opening the Excel file and the weekly Excel backup load their reader
+  from cdn.sheetjs.com, so those need internet.
+  Lead names, the note, check-in times and stations stay on this PC.
+-->
+<style>
+  :root{
+    --ink:#14181C; --ink2:#3C434B; --mute:#666E78; --line:#9C978D; --faint:#CFCAC0; --rail:#F1EEE8;
+    --safety:#B37D00; --safety-bg:#FFF4D6; --yellow:#F2B705; --red:#B31F26; --red-bg:#FBE6E6; --green:#1F6B37; --green-bg:#E3F2E7;
+    --display:"Arial Narrow","Barlow Condensed",Haettenschweiler,sans-serif;
+    --body:"Segoe UI",Calibri,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--rail);color:var(--ink);font-family:var(--body);font-size:14px;line-height:1.4}
+  button,input,select,textarea{font:inherit;color:inherit}
+
+  /* ───────── the app (screen only) ───────── */
+  .app{max-width:1150px;margin:0 auto;padding:18px 18px 60px}
+  .bar{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--ink);color:#fff;padding:12px 18px;border-bottom:4px solid var(--yellow)}
+  .bar h1{font-family:var(--display);text-transform:uppercase;font-size:24px;margin:0;letter-spacing:.02em}
+  .bar small{color:#AEB5BE}
+  .barbtns{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+  .backup{background:none;color:#fff;border:1.5px solid #6B737D;border-radius:8px;font-weight:600;font-size:14px;padding:9px 14px;cursor:pointer}
+  .backup:hover{border-color:#fff}
+  .remind{background:var(--safety-bg);border-bottom:2px solid var(--safety);padding:10px 18px;font-size:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .remind[hidden]{display:none}
+  .howto{margin:0 0 8px;font-size:13px;color:var(--ink2)}
+  details.other{margin-top:12px;border-top:1px solid var(--faint);padding-top:8px}
+  details.other summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--ink2)}
+  details.other .drop{margin-top:8px}
+  .print{background:var(--yellow);color:var(--ink);border:0;border-radius:8px;font-family:var(--display);font-weight:700;font-size:20px;text-transform:uppercase;padding:10px 22px;cursor:pointer}
+  .print:disabled{opacity:.4;cursor:not-allowed}
+  .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:14px;margin-top:14px}
+  @media (max-width:820px){.grid{grid-template-columns:1fr}}
+  label.f input{min-width:0}
+  .card{background:#fff;border:1px solid var(--faint);border-radius:12px;padding:14px 16px}
+  .card h2{font-family:var(--display);text-transform:uppercase;font-size:18px;margin:0 0 8px;letter-spacing:.03em}
+  .step{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;font-size:12px;font-weight:700;margin-right:6px;vertical-align:2px}
+  .drop{border:2px dashed var(--line);border-radius:10px;padding:22px;text-align:center;color:var(--mute);cursor:pointer;transition:background .15s}
+  .drop.over{background:var(--safety-bg);border-color:var(--safety)}
+  .drop b{color:var(--ink)}
+  .drop img{max-width:100%;max-height:160px;margin-top:10px;border:1px solid var(--faint)}
+  textarea{width:100%;min-height:92px;border:1px solid var(--faint);border-radius:8px;padding:8px;font-family:Consolas,monospace;font-size:12px}
+  .row2{display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap}
+  .btn{background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer;font-weight:600}
+  .btn.dark{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .msg{margin-top:8px;font-size:13px}
+  .msg.err{color:var(--red)} .msg.ok{color:var(--green)} .msg.warn{color:var(--safety)}
+  label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:600;color:var(--ink2)}
+  label.f input,label.f select{border:1px solid var(--faint);border-radius:7px;padding:7px 8px;font-weight:400;font-size:14px}
+  .fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+  .leads{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:10px}
+  .lead-saved{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:600;color:var(--ink2);min-width:0}
+  .lead-saved .lv{display:flex;align-items:center;gap:6px;justify-content:space-between;border:1px solid var(--faint);background:var(--rail);border-radius:7px;padding:4px 4px 4px 8px;min-height:35px}
+  .lead-saved .lv b{font-size:14px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .btn.tiny{padding:3px 8px;font-size:12px;flex:none}
+  .setup{margin-top:12px;border-top:1px solid var(--faint);padding-top:8px}
+  .setup summary{cursor:pointer;font-weight:600;font-size:13px}
+  .srow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;font-size:12px}
+  .srow .sl{width:100%;font-weight:600;color:var(--ink2)}
+  .srow .it{display:inline-flex;align-items:center;border:1px solid var(--faint);border-radius:7px;background:#fff}
+  .srow .it input{border:0;padding:5px 6px;font-size:13px;min-width:0;width:170px;border-radius:7px}
+  .srow .it input.time{width:104px}
+  .srow.jobs .sl small{font-weight:400;color:var(--mute)}
+  .srow .it.job input{width:190px}
+  .srow .it.job input.m{width:150px;border-right:1px solid var(--faint);border-radius:7px 0 0 7px;font-weight:600}
+  .srow .it.job select{border:0;border-left:1px solid var(--faint);padding:5px;font-size:12px;color:var(--ink2);background:none}
+  .sheet th.mach{background:#000;font-size:8.5pt;letter-spacing:.06em}
+  .srow .it button{border:0;background:none;color:var(--mute);cursor:pointer;padding:0 7px;font-size:13px}
+  .srow .it button:hover{color:var(--red)}
+  .copies{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-top:12px;font-size:12px;font-weight:600;color:var(--ink2)}
+  .copies .sl{width:100%}
+  .copies label{display:inline-flex;align-items:center;gap:5px}
+  .copies input{width:48px;border:1px solid var(--faint);border-radius:7px;padding:5px 6px;font-size:14px}
+  .leads-note{grid-column:1/-1;font-size:12px;color:var(--mute);margin-top:-4px}
+  .full{grid-column:1/-1}
+
+  table.review{width:100%;border-collapse:collapse;font-size:13px}
+  .review th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);padding:6px 6px;border-bottom:2px solid var(--ink)}
+  .review td{padding:4px 6px;border-bottom:1px solid var(--rail);vertical-align:middle}
+  .review td.n{font-family:var(--display);font-weight:700;font-size:16px;width:34px;text-align:center}
+  .review input.t{width:100%;border:1px solid transparent;border-radius:6px;padding:5px 6px;font-weight:600}
+  .review input.t:hover,.review input.t:focus{border-color:var(--faint)}
+  .review input.d{width:100%;border:1px solid transparent;border-radius:6px;padding:5px 6px;color:var(--mute)}
+  .review input.d:hover,.review input.d:focus{border-color:var(--faint)}
+  .review .dept{text-align:center;width:66px}
+  .review th .an{display:block;font-size:10px;text-transform:none;letter-spacing:0;font-weight:400;white-space:nowrap}
+  .review th .an button{border:0;background:none;padding:0 2px;color:var(--ink2);cursor:pointer;text-decoration:underline;font-size:10px}
+  .review .dept input{width:18px;height:18px;accent-color:var(--ink)}
+  .review .ops{white-space:nowrap;width:92px;text-align:right}
+  .review .ops button{border:0;background:none;cursor:pointer;color:var(--mute);font-size:15px;padding:2px 5px}
+  .review .ops button:hover{color:var(--ink)}
+  .review tr.low input.t{background:var(--safety-bg)}
+  .counts{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 0}
+  .pill{background:var(--rail);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600}
+  .empty{color:var(--mute);text-align:center;padding:22px}
+  .fileicon{margin-top:10px;display:inline-block;background:var(--green-bg);color:var(--green);border-radius:8px;padding:6px 10px;font-weight:600}
+  .picker{margin-top:10px;border:2px solid var(--safety);background:var(--safety-bg);border-radius:10px;padding:10px 12px;font-size:13px}
+  .picker .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .picker .chips .btn small{font-weight:400;color:var(--mute)}
+
+  /* ───────── the printed sheets ───────── */
+  #sheets,#loading{display:none}
+  .tabs .tab{font-family:var(--body);text-transform:none;letter-spacing:0;font-size:13px;padding:5px 12px}
+  .tabs .tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .loadt tr.grp td{padding:0;border:0;height:auto}
+  .loadt tbody + tbody tr.grp td{padding-top:7px}
+  .ld-head{display:flex;justify-content:space-between;align-items:baseline;background:var(--ink);color:#fff;padding:4px 8px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .ld-head b{font-family:var(--display);font-size:15pt;text-transform:uppercase;letter-spacing:.02em}
+  .ld-head b small{font-family:var(--body);font-size:8.5pt;font-weight:400;text-transform:none;color:#C9CED4;margin-left:8px;letter-spacing:0}
+  .ld-head span{font-size:8.5pt;color:#E5E8EB}
+  .loadt{table-layout:fixed}
+  .loadt th{background:#3C434B!important;font-size:7pt!important}
+  .loadt td{height:0.3in;padding:0 4px;font-size:8.5pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .loadt td.num{text-align:center;font-family:var(--display);font-weight:700}
+  .loadt td.tg{font-family:var(--display);font-weight:700;font-size:10pt}
+  .loadt td.tg.long{font-size:8pt;letter-spacing:-.01em}
+  .loadt td.dl{color:var(--ink2);font-size:8pt}
+  .loadt td.bx{text-align:center}
+  .loadt td.bx.first{border-left:2.5px solid var(--ink2)}
+  .loadt td.na{background:repeating-linear-gradient(135deg,#fff 0 3px,#D9D4CA 3px 4px);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .loadt td i{font-style:normal;font-size:6.5pt;font-weight:700;color:var(--red);text-transform:uppercase}
+  .ld-key{font-size:8pt;color:var(--mute);margin:-2px 0 6px}
+  .ld-sum{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .ld-sum span{border:1px solid var(--line);border-radius:5px;padding:2px 7px;font-size:8.5pt}
+  @page{size:letter;margin:0}
+  @media print{
+    html,body{background:#fff}
+    .app,.bar,.remind{display:none!important}
+    #sheets{display:block}
+    body.print-load #sheets{display:none}
+    body.print-load #loading{display:block}
+    .sheet{break-after:page}
+    .sheet:last-child{break-after:auto}
+  }
+  .sheet{background:#fff;width:8.5in;height:11in;padding:0.42in 0.45in;display:flex;flex-direction:column;gap:9px;overflow:hidden;font-size:9.5pt;line-height:1.3}
+  .sheet h1{font-family:var(--display);text-transform:uppercase;font-weight:700;font-size:34pt;line-height:.9;margin:0;letter-spacing:-.01em}
+  .sheet h2{font-family:var(--display);text-transform:uppercase;font-size:11.5pt;letter-spacing:.06em;margin:0 0 4px;display:flex;justify-content:space-between;align-items:baseline}
+  .sheet h2 small{font-family:var(--body);text-transform:none;letter-spacing:0;font-size:8pt;font-weight:400;color:var(--mute)}
+  .top{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:end;border-bottom:3px solid var(--ink);padding-bottom:7px}
+  .kicker{font-size:8pt;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);font-weight:700}
+  .sf{display:grid;grid-template-columns:auto auto auto;gap:4px 14px;font-size:9pt}
+  .sf span{white-space:nowrap}
+  .sf b{font-weight:600;margin-right:4px}
+  .val{display:inline-block;min-width:.8in;border-bottom:1px solid var(--ink);font-family:var(--display);font-size:11pt;font-weight:700;padding:0 2px}
+  .note{background:var(--safety-bg);border-left:4px solid var(--safety);padding:4px 8px;font-weight:600;font-size:9.5pt}
+  .rules{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .rule{border:1.5px solid var(--ink);border-radius:6px;padding:5px 7px;font-size:8.3pt;line-height:1.25}
+  .rule > b:first-child{display:block;font-family:var(--display);text-transform:uppercase;font-size:11pt;letter-spacing:.02em;margin-bottom:1px}
+  .rule.start > b:first-child{color:var(--safety)} .rule.done > b:first-child{color:var(--green)} .rule.block > b:first-child{color:var(--red)}
+  .sheet table{border-collapse:collapse;width:100%}
+  .sheet th,.sheet td{border:1px solid var(--line)}
+  .sheet th{background:var(--ink);color:#fff;font-weight:600;font-size:7.8pt;text-transform:uppercase;letter-spacing:.03em;padding:3px;line-height:1.1;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .sheet th.job{border-left:2.5px solid #fff}
+  .sheet th.sub{background:#3C434B;font-size:7pt;padding:2px}
+  .orders{table-layout:fixed}
+  .orders td{height:var(--rowh,0.355in);padding:0 4px;font-size:8.5pt}
+  .orders.dense td{padding:0 3px;line-height:1}
+  .orders.dense td.tag{white-space:nowrap;text-overflow:ellipsis}
+  .orders.dense td.tag b,.orders.dense td.tag b.long{font-size:var(--tagfs)}
+  .orders.dense td.tag b.long{letter-spacing:-.02em}
+  .orders.dense td.num,.orders.dense td.qty{font-size:var(--numfs)}
+  .orders.dense td.box .cdone{font-size:var(--numfs)}
+  .sheet th.sub i{display:block;font-style:normal;font-weight:400;text-transform:none;letter-spacing:0;color:#C9CED4;font-size:6.5pt;margin-top:1px}
+  .orders td.num{width:0.34in;text-align:center;font-family:var(--display);font-weight:700;font-size:11pt}
+  .orders td.tag{overflow:hidden;white-space:normal;word-break:normal;overflow-wrap:normal;line-height:1.05}
+  .orders td.tag b{font-family:var(--display);font-size:10.5pt}
+  .orders td.tag b{font-size:10.5pt}
+  .orders td.tag b.long{font-size:9pt;letter-spacing:-.01em}
+  .sheet h2 .ttl{white-space:nowrap;margin-right:10px}
+  .sheet h2 small{text-align:right}
+  .orders td.qty{width:0.55in;text-align:center;font-family:var(--display);font-weight:700;font-size:11pt}
+  .sheet th.qty{width:0.55in}
+  .orders td.box{}
+  .orders td.box{text-align:center}
+  .orders td.box .cdone{font-family:var(--display);font-weight:700;font-size:10pt;color:#B9B3A8}
+  .orders td.box.first{border-left:2.5px solid var(--ink2)}
+  .orders td.na{background:repeating-linear-gradient(135deg,#fff 0 3px,#D9D4CA 3px 4px);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .sheet th.qty{font-size:7pt;line-height:1.05}
+  .bottom{display:grid;grid-template-columns:1.6fr 1fr;gap:10px;margin-top:auto}
+  .counts-t table{table-layout:fixed}
+  .counts-t th{font-size:7.2pt}
+  .counts-t th .u{font-weight:400;text-transform:none;letter-spacing:0;color:#C9CED4;font-size:6.5pt}
+  .counts-t td{height:0.34in;text-align:center}
+  .counts-t td.tm{text-align:left;padding:0 5px;font-weight:700;font-family:var(--display);font-size:10pt;white-space:nowrap}
+  .counts-t .tmh{width:1.3in}
+  .counts-t .ppl{width:0.48in}
+  .counts-t td.tm{font-size:9pt;white-space:normal;line-height:1.05}
+  .counts-t td.ppl{background:#FAF8F4;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .counts-t td.ppl{font-family:var(--display);font-weight:700;font-size:11pt}
+  .counts-t td.tm{border-right:2px solid var(--ink)}
+  .cnote{font-size:7.8pt;color:var(--mute);margin-top:3px}
+  .codes{border:1.5px solid var(--red);border-radius:6px;padding:6px 8px;background:var(--red-bg);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .codes ol{margin:0;padding:0;list-style:none;font-size:8pt;line-height:1.3;display:grid;grid-template-columns:1fr 1fr;column-gap:8px}
+  .codes li b{display:inline-block;width:1.25em;font-family:var(--display);font-size:10pt;color:var(--red)}
+  .codes .stops{margin-top:5px;padding-top:4px;border-top:1px solid #e3b5b5;font-size:8pt}
+  .codes .stops b{color:var(--ink)}
+  .codes .qc{margin-top:5px;padding-top:4px;border-top:1px solid #e3b5b5;font-size:8pt}
+  .foot{display:flex;justify-content:flex-end;font-size:7.8pt;color:var(--mute);border-top:1px solid var(--faint);padding-top:4px}
+  .preview .sheet{margin:16px auto;box-shadow:0 2px 14px rgba(0,0,0,.18);transform-origin:top center}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div><h1>Floor Sheet Maker</h1><small>Paste the week's rows → check the list → print the floor sheets</small></div>
+  <div class="barbtns"><button class="backup" id="backupBtn" title="Every day printed this week, as one Excel file">⬇ Week backup (Excel)</button><button class="backup" id="loadBtn" disabled title="Every order, grouped by truck, with a box to tick when it's on">🚚 Print loading sheet</button><button class="print" id="printBtn" disabled>🖨 Print sheets</button></div>
+</div>
+<div class="remind" id="remind" hidden></div>
+
+<div class="app">
+  <div class="grid">
+    <section class="card">
+      <h2><span class="step">1</span>Today's orders</h2>
+      <p class="howto">In the build sheet, select this week's rows (header row optional) → <b>Ctrl+C</b> → click in the box → <b>Ctrl+V</b>.</p>
+      <textarea id="paste" placeholder="Paste the rows here (Ctrl+V) — they're read straight away."></textarea>
+      <div class="row2"><button class="btn dark" id="readPaste">Read these rows</button><small style="color:var(--mute)">Typed or edited the box? Press this.</small></div>
+      <div class="msg" id="msg"></div>
+      <div class="picker" id="picker" hidden></div>
+      <details class="other" id="other">
+        <summary>Other way: open the Excel file</summary>
+        <div class="drop" id="drop" tabindex="0">
+          <b>Drag in the Excel file</b>, or <u>click to choose it</u>.<br>
+          <small>Only the <b>Truesdale</b> tab is read. Needs internet.</small>
+          <div id="thumb"></div>
+        </div>
+        <input type="file" id="file" accept=".xlsx,.xlsm,.xlsb,.xls" hidden>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2><span class="step">2</span>The day</h2>
+      <div class="fields">
+        <label class="f">Date <input type="date" id="date"></label>
+        <label class="f">Ship / pickup date <input type="date" id="ship"></label>
+        <label class="f">Crew today <input type="text" id="crew" placeholder="optional"></label>
+        <label class="f full">Note for the floor <input type="text" id="note" placeholder="e.g. Safety meeting 2:15 — printed on every sheet"></label>
+      </div>
+      <div class="leads" id="leads"></div>
+      <div class="copies"><span class="sl">Copies to print</span><span id="copies"></span></div>
+      <details class="setup"><summary>Check-in times &amp; stations</summary><div id="setup"></div></details>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:14px">
+    <h2 style="display:flex;justify-content:space-between;align-items:baseline">
+      <span><span class="step">3</span>Check the list <small style="font-family:var(--body);text-transform:none;letter-spacing:0;color:var(--mute);font-size:12px;font-weight:400">— in build order. Fix a tag if needed, untick a department that isn’t building it.</small></span>
+      <span><button class="btn" id="tickAll">✓ Tick all</button> <button class="btn" id="untickAll">Untick all</button> <button class="btn" id="addRow">+ Add order</button> <button class="btn" id="clearAll">Clear</button></span>
+    </h2>
+    <table class="review">
+      <thead><tr id="reviewHead"></tr></thead>
+      <tbody id="list"></tbody>
+    </table>
+    <div class="counts" id="counts"></div>
+  </section>
+
+  <section class="card preview" style="margin-top:14px">
+    <h2 style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px"><span><span class="step">4</span>Preview <small style="font-family:var(--body);text-transform:none;letter-spacing:0;color:var(--mute);font-size:12px;font-weight:400">— exactly what prints</small></span>
+      <span class="tabs"><button class="btn tab on" data-view="floor">Floor sheets</button><button class="btn tab" data-view="load">Loading sheet</button></span></h2>
+    <div id="preview"></div>
+  </section>
+</div>
+
+<main id="sheets"></main>
+<main id="loading"></main>
+
+<script>
+// ── What each department's sheet is made of ──
+// jobs:     [build-sheet column, label, machine?] — each becomes Start/Done
+//           boxes; the column says whether the order has that job (blank =
+//           hatched, C = done). Jobs sharing a machine sit under one heading.
+// stations: the columns of the people & output table.
+// editJobs: the PC can change the jobs (and machines) under setup.
+const DEPARTMENTS = [
+  { key: 'mods',  name: 'Mods',  jobs: [['Mods', 'Mods']], stations: ['Framing (frames)', 'Staging (finished mods)'], unit: 'mods',
+    // Small write-in columns after the tag; '# of mods' is filled in when
+    // the build sheet has a number. Corner posts are cut on the manual saw
+    // and packaged with the mods.
+    extra: [['# of mods', 'qty'], ['# of corner posts']],
+    // A Pause box between Start and Done, for a job stopped part-way.
+    pause: true },
+  { key: 'v4t',   name: 'V4T',   jobs: [['V4T', 'V4T'], ['Vin. Fix', 'Vin. Fix'], ['Vin. Trap', 'Vin. Trap']], stations: ['Vents building', 'Vents glazing', 'Frames built', 'Frames squared'], unit: 'inserts' },
+  { key: 'track', name: 'Track', jobs: [['Track', 'Track']], stations: ['Tracks done'], unit: 'tracks' },
+  { key: 'panel', name: 'Panel', jobs: [['Roof Panels', 'Roof Panels'], ['Roof Extr.', 'Roof Extr.'], ['Acrylic', 'Acrylic'], ['Mod Filler Panels', 'Filler']], stations: ['Roof panels', 'Mod filler panels', 'Acrylic panels'], unit: 'panels', note: ' Each bench counts its own panels.',
+    // Every order gets filler panels, so every order is on the Panel sheet.
+    // The Roof Panels / Roof Extr. / Acrylic marks only say whether the
+    // room also has a roof panel; those boxes are hatched when it doesn't.
+    everyOrder: true, hint: 'Filler on every order · ' },
+  // The cutting sheets, one per CNC machine plus the manual saw. A job
+  // follows the build-sheet column of what it feeds: frames and corner
+  // posts follow Mods, uprights, vents and framing follow V4T, traps and
+  // vinyl fix their own columns.
+  { key: 'sc220', name: 'SC220', kicker: 'CNC', editJobs: true, unit: 'pieces',
+    jobs: [['Mods', 'Mods frames'], ['V4T', 'V4T uprights']],
+    stations: ['Mods frames', 'V4T uprights'] },
+  { key: 'ta144', name: 'TA144', kicker: 'CNC', editJobs: true, unit: 'vents',
+    jobs: [['V4T', 'Vents — cut & drill']],
+    stations: ['Vents cut & drilled'] },
+  { key: 'manual', name: 'Manual cut', editJobs: true, unit: 'pieces',
+    jobs: [['V4T', 'V4T framing — cut & punch'], ['Vin. Trap', 'V4T trap — cut to length'], ['Vin. Fix', 'Vinyl fix — cut to length'], ['Mods', 'Corner posts']],
+    stations: ['V4T framing', 'Traps', 'Vinyl fix', 'Corner posts'] },
+]
+// The jobs a sheet shows: the PC's own list if it changed them, else the default.
+const jobsOf = (d) => (d.editJobs && store.get('jobs', {})[d.key]) || d.jobs
+// Build-sheet status columns a job can follow.
+const STATUS_COLS = ['Mods', 'V4T', 'Vin. Fix', 'Vin. Trap', 'Alum. Fix', 'Alum. Trap', 'XX', 'H2/4', 'PVC', 'I-A', 'Doors', 'Roof Panels', 'Roof Extr.', 'Track', 'Therm a deck', 'Acrylic', 'Deck', 'Valance', 'Rail', 'PATIO Door', 'Glass', 'Pergola', 'R. Screen', 'Nova Sun', 'Stairs', 'Mod Filler Panels']
+// Defaults; the PC can change the times and each department's stations
+// under "Check-in times & stations", kept on this PC.
+// The day's time blocks: for each one the lead writes how many people
+// worked and how much got done in that block, so output can be read
+// against crew size as people move around. The PC can change them.
+const CHECKINS = ['7:00–9:00', '9:15–12:00', '12:30–2:00', '2:15–4:00']
+// What goes on the truck for each order (not on the loading sheet yet —
+// kept on each order for when it is), and the build-sheet columns that
+// say whether the order has it. Panel is on every order (filler).
+const LOAD_ITEMS = { mods: ['Mods'], v4t: ['V4T', 'Vin. Fix', 'Vin. Trap'], track: ['Track'], panel: ['Roof Panels', 'Roof Extr.', 'Acrylic'], doors: ['Doors'] }
+// Same list, same order as the tablet's "report a problem" picker.
+const BLOCKS = ['Material shortage', 'Machine down', 'Rework / wrong cut', 'Waiting on another dept', 'Missing info / paperwork', 'Short-staffed', 'Order change', 'Other — write it']
+// Stops that aren't problems: a short code, or just write it.
+const STOPS = [['B', 'break'], ['LB', 'lunch break'], ['EOS', 'end of shift']]
+// Order rows per page with up to 4 time blocks; each extra block takes
+// one order row so the page still fits.
+const ROWS_PER_PAGE = 15
+// Saved under a new key: the old check-in times (11:30, 3:30) were points
+// in time, not blocks, so they don't carry over.
+const checkins = () => store.get('blocks', null) ?? CHECKINS
+const stationsOf = (d) => store.get('stations', {})[d.key] ?? d.stations
+// A note for the floor takes a row too.
+// More than 4 stations makes the count table's headings wrap taller.
+// A sheet with machine headings has a third heading row.
+// Each station past four adds a row to the daily count.
+const rowsFor = (d) => ROWS_PER_PAGE - Math.max(0, stationsOf(d).length - 4) - (jobsOf(d).some((j) => j[2]) ? 1 : 0) - ($('note').value.trim() ? 1 : 0)
+// Every column the build sheet can have, longest first for header matching.
+const SHEET_COLUMNS = ['Tag Name', 'Dealer', 'Truck', 'Date', 'Mods', 'V4T', 'Vin. Fix', 'Vin. Trap', 'Alum. Fix', 'Alum. Trap', 'XX', 'H2/4', 'PVC', 'I-A', 'Doors', 'Roof Panels', 'Roof Extr.', 'Track', 'Therm a deck', 'Acrylic', 'Deck', 'Valance', 'Rail', 'PATIO Door', 'Glass', 'Pergola', 'R. Screen', 'Nova Sun', 'Stairs', 'Mod Filler Panels']
+
+const $ = (id) => document.getElementById(id)
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+const norm = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9/]/g, '')
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const nice = (v) => (v ? new Date(v + 'T00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : '')
+
+// ── State ──
+// orders: [{ tag, dealer, depts: { mods: bool… }, jobs: { 'Roof Panels': true… } | null, low: bool }]
+// jobs is what the build sheet said applies (null when typed or unknown:
+// then every job box is left open to write in).
+let orders = []
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('fsm:' + k); return v == null ? d : JSON.parse(v) } catch { return d } },
+  set(k, v) { try { localStorage.setItem('fsm:' + k, JSON.stringify(v)) } catch {} },
+}
+
+// ── Reading rows (from a paste or the Excel file) ──
+// A department takes an order when any of its columns has something in
+// it that isn't "C": blank means the order doesn't need that department,
+// C means it's already done.
+//
+// The Truesdale tab holds every pickup week, each under a "PICK UP 10/2"
+// banner row (in the Dealer column), so every order remembers which
+// pickup it sits under. Rows the Date column marks Shipped / Picked up,
+// and rows with nothing left for any of the four departments, are left
+// off and counted.
+const PICKUP_BANNER = /pick\s*up\D{0,20}(\d{1,2})\/(\d{1,2})/i
+// Same rule as the app's importer: a month/day more than ~6 months
+// back means next year's.
+function pickupIso(month, day) {
+  const now = new Date()
+  let year = now.getFullYear()
+  if (new Date(year, month - 1, day) < new Date(now.getTime() - 180 * 864e5)) year += 1
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+function bannerIn(row, dealerRaw, tag) {
+  let m = dealerRaw.match(/^\s*pick\s*up\D{0,20}(\d{1,2})\/(\d{1,2})/i)
+  // A paste that starts off by a column can put the banner in another
+  // cell; look at the whole row, but only when the tag slot isn't a real order.
+  if (!m && (!tag || /pick\s*up|current\s*as\s*of/i.test(tag))) m = row.map((c) => String(c ?? '')).join(' ').match(PICKUP_BANNER)
+  return m ? { iso: pickupIso(Number(m[1]), Number(m[2])) } : null
+}
+
+// A paste from the middle of the sheet has no header row (row 1 is frozen
+// and rarely in the selection). Then the Tag Name column is found by its
+// values — "FOSTER_168004" — and the columns to its right are named in
+// sheet order: the order last seen in a header (the Excel file, or a paste
+// that had one), else the build sheet's own header, left to right:
+// Date, Truck, Dealer, Tag Name, then these.
+const DEFAULT_LAYOUT = ['Mods', 'V4T', 'Vin. Fix', 'Vin. Trap', 'Alum. Fix', 'Alum. Trap', 'XX', 'H2/4', 'PVC', 'I-A', 'Doors', 'Roof Panels', 'Roof Extr.', 'Track', 'Therm a deck', 'Acrylic', 'Deck', 'Valance', 'Rail', 'PATIO Door', 'Glass', 'Pergola', 'R. Screen', 'Nova Sun', 'Stairs']
+const TAG_SHAPED = /_\d{4,}\s*$/
+const canon = (h) => { const n = norm(h); return n ? SHEET_COLUMNS.find((c) => norm(c) === n) ?? null : null }
+
+function headerFor(grid) {
+  const headerIdx = grid.findIndex((r) => r.some((c) => /tag\s*name/i.test(String(c ?? ''))))
+  if (headerIdx !== -1) {
+    const raw = grid[headerIdx].map((c) => String(c ?? '').trim())
+    const t = raw.findIndex((c) => /tag\s*name/i.test(c))
+    return { header: raw.map(canon), start: headerIdx + 1, layout: raw.slice(t + 1) }
+  }
+  const width = Math.max(0, ...grid.map((r) => r.length))
+  let t = -1, best = 0
+  for (let i = 0; i < width; i++) {
+    const n = grid.filter((r) => TAG_SHAPED.test(String(r[i] ?? ''))).length
+    if (n > best) { best = n; t = i }
+  }
+  if (t === -1) return null
+  const remembered = store.get('layout', null)
+  const header = Array(width).fill(null)
+  ;['Tag Name', 'Dealer', 'Truck', 'Date'].forEach((name, k) => { if (t - k >= 0) header[t - k] = name })
+  ;(remembered ?? DEFAULT_LAYOUT).forEach((name, i) => { if (t + 1 + i < width) header[t + 1 + i] = canon(name) })
+  return { header, start: 0, inferred: remembered ? 'remembered' : 'default' }
+}
+
+function ordersFromGrid(grid) {
+  const found = headerFor(grid)
+  if (!found) return null
+  const { header, start, layout, inferred } = found
+  const col = (name) => header.indexOf(name)
+  const cell = (row, name) => { const i = col(name); return i === -1 ? '' : String(row[i] ?? '').trim() }
+  const out = []
+  const sections = [] // [{ iso, count }] in sheet order
+  let section = null
+  const shipped = [] // tags the Date column marks shipped / picked up
+  for (const row of grid.slice(start)) {
+    const tag = cell(row, 'Tag Name')
+    const dealerRaw = cell(row, 'Dealer')
+    const banner = bannerIn(row, dealerRaw, tag)
+    if (banner) {
+      section = sections.find((x) => x.iso === banner.iso)
+      if (!section) sections.push(section = { iso: banner.iso, count: 0 })
+      continue
+    }
+    if (!tag || /^pick\s*up|^current\s*as\s*of/i.test(tag) || /tag\s*name/i.test(tag)) continue
+    if (/ship|picked\s*up/i.test(cell(row, 'Date'))) { shipped.push(tag); continue }
+    // Every order goes on every department's sheet, as the build sheet
+    // lists it — a C never takes an order off. Each job only records what
+    // its cell said, for the boxes: 'na' blank (not part of this order),
+    // 'done' C, true anything else, null when the sheet has no such column.
+    const jobs = {}
+    const depts = {}
+    for (const d of DEPARTMENTS) depts[d.key] = true
+    for (const colName of STATUS_COLS) {
+      if (col(colName) === -1) { jobs[colName] = null; continue }
+      const v = cell(row, colName)
+      jobs[colName] = v === '' ? 'na' : v.toLowerCase() === 'c' ? 'done' : true
+    }
+    if (section) section.count++
+    const mods = cell(row, 'Mods')
+    // What the order has at all (blank = not part of this order; C or X =
+    // it is), for the loading sheet. null when the sheet lacks the column.
+    const has = {}, open = {}
+    for (const [k, cols] of Object.entries(LOAD_ITEMS)) {
+      const present = cols.filter((c) => col(c) !== -1)
+      has[k] = k === 'panel' ? true : present.length ? present.some((c) => cell(row, c) !== '') : null
+      open[k] = present.some((c) => { const v = cell(row, c); return v !== '' && v.toLowerCase() !== 'c' })
+    }
+    out.push({ tag, has, open, truck: cell(row, 'Truck'), dealer: /^pick\s*up/i.test(dealerRaw) ? '' : dealerRaw, depts, jobs, low: !!row.low, pickup: section?.iso ?? null, qty: /^\d+$/.test(mods) ? mods : '' })
+  }
+  return { orders: out, sections: sections.filter((x) => x.count), shipped, layout, inferred }
+}
+
+// A paste with no header row and no tag column found: take anything that looks
+// like a tag name, one per line, onto every sheet.
+const TAG_RE = /\b[A-Z0-9]{1,6}(?:-[A-Z0-9]{1,12}){1,5}(?:[_-]\d{4,7})?\b/g
+function ordersFromLooseText(text) {
+  const seen = new Set()
+  const out = []
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.toUpperCase().match(TAG_RE)
+    if (!m) continue
+    const tag = m.sort((a, b) => b.length - a.length)[0]
+    if (seen.has(tag)) continue
+    seen.add(tag)
+    out.push({ tag, dealer: '', depts: Object.fromEntries(DEPARTMENTS.map((d) => [d.key, true])), jobs: null, low: true })
+  }
+  return out
+}
+
+// Excel puts a cell that holds a line break in quotes; splitting on every
+// newline would cut that order in two. Walk the text instead.
+function gridFromClipboard(text) {
+  const rows = []
+  let row = [], cellText = '', quoted = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') { cellText += '"'; i++ }
+      else if (ch === '"') quoted = false
+      else cellText += ch
+    } else if (ch === '"' && cellText === '') quoted = true
+    else if (ch === '\t') { row.push(cellText); cellText = '' }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++
+      row.push(cellText); rows.push(row); row = []; cellText = ''
+    } else cellText += ch
+  }
+  if (cellText !== '' || row.length) { row.push(cellText); rows.push(row) }
+  return rows.filter((r) => r.some((c) => c.trim()))
+}
+
+function readPasted(text) {
+  const grid = gridFromClipboard(text)
+  const parsed = ordersFromGrid(grid)
+  if (parsed && (parsed.orders.length || parsed.shipped.length)) { rememberLayout(parsed); return { ...parsed, how: 'header' } }
+  return { orders: ordersFromLooseText(text), sections: [], shipped: [], how: 'loose' }
+}
+
+// ── Excel workbook: the Truesdale tab only ──
+let xlsxReady = null
+function loadXlsx() {
+  if (window.XLSX) return Promise.resolve()
+  xlsxReady ??= new Promise((resolve, reject) => {
+    const s = document.createElement('script')
+    s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'
+    s.onload = resolve
+    s.onerror = () => { xlsxReady = null; reject(new Error("Couldn't load the Excel reader — this PC needs internet to open the file. Open it in Excel, copy the rows and paste them below instead; that works offline.")) }
+    document.head.appendChild(s)
+  })
+  return xlsxReady
+}
+const isWorkbook = (f) => /\.(xlsx|xlsm|xlsb|xls)$/i.test(f.name) || /spreadsheet|ms-excel/.test(f.type)
+const cellText = (v) => (v == null ? '' : v instanceof Date ? `${v.getMonth() + 1}/${v.getDate()}` : String(v))
+
+async function readWorkbook(file) {
+  $('thumb').innerHTML = ''
+  setMsg('Opening the workbook…', '')
+  try {
+    await loadXlsx()
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
+    // Same rule as the app's importer: the tab named Truesdale, and nothing else.
+    const name = wb.SheetNames.find((n) => n.trim().toLowerCase() === 'truesdale')
+    if (!name) return setMsg(`No "Truesdale" tab in ${file.name}. Tabs in this file: ${wb.SheetNames.join(', ')}.`, 'err')
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: null, raw: true })
+    const parsed = ordersFromGrid(rows.map((r) => Array.from(r ?? [], cellText)))
+    if (!parsed || parsed.inferred) return setMsg(`Found the Truesdale tab, but no header row with "Tag Name" in it.`, 'err')
+    rememberLayout(parsed)
+    $('thumb').innerHTML = `<div class="fileicon">📊 ${esc(file.name)} → ${esc(name)} tab</div>`
+    if (!parsed.orders.length) return setMsg(`Nothing left to build on the Truesdale tab${leftOff(parsed)}`, 'warn')
+    offer(parsed, 'header', 'Truesdale tab')
+  } catch (e) {
+    setMsg(e.message || String(e), 'err')
+  }
+}
+function readFile(f) { if (isWorkbook(f)) readWorkbook(f); else setMsg(`${f.name} isn't an Excel file. Copy the rows from the build sheet and paste them in the box instead.`, 'err') }
+
+// A header seen in the Excel file or a paste is the sheet's real column
+// order: keep it, so later pastes without a header line up exactly.
+function rememberLayout(parsed) {
+  if (parsed.layout?.some((h) => canon(h) === 'Mods') && parsed.layout.some((h) => canon(h) === 'Track')) store.set('layout', parsed.layout)
+}
+
+function leftOff({ shipped }) {
+  let t = '.'
+  const n = shipped?.length ?? 0
+  if (n) t = ` — left off ${n} already shipped (${shipped.slice(0, 4).join(', ')}${n > 4 ? '…' : ''}).`
+  return t
+}
+
+// More than one pickup in what was read: ask which one today's sheets are
+// for, and take the ship date from its banner.
+let pending = null
+function offer(parsed, how, source) {
+  hidePicker()
+  const noBanner = parsed.orders.filter((o) => !o.pickup).length
+  if (parsed.sections.length + (noBanner ? 1 : 0) > 1) {
+    pending = { parsed, how, source }
+    const chip = (k, title, n) => `<button class="btn" data-pick="${k}">${title} <small>· ${n} order${n === 1 ? '' : 's'}</small></button>`
+    const p = $('picker')
+    p.innerHTML = `<b>${source === 'Truesdale tab' ? 'The Truesdale tab' : 'This'} has ${parsed.sections.length} pickups. Which one are today's sheets for?</b>
+      <div class="chips">${parsed.sections.map((x) => chip(x.iso, 'Pickup ' + nice(x.iso), x.count)).join('')}${noBanner ? chip('none', 'Above the first pickup', noBanner) : ''}${chip('all', 'All of them', parsed.orders.length)}</div>`
+    p.hidden = false
+    setMsg(`Read ${parsed.orders.length} orders to build${leftOff(parsed)}`, 'ok')
+    return
+  }
+  if (parsed.sections.length === 1) $('ship').value = parsed.sections[0].iso
+  addOrders(parsed.orders, how, source, parsed)
+}
+function hidePicker() { pending = null; $('picker').hidden = true; $('picker').innerHTML = '' }
+$('picker').addEventListener('click', (e) => {
+  const k = e.target.closest('[data-pick]')?.dataset.pick; if (!k || !pending) return
+  const { parsed, how, source } = pending
+  const list = k === 'all' ? parsed.orders : parsed.orders.filter((o) => o.pickup === (k === 'none' ? null : k))
+  if (k !== 'all' && k !== 'none') $('ship').value = k
+  hidePicker()
+  addOrders(list, how, k === 'all' || k === 'none' ? source : `${source}, pickup ${nice(k)}`, parsed)
+})
+
+function addOrders(found, how, source, parsed) {
+  const have = new Set(orders.map((o) => o.tag.toUpperCase()))
+  const fresh = found.filter((o) => !have.has(o.tag.toUpperCase()))
+  orders = [...orders, ...fresh]
+  const skipped = found.length - fresh.length
+  const lows = fresh.filter((o) => o.low).length
+  let text = `Added ${fresh.length} order${fresh.length === 1 ? '' : 's'} from the ${source}${parsed ? leftOff(parsed) : '.'}`
+  if (skipped) text += ` ${skipped} already on the list.`
+  if (parsed?.inferred) text += parsed.inferred === 'remembered'
+    ? ' No header row, so columns were matched to the last header seen — check the ticks.'
+    : ' No header row, so columns were matched by their usual place on the build sheet — check the ticks.'
+  if (how === 'loose') text += " Couldn't see the column headers, so every order is on every sheet — untick the departments that don't build it."
+  if (lows) text += ` ${lows} highlighted in yellow were hard to read — check them against the sheet.`
+  setMsg(text, how === 'loose' || lows || parsed?.inferred ? 'warn' : 'ok')
+  render()
+}
+
+function setMsg(text, kind) { const m = $('msg'); m.textContent = text; m.className = 'msg ' + (kind || '') }
+
+// ── The review list ──
+// Each department heading has its own all / none for that column.
+$('reviewHead').innerHTML = `<th>#</th><th>Tag name</th><th>Dealer</th>${DEPARTMENTS.map((d) => `<th class="dept">${d.name}<span class="an"><button data-all="${d.key}">all</button>·<button data-none="${d.key}">none</button></span></th>`).join('')}<th></th>`
+function tick(keys, on) {
+  for (const o of orders) for (const k of keys) o.depts[k] = on
+  render()
+}
+$('reviewHead').addEventListener('click', (e) => {
+  const { all, none } = e.target.dataset
+  if (all) tick([all], true); else if (none) tick([none], false)
+})
+$('tickAll').onclick = () => tick(DEPARTMENTS.map((d) => d.key), true)
+$('untickAll').onclick = () => tick(DEPARTMENTS.map((d) => d.key), false)
+function renderList() {
+  const tb = $('list')
+  if (!orders.length) { tb.innerHTML = `<tr><td colspan="${4 + DEPARTMENTS.length}" class="empty">No orders yet — paste the rows above, or add them by hand.</td></tr>`; return }
+  tb.innerHTML = orders.map((o, i) => `
+    <tr class="${o.low ? 'low' : ''}" data-i="${i}">
+      <td class="n">${i + 1}</td>
+      <td><input class="t" data-f="tag" value="${esc(o.tag)}" placeholder="Tag name"></td>
+      <td><input class="d" data-f="dealer" value="${esc(o.dealer)}" placeholder="Dealer"></td>
+      ${DEPARTMENTS.map((d) => `<td class="dept"><input type="checkbox" data-d="${d.key}" ${o.depts[d.key] ? 'checked' : ''} aria-label="${d.name}"></td>`).join('')}
+      <td class="ops"><button data-op="up" title="Move up">▲</button><button data-op="down" title="Move down">▼</button><button data-op="del" title="Remove">✕</button></td>
+    </tr>`).join('')
+}
+
+$('list').addEventListener('input', (e) => {
+  const tr = e.target.closest('tr[data-i]'); if (!tr) return
+  const o = orders[Number(tr.dataset.i)]
+  if (e.target.dataset.f) { o[e.target.dataset.f] = e.target.value; o.low = false; tr.classList.remove('low'); renderSheets(); saveToday() }
+})
+$('list').addEventListener('change', (e) => {
+  const tr = e.target.closest('tr[data-i]'); if (!tr || !e.target.dataset.d) return
+  orders[Number(tr.dataset.i)].depts[e.target.dataset.d] = e.target.checked
+  renderCounts(); renderSheets(); saveToday()
+})
+$('list').addEventListener('click', (e) => {
+  const op = e.target.dataset.op; if (!op) return
+  const i = Number(e.target.closest('tr').dataset.i)
+  if (op === 'del') orders.splice(i, 1)
+  if (op === 'up' && i > 0) [orders[i - 1], orders[i]] = [orders[i], orders[i - 1]]
+  if (op === 'down' && i < orders.length - 1) [orders[i + 1], orders[i]] = [orders[i], orders[i + 1]]
+  render()
+})
+$('addRow').onclick = () => {
+  orders.push({ tag: '', dealer: '', depts: Object.fromEntries(DEPARTMENTS.map((d) => [d.key, true])), jobs: null, low: false })
+  render()
+  const inputs = document.querySelectorAll('#list input.t'); inputs[inputs.length - 1]?.focus()
+}
+$('clearAll').onclick = () => { if (!orders.length || confirm('Clear the whole list?')) { orders = []; $('thumb').innerHTML = ''; setMsg('', ''); hidePicker(); render() } }
+
+function renderCounts() {
+  $('counts').innerHTML = DEPARTMENTS.map((d) => `<span class="pill">${d.name}: ${orders.filter((o) => o.tag.trim() && o.depts[d.key]).length}</span>`).join('')
+}
+
+// ── The day ──
+// Lead names are kept on this PC and come back every day. A saved name
+// shows locked, so it isn't changed by a stray click; Change opens it.
+let editingLead = null, leadBefore = ''
+function renderLeads() {
+  const leads = store.get('leads', {})
+  $('leads').innerHTML = DEPARTMENTS.map((d) => {
+    const name = (leads[d.key] ?? '').trim()
+    if (name && editingLead !== d.key) return `<div class="lead-saved">${d.name} lead<span class="lv"><b title="${esc(name)}">${esc(name)}</b><button class="btn tiny" data-edit="${d.key}">Change</button></span></div>`
+    return `<label class="f">${d.name} lead <input data-lead="${d.key}" value="${esc(leads[d.key] ?? '')}" placeholder="Name"></label>`
+  }).join('') + (Object.values(leads).some((v) => v?.trim()) ? '<div class="leads-note">Saved on this PC — they\'ll be here tomorrow.</div>' : '')
+}
+function setLead(k, v) { const leads = store.get('leads', {}); leads[k] = v; store.set('leads', leads) }
+function lockLeads() { editingLead = null; renderLeads() }
+$('leads').addEventListener('input', (e) => {
+  const k = e.target.dataset.lead; if (!k) return
+  setLead(k, e.target.value); renderSheets()
+})
+$('leads').addEventListener('click', (e) => {
+  const k = e.target.dataset.edit; if (!k) return
+  editingLead = k; leadBefore = store.get('leads', {})[k] ?? ''
+  renderLeads()
+  const input = $('leads').querySelector(`[data-lead="${k}"]`); input.focus(); input.select()
+})
+$('leads').addEventListener('keydown', (e) => {
+  const k = e.target.dataset.lead; if (!k) return
+  if (e.key === 'Enter') e.target.blur()
+  if (e.key === 'Escape' && editingLead === k) { setLead(k, leadBefore); e.target.blur(); renderSheets() }
+})
+// Leaving the box saves it; defer so a click on another Change still lands.
+$('leads').addEventListener('focusout', (e) => { if (e.target.dataset.lead) setTimeout(() => { if (!$('leads').contains(document.activeElement)) lockLeads() }) })
+// ── Check-in times & stations (kept on this PC) ──
+function renderSetup() {
+  const item = (attrs, v, cls = '') => `<span class="it"><input class="${cls}" ${attrs} value="${esc(v)}"><button ${attrs.replace(/data-(\w+)=/g, 'data-del-$1=')} title="Remove">✕</button></span>`
+  const times = checkins()
+  $('setup').innerHTML = `
+    <div class="srow"><span class="sl">Time blocks — people and output are written for each (${times.length} a day)</span>
+      ${times.map((t, i) => item(`data-ci="${i}"`, t, 'time')).join('')}
+      ${times.length < 6 ? '<button class="btn tiny" data-add-ci="1">+ Time</button>' : ''}</div>
+    ${DEPARTMENTS.filter((d) => d.editJobs).map((d) => { const js = jobsOf(d); return `
+    <div class="srow jobs"><span class="sl">${d.name} sheet — jobs <small>(the first box groups jobs under a heading, optional; the column says which build-sheet column tells whether an order has it)</small></span>
+      ${js.map(([c, label, m], i) => `<span class="it job"><input data-jm="${d.key}" data-i="${i}" value="${esc(m ?? '')}" placeholder="Heading (optional)" class="m"><input data-jl="${d.key}" data-i="${i}" value="${esc(label)}" placeholder="Job"><select data-jc="${d.key}" data-i="${i}">${STATUS_COLS.map((x) => `<option${x === c ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select><button data-del-job="${d.key}" data-del-i="${i}" title="Remove">✕</button></span>`).join('')}
+      ${js.length < 6 ? `<button class="btn tiny" data-add-job="${d.key}">+ Job</button>` : ''}</div>` }).join('')}
+    ${DEPARTMENTS.map((d) => { const st = stationsOf(d); return `
+    <div class="srow"><span class="sl">${d.name} stations</span>
+      ${st.map((x, i) => item(`data-st="${d.key}" data-i="${i}"`, x)).join('')}
+      ${st.length < 6 ? `<button class="btn tiny" data-add-st="${d.key}">+ Station</button>` : ''}</div>` }).join('')}
+    <div class="srow"><button class="btn tiny" data-reset="1">Back to the defaults</button></div>`
+}
+function setStations(key, list) { const all = store.get('stations', {}); all[key] = list; store.set('stations', all) }
+function setJobs(key, list) { const all = store.get('jobs', {}); all[key] = list; store.set('jobs', all) }
+const deptBy = (k) => DEPARTMENTS.find((d) => d.key === k)
+$('setup').addEventListener('input', (e) => {
+  const t = e.target
+  if (t.dataset.ci != null) { const c = [...checkins()]; c[Number(t.dataset.ci)] = t.value; store.set('blocks', c) }
+  else if (t.dataset.st) { const st = [...stationsOf(DEPARTMENTS.find((d) => d.key === t.dataset.st))]; st[Number(t.dataset.i)] = t.value; setStations(t.dataset.st, st) }
+  else if (t.dataset.jm || t.dataset.jl || t.dataset.jc) {
+    const k = t.dataset.jm || t.dataset.jl || t.dataset.jc
+    const js = jobsOf(deptBy(k)).map((j) => [...j])
+    const i = Number(t.dataset.i)
+    if (t.dataset.jm) js[i][2] = t.value
+    else if (t.dataset.jl) js[i][1] = t.value
+    else js[i][0] = t.value
+    setJobs(k, js)
+  } else return
+  renderSheets()
+})
+$('setup').addEventListener('change', (e) => { if (e.target.dataset.jc) e.target.dispatchEvent(new Event('input', { bubbles: true })) })
+$('setup').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return
+  const ds = b.dataset
+  if (ds.addCi) store.set('blocks', [...checkins(), ''])
+  else if (ds.delCi != null) { const c = checkins().filter((_, i) => i !== Number(ds.delCi)); if (!c.length) return; store.set('blocks', c) }
+  else if (ds.addSt) setStations(ds.addSt, [...stationsOf(DEPARTMENTS.find((d) => d.key === ds.addSt)), ''])
+  else if (ds.delSt) { const st = stationsOf(DEPARTMENTS.find((d) => d.key === ds.delSt)).filter((_, i) => i !== Number(ds.delI)); if (!st.length) return; setStations(ds.delSt, st) }
+  else if (ds.addJob) { const js = jobsOf(deptBy(ds.addJob)); setJobs(ds.addJob, [...js, ['Mods', '', js[js.length - 1]?.[2] ?? '']].map((j) => [...j])) }
+  else if (ds.delJob) { const js = jobsOf(deptBy(ds.delJob)).filter((_, i) => i !== Number(ds.delI)); if (!js.length) return; setJobs(ds.delJob, js) }
+  else if (ds.reset) { if (!confirm('Put the time blocks, stations and cutting jobs back to the defaults?')) return; store.set('blocks', null); store.set('stations', {}); store.set('jobs', {}) }
+  else return
+  renderSetup(); renderSheets()
+  // The rows were just redrawn, so find the new box afresh.
+  if (ds.addCi || ds.addSt || ds.addJob) { const ins = $('setup').querySelectorAll(ds.addCi ? '[data-ci]' : ds.addSt ? `[data-st="${ds.addSt}"]` : `[data-jl="${ds.addJob}"]`); ins[ins.length - 1]?.focus() }
+})
+
+for (const id of ['date', 'ship', 'crew', 'note']) $(id).addEventListener('input', () => { if (id === 'note') store.set('note', $('note').value); renderSheets(); if (id === 'ship') saveToday() })
+
+// ── The printed sheets ──
+// Long tags wrap only after a dash or before the order number, never
+// mid-word: FOSTER_168004 stays whole, 142-BIRCH-BARK-WALLS-86_166190
+// breaks as 142-BIRCH-BARK- / WALLS-86_166190.
+const tagBreaks = (tag) => esc(tag).replace(/-/g, '-<wbr>').replace(/_/g, '<wbr>_')
+
+function sheetHtml(d, list, page, pages, perPage = rowsFor(d), rowH = ROW_H) {
+  const day = { date: nice($('date').value), ship: nice($('ship').value), crew: $('crew').value.trim(), note: $('note').value.trim() }
+  const lead = store.get('leads', {})[d.key] ?? ''
+  // Each job is Start · (Pause) · Done; the first job's headings carry an
+  // example, which says "write the clock time here" without any rules.
+  const steps = d.pause ? [['Start', '7:40'], ['Pause', '10:05'], ['Done', '11:20']] : [['Start', '7:40'], ['Done', '9:15']]
+  const extra = d.extra ?? []
+  const jobs = jobsOf(d)
+  const jobHead = jobs.map(([, label]) => `<th class="job" colspan="${steps.length}">${esc(label)}</th>`).join('')
+  const jobSub = jobs.map((_, j) => steps.map(([name, eg]) => `<th class="sub">${name}${j ? '' : `<i>e.g. ${eg}</i>`}</th>`).join('')).join('')
+  // Jobs on the same machine, next to each other, share a heading above.
+  const machines = []
+  for (const [, , m] of jobs) { const last = machines[machines.length - 1]; if (last && last.m === (m || '')) last.n++; else machines.push({ m: m || '', n: 1 }) }
+  const byMachine = machines.some((x) => x.m)
+  const machineHead = machines.map((x) => `<th class="job mach" colspan="${x.n * steps.length}">${esc(x.m)}</th>`).join('')
+  const hRows = byMachine ? 3 : 2
+  // Widths in inches across the 7.6in page: the tag gets 1.65 (long tags
+  // wrap), the write-in counts 0.55 each, the time boxes up to 0.85 each,
+  // and Problem code / comments takes what's left (at least 1.4).
+  // Squeezed rows: tags go on one line in a smaller size, and the tag
+  // column widens a little to take them.
+  const dense = rowH < ROW_H - 1e-6
+  const tagW = dense ? 2.05 : 1.65
+  const scale = rowH / ROW_H
+  const nBoxes = jobs.length * steps.length
+  const boxW = Math.min(0.85, Math.max(0.5, (7.6 - 0.34 - tagW - extra.length * 0.55 - 1.2) / nBoxes))
+  const cols = `<colgroup><col style="width:.34in"><col style="width:${tagW}in">${extra.map(() => '<col style="width:.55in">').join('')}${Array.from({ length: nBoxes }, () => `<col style="width:${boxW}in">`).join('')}<col></colgroup>`
+  const times = checkins()
+  const rows = Array.from({ length: perPage }, (_, i) => {
+    const o = list[i]
+    const n = page * perPage + i + 1
+    // Blank on the build sheet (not part of this order) is hatched out;
+    // C (already done) shows a light C so the lead sees it without the
+    // order leaving the sheet.
+    const boxes = jobs.map(([col]) => {
+      const st = o?.jobs?.[col]
+      const na = st === 'na' || st === false
+      const c = st === 'done' ? '<span class="cdone">C</span>' : ''
+      return steps.map((_, k) => `<td class="box${k ? '' : ' first'}${na ? ' na' : ''}">${k === steps.length - 1 || k === 0 ? c : ''}</td>`).join('')
+    }).join('')
+    const ext = extra.map(([, field]) => `<td class="qty">${field ? esc(o?.[field] ?? '') : ''}</td>`).join('')
+    return `<tr><td class="num">${o ? n : ''}</td><td class="tag">${o ? `<b${o.tag.length > 16 ? ' class="long"' : ''}>${tagBreaks(o.tag)}</b>` : ''}</td>${ext}${boxes}<td class="reason"></td></tr>`
+  }).join('')
+  const stations = stationsOf(d)
+  // Laid out as the floor drew it: Crew, then the station, then the blocks.
+  const countRows = stations.map((x) => `<tr><td class="ppl"></td><td class="tm">${esc(x)}</td>${times.map(() => '<td></td>').join('')}</tr>`).join('')
+  const codes = BLOCKS.map((b, i) => `<li><b>${i + 1}</b>${esc(b)}</li>`).join('')
+  const val = (v, w) => `<span class="val" style="min-width:${w}">${esc(v) || '&nbsp;'}</span>`
+  return `
+  <section class="sheet">
+    <div class="top">
+      <div><div class="kicker">Sunspace Truesdale · ${d.kicker ? esc(d.kicker) + ' · ' : ''}Lead sheet${pages > 1 ? ` · page ${page + 1} of ${pages}` : ''}</div><h1>${esc(d.name)}</h1></div>
+      <div class="sf">
+        <span><b>Date</b>${val(day.date, '1in')}</span>
+        <span><b>Lead</b>${val(lead, '1.1in')}</span>
+        <span><b>Crew today</b>${val(day.crew, '.45in')}</span>
+        <span><b>Pickup</b>${val(day.ship, '1in')}</span>
+        <span style="grid-column:span 2"><b>Completed today</b>${val('', '.45in')} orders</span>
+      </div>
+    </div>
+    ${day.note ? `<div class="note">📣 ${esc(day.note)}</div>` : ''}
+    <div>
+      <h2><span class="ttl">Today's orders</span> <small>${d.hint ?? ''}Top to bottom · Stuck? Write a code and <b>tell the office now</b></small></h2>
+      <table class="orders${dense ? ' dense' : ''}" style="--rowh:${rowH.toFixed(3)}in;--tagfs:${dense ? Math.max(7.5, Math.min(10, 10.5 * scale + 1.5)).toFixed(1) : 10.5}pt;--numfs:${dense ? Math.max(8, 11 * scale + 1).toFixed(1) : 11}pt">${cols}
+        <thead><tr><th rowspan="${hRows}">#</th><th rowspan="${hRows}" style="text-align:left">Tag name</th>${extra.map(([label]) => `<th rowspan="${hRows}" class="qty">${esc(label)}</th>`).join('')}${byMachine ? machineHead : jobHead}<th rowspan="${hRows}" style="text-align:left">Problem code / comments</th></tr>${byMachine ? `<tr>${jobHead}</tr>` : ''}<tr>${jobSub}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div class="bottom">
+      <div class="counts-t">
+        <h2>Daily count <small>Fill in at the end of each time block</small></h2>
+        <table>
+          <thead><tr><th class="ppl">Crew</th><th style="text-align:left" class="tmh">Station</th>${times.map((t) => `<th>${esc(t)}</th>`).join('')}</tr></thead>
+          <tbody>${countRows}</tbody>
+        </table>
+        <div class="cnote">Crew = how many people on that station. Each time box = how many ${esc(d.unit)} were finished in that block, not a running total. If the crew changes, write it in the box too (e.g. 12 · 4→3).${d.note ? esc(d.note) : ''}</div>
+      </div>
+      <div class="codes">
+        <h2 style="color:var(--red)">Problem codes</h2>
+        <ol>${codes}</ol>
+        <div class="stops"><b>Stopped, no problem?</b> ${STOPS.map(([c, w]) => `<b>${c}</b> ${w}`).join(' · ')} — or just write it.</div>
+        <div class="qc"><b>Bad part from another department?</b> Write <b>Q</b>, the department and what's wrong (e.g. <i>Q · Panel · 2" short</i>), and bring it to the office.</div>
+      </div>
+    </div>
+    <div class="foot"><span>Signed ____________________</span></div>
+  </section>`
+}
+
+// One page per department: when there are more orders than the page's
+// normal rows, the rows (and their text) shrink to fit them all, down to
+// MIN_ROW; only past that does a department run onto a second page.
+const ROW_H = 0.355, MIN_ROW = 0.18
+// How many copies of each department's sheet print (0 leaves it out);
+// the preview shows each once.
+const copiesOf = (d) => { const n = Number(store.get('copies', {})[d.key]); return Number.isFinite(n) && n >= 0 ? Math.min(n, 9) : 1 }
+function renderCopies() {
+  $('copies').innerHTML = DEPARTMENTS.map((d) => `<label>${d.name} <input type="number" min="0" max="9" data-copies="${d.key}" value="${copiesOf(d)}"></label>`).join('')
+}
+$('copies').addEventListener('input', (e) => {
+  const k = e.target.dataset.copies; if (!k) return
+  const all = store.get('copies', {}); all[k] = e.target.value === '' ? 1 : Math.max(0, Math.min(9, Math.round(Number(e.target.value)) || 0)); store.set('copies', all)
+  renderSheets()
+})
+function buildSheets(forPrint = false) {
+  return DEPARTMENTS.map((d) => {
+    const times = forPrint ? copiesOf(d) : 1
+    if (!times) return ''
+    return Array.from({ length: times }, () => buildDept(d)).join('')
+  }).join('')
+}
+function buildDept(d) {
+  const list = orders.filter((o) => o.tag.trim() && o.depts[d.key])
+  const base = rowsFor(d)
+  const space = base * ROW_H
+  const rowH = list.length > base ? Math.max(MIN_ROW, space / list.length) : ROW_H
+  const per = Math.max(base, Math.floor(space / rowH + 1e-6))
+  const pages = Math.max(1, Math.ceil(list.length / per))
+  return Array.from({ length: pages }, (_, p) => sheetHtml(d, list.slice(p * per, (p + 1) * per), p, pages, per, rowH)).join('')
+}
+
+// ── Loading sheet: every order in the list, grouped by truck ──
+// Kept simple: the tag, a box to tick when it's on the truck, and room for
+// a note. Numbers run on through the whole sheet; the order and truck
+// counts and Loaded by are left for the loader to write, once.
+function buildLoading() {
+  const list = orders.filter((o) => o.tag.trim())
+  if (!list.length) return ''
+  const groups = []
+  for (const o of list) {
+    const t = (o.truck || '').trim() || 'No truck'
+    let g = groups.find((x) => x.truck.toLowerCase() === t.toLowerCase())
+    if (!g) groups.push(g = { truck: t, orders: [] })
+    g.orders.push(o)
+  }
+  // Lay groups onto pages; a group moves to the next page rather than
+  // splitting, unless it's bigger than a page on its own. Sizes in inches,
+  // measured off the printed page.
+  const ROW = 0.3, BAR = 0.42, FIRST = 8.3, CAP = 8.6
+  const pages = [[]]
+  let used = 0, cap = FIRST, n = 0
+  for (const g of groups) {
+    let rest = g.orders, part = 0
+    while (rest.length) {
+      if (used && used + BAR + Math.min(rest.length, 3) * ROW > cap) { pages.push([]); used = 0; cap = CAP }
+      const fit = Math.max(1, Math.floor((cap - used - BAR) / ROW))
+      const take = rest.slice(0, fit)
+      pages[pages.length - 1].push({ truck: g.truck, orders: take, first: n + 1, cont: part++ > 0 })
+      n += take.length
+      used += BAR + take.length * ROW
+      rest = rest.slice(fit)
+    }
+  }
+  const pickup = nice($('ship').value) || '—'
+  const blank = (w) => `<span class="val" style="min-width:${w}">&nbsp;</span>`
+  return pages.map((page, pi) => `
+  <section class="sheet">
+    <div class="top">
+      <div><div class="kicker">Sunspace Truesdale · Loading sheet${pages.length > 1 ? ` · page ${pi + 1} of ${pages.length}` : ''}</div><h1>Loading</h1></div>
+      <div class="sf" style="grid-template-columns:auto auto">
+        <span><b>Pickup</b><span class="val" style="min-width:1in">${esc(pickup)}</span></span>
+        <span><b>Orders</b>${blank('.5in')}</span>
+        <span><b>Date</b><span class="val" style="min-width:1in">${esc(nice($('date').value))}</span></span>
+        <span><b>Trucks</b>${blank('.5in')}</span>
+        <span style="grid-column:span 2"><b>Loaded by</b>${blank('2.2in')}</span>
+      </div>
+    </div>
+    ${pi === 0 ? `<div class="ld-key">Tick <b>On truck</b> as each order goes on.</div>` : ''}
+    <table class="loadt">
+      <colgroup><col style="width:.45in"><col><col style="width:.9in"><col style="width:2.6in"></colgroup>
+      <thead><tr><th>#</th><th style="text-align:left">Tag name</th><th>On truck</th><th style="text-align:left">Note</th></tr></thead>
+      ${page.map((g) => `<tbody>
+        <tr class="grp"><td colspan="4"><div class="ld-head"><b>${esc(g.truck)}${g.cont ? '<small>continued</small>' : ''}</b></div></td></tr>
+        ${g.orders.map((o, i) => `<tr><td class="num">${g.first + i}</td><td class="tg">${esc(o.tag)}</td><td class="bx first"></td><td></td></tr>`).join('')}
+      </tbody>`).join('')}
+    </table>
+  </section>`).join('')
+}
+
+let previewView = 'floor'
+function renderSheets() {
+  const html = buildSheets()
+  const load = buildLoading()
+  $('sheets').innerHTML = buildSheets(true)
+  $('loading').innerHTML = load
+  $('preview').innerHTML = previewView === 'load' ? load || '<p class="empty">The loading sheet fills in once there are orders.</p>' : html
+  fitPreview()
+  const any = orders.some((o) => o.tag.trim())
+  $('printBtn').disabled = !any
+  $('loadBtn').disabled = !any
+}
+document.querySelector('.tabs').addEventListener('click', (e) => {
+  const v = e.target.dataset.view; if (!v) return
+  previewView = v
+  document.querySelectorAll('.tabs .tab').forEach((b) => b.classList.toggle('on', b.dataset.view === v))
+  renderSheets()
+})
+function fitPreview() {
+  const box = $('preview'); const w = box.clientWidth
+  const scale = Math.min(1, (w - 8) / 816)
+  box.querySelectorAll('.sheet').forEach((s) => { s.style.transform = `scale(${scale})`; s.style.marginBottom = `${-(1 - scale) * 1056 + 16}px` })
+}
+window.addEventListener('resize', fitPreview)
+function render() { renderList(); renderCounts(); renderSheets(); saveToday() }
+
+// ── Input: paste, drop, pick, Excel text ──
+// Rows pasted into the box (or anywhere that isn't another field) are read
+// at once. Pictures aren't read — the rows have to come in as text.
+document.addEventListener('paste', (e) => {
+  if (e.target.closest?.('textarea, input') && e.target.id !== 'paste') return
+  // Excel can put a picture of the cells on the clipboard next to the
+  // text; the text is what's read. Only a picture on its own is refused.
+  const text = e.clipboardData?.getData('text/plain')
+  if (!text?.trim() && [...(e.clipboardData?.items ?? [])].some((i) => i.type.startsWith('image/'))) { e.preventDefault(); setMsg("That's a picture — screenshots aren't read. In the build sheet, select the rows, Ctrl+C, then paste here.", 'err'); return }
+  if (text?.trim()) { e.preventDefault(); $('paste').value = ''; const r = readPasted(text); r.orders.length ? offer(r, r.how, 'paste') : setMsg(r.shipped.length ? 'Nothing in that paste to build' + leftOff(r) : "Couldn't find any orders in that paste — copy whole rows, from the Truck column across.", 'err') }
+})
+const drop = $('drop')
+drop.onclick = () => $('file').click()
+drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') $('file').click() }
+$('file').onchange = (e) => { const f = e.target.files?.[0]; if (f) readFile(f); e.target.value = '' }
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over') }
+drop.ondragleave = () => drop.classList.remove('over')
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); const f = [...e.dataTransfer.files].find(isWorkbook) ?? e.dataTransfer.files[0]; if (f) readFile(f) }
+$('readPaste').onclick = () => {
+  const r = readPasted($('paste').value)
+  if (!r.orders.length) return setMsg(r.shipped.length ? 'Nothing in that paste to build' + leftOff(r) : "Couldn't find any orders in that paste. Include the header row (Tag Name, Dealer, Mods…).", 'err')
+  offer(r, r.how, 'Excel paste'); $('paste').value = ''
+}
+$('printBtn').onclick = () => { document.body.classList.remove('print-load'); renderSheets(); window.print() }
+$('loadBtn').onclick = () => { document.body.classList.add('print-load'); renderSheets(); window.print() }
+window.addEventListener('afterprint', () => document.body.classList.remove('print-load'))
+// Ctrl+P prints too, so log the day on any print, not only the button.
+window.addEventListener('beforeprint', () => { if (!document.body.classList.contains('print-load')) logDay() })
+
+// ── Weekly Excel backup ──
+// Every print records that day's list (the latest print of a day wins).
+// The backup is one workbook per week: a Week tab with each order and what
+// was still open on it each day, then one tab per day as printed.
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+function mondayOf(isoDate) {
+  const d = new Date(isoDate + 'T00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d)
+}
+// Where a department stood on an order, from its build-sheet cells:
+// 'open' if any job is still to do, 'C' if its jobs are all done, '' if
+// the order doesn't have that department. Columns the sheet doesn't have
+// (Filler) are left out; a typed-in order with nothing known is 'open'.
+// Panel with no roof items at all is 'filler'.
+function deptState(o, d) {
+  if (!o.depts?.[d.key]) return ''
+  const known = jobsOf(d).map(([c]) => o.jobs?.[c]).filter((x) => x != null)
+  if (!known.length) return 'open'
+  if (known.some((x) => x === true)) return 'open'
+  if (known.some((x) => x === 'done')) return 'C'
+  return d.everyOrder ? 'filler' : ''
+}
+function logDay() {
+  const list = orders.filter((o) => o.tag.trim())
+  if (!list.length) return
+  const date = $('date').value || iso(new Date())
+  const log = store.get('log', {})
+  log[date] = { ship: $('ship').value, crew: $('crew').value.trim(), leads: store.get('leads', {}), orders: list.map((o) => ({ tag: o.tag, truck: o.truck ?? '', dealer: o.dealer, state: Object.fromEntries(DEPARTMENTS.map((d) => [d.key, deptState(o, d)])), qty: o.qty ?? '', pickup: o.pickup ?? '' })) }
+  // Keep about two months; the Excel files are the long-term copy.
+  const cutoff = iso(new Date(Date.now() - 62 * 864e5))
+  for (const k of Object.keys(log)) if (k < cutoff) delete log[k]
+  store.set('log', log)
+  const weeks = store.get('backedUp', {}); delete weeks[mondayOf(date)]; store.set('backedUp', weeks)
+  checkReminder()
+}
+function daysOfWeek(monday) {
+  const end = iso(new Date(new Date(monday + 'T00:00').getTime() + 7 * 864e5))
+  return Object.keys(store.get('log', {})).filter((k) => k >= monday && k < end).sort()
+}
+const shortDay = (k) => `${WEEKDAY[new Date(k + 'T00:00').getDay()]} ${Number(k.slice(5, 7))}-${Number(k.slice(8, 10))}`
+
+async function downloadWeek(monday) {
+  const days = daysOfWeek(monday)
+  if (!days.length) return alert(`Nothing printed in the week of ${nice(monday)} yet — the backup fills up each time you print.`)
+  const log = store.get('log', {})
+  // Older log entries (before states were kept) only know which sheets it was on.
+  const stateOf = (o, d) => o.state ? o.state[d.key] : o.depts?.[d.key] ? 'open' : ''
+  const deptList = (o) => DEPARTMENTS.filter((d) => stateOf(o, d) === 'open').map((d) => d.name).join(', ')
+  // Week tab: every order seen this week, and what was on the floor sheets for it each day.
+  const byTag = new Map()
+  for (const k of days) for (const o of log[k].orders) {
+    const row = byTag.get(o.tag) ?? { o, per: {} }
+    row.o = o; row.per[k] = deptList(o) || 'all done'
+    byTag.set(o.tag, row)
+  }
+  const week = [[`Floor sheets — week of ${nice(monday)}`], [],
+    ['Tag name', 'Dealer', 'Truck', 'Pickup', '# of mods', ...days.map((k) => shortDay(k) + ' — still open')],
+    ...[...byTag.values()].map(({ o, per }) => [o.tag, o.dealer, o.truck, o.pickup, o.qty, ...days.map((k) => per[k] ?? 'not on sheets')])]
+  const dayTabs = days.map((k) => {
+    const e = log[k]
+    return [k, [[`${nice(k)} — pickup ${nice(e.ship) || '—'}${e.crew ? ` — crew ${e.crew}` : ''}`],
+      [DEPARTMENTS.map((d) => `${d.name} lead: ${e.leads?.[d.key] || '—'}`).join('   ')], [],
+      ['#', 'Tag name', 'Dealer', 'Truck', '# of mods', ...DEPARTMENTS.map((d) => d.name)],
+      ...e.orders.map((o, i) => [i + 1, o.tag, o.dealer, o.truck, o.qty, ...DEPARTMENTS.map((d) => stateOf(o, d))])]]
+  })
+  const name = `Floor sheets week of ${monday}`
+  try {
+    await loadXlsx()
+    const wb = XLSX.utils.book_new()
+    const add = (rows, title, widths) => { const ws = XLSX.utils.aoa_to_sheet(rows); ws['!cols'] = widths.map((w) => ({ wch: w })); XLSX.utils.book_append_sheet(wb, ws, title) }
+    add(week, 'Week', [32, 30, 10, 11, 9, ...days.map(() => 24)])
+    for (const [k, rows] of dayTabs) add(rows, shortDay(k), [4, 32, 30, 10, 9, ...DEPARTMENTS.map(() => 8)])
+    XLSX.writeFile(wb, name + '.xlsx')
+  } catch {
+    // Offline: the same Week tab as a CSV, which Excel opens too.
+    const csv = week.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n')
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv' })); a.download = name + '.csv'; a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+  }
+  const weeks = store.get('backedUp', {}); weeks[monday] = true; store.set('backedUp', weeks)
+  checkReminder()
+}
+$('backupBtn').onclick = () => downloadWeek(mondayOf($('date').value || iso(new Date())))
+
+// A finished week that was printed but never backed up gets a reminder
+// across the top until it's downloaded.
+function checkReminder() {
+  const thisWeek = mondayOf(iso(new Date()))
+  const done = store.get('backedUp', {})
+  const pending = [...new Set(Object.keys(store.get('log', {})).map(mondayOf))].filter((m) => m < thisWeek && !done[m]).sort()
+  const r = $('remind')
+  if (!pending.length) { r.hidden = true; return }
+  const m = pending[pending.length - 1]
+  r.innerHTML = `<b>The week of ${nice(m)} hasn't been backed up yet.</b><button class="btn dark" id="remindGo">⬇ Download it (Excel)</button><button class="btn" id="remindSkip">Skip it</button>`
+  r.hidden = false
+  $('remindGo').onclick = () => downloadWeek(m)
+  $('remindSkip').onclick = () => { const w = store.get('backedUp', {}); w[m] = 'skipped'; store.set('backedUp', w); checkReminder() }
+}
+
+// Today's list survives a closed tab or a refresh, until tomorrow.
+function saveToday() { store.set('today', { date: iso(new Date()), orders, ship: $('ship').value }) }
+
+
+// ── Start ──
+$('date').value = iso(new Date())
+$('note').value = store.get('note', '')
+const kept = store.get('today', null)
+if (kept?.date === iso(new Date()) && kept.orders?.length) {
+  orders = kept.orders; if (kept.ship) $('ship').value = kept.ship
+  // A sheet added since this list was saved starts ticked for every order.
+  for (const o of orders) for (const d of DEPARTMENTS) if (o.depts && !(d.key in o.depts)) o.depts[d.key] = true
+  setMsg(`Today's list is back (${orders.length} order${orders.length === 1 ? '' : 's'}). Paste again to add more, or Clear to start over.`, 'ok')
+}
+renderLeads()
+renderCopies()
+renderSetup()
+render()
+checkReminder()
+</script>
+</body>
+</html>

@@ -53,21 +53,40 @@ function findHeader(rows) {
     return { colIndex, headerIndex: r, inferred: false }
   }
 
-  // No header in the selection — fall back to the sheet's fixed layout.
-  const layout = [...LEADING_COLUMNS, ...STATUS_COLUMNS]
-  const colIndex = {}
-  layout.forEach((name, i) => {
-    colIndex[name] = i
-  })
+  // No header in the selection. Find the Tag Name column by its values
+  // (FOSTER_168004), then read the columns around it from the sheet's fixed
+  // layout: Date, Truck, Dealer sit just left of it and the status columns
+  // run from just right of it. So a paste works whether it starts at the
+  // Date column, the Truck column or the Dealer column.
+  const width = Math.max(0, ...rows.map((r) => (r ?? []).length))
+  let tagCol = -1
+  let tagLike = 0
+  let tagCount = 0
+  for (let c = 0; c < width; c++) {
+    const vals = rows.map((row) => cleanCell(row?.[c])).filter((v) => v != null)
+    const like = vals.filter((v) => TAG_SHAPED.test(v)).length
+    if (like > tagLike) {
+      tagLike = like
+      tagCol = c
+      tagCount = vals.length
+    }
+  }
 
-  const tagCells = rows.map((row) => cleanCell(row?.[colIndex['Tag Name']])).filter((v) => v != null)
-  const tagLike = tagCells.filter((v) => TAG_SHAPED.test(v)).length
-
-  if (tagCells.length === 0 || tagLike / tagCells.length < 0.6) {
+  // Banner rows ('Current as of …') share the tag column but aren't tag-
+  // shaped, so ask for most of it, not all, to look like tags.
+  if (tagCol === -1 || tagLike < 1 || tagLike / tagCount < 0.6) {
     throw new Error(
-      "Couldn't tell which column is which. Either include the sheet's header row in what you copy, or start your selection at column A (Date) so the columns line up."
+      "Couldn't tell which column is which. Include the sheet's header row in what you copy, or copy whole rows starting at the Date, Truck or Dealer column."
     )
   }
+
+  const colIndex = { 'Tag Name': tagCol }
+  ;['Dealer', 'Truck', 'Date'].forEach((name, k) => {
+    if (tagCol - 1 - k >= 0) colIndex[name] = tagCol - 1 - k
+  })
+  STATUS_COLUMNS.forEach((name, i) => {
+    colIndex[name] = tagCol + 1 + i
+  })
 
   return { colIndex, headerIndex: -1, inferred: true }
 }

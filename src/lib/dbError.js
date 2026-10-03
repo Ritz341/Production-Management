@@ -3,7 +3,7 @@
  * added, so a database that's behind gets told which file to run rather
  * than being left to work it out from a column name.
  */
-export const LATEST_MIGRATION = 'schema_v23.sql'
+export const LATEST_MIGRATION = 'schema_v24.sql'
 
 /**
  * 'bt_orders.walls_count' when an error is a missing column, else null.

@@ -1,3 +1,4 @@
+import { unitsText, useUnitsToday } from '../lib/unitsDone'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
@@ -263,6 +264,7 @@ export default function TVBoard({ department }) {
   const isMods = (dept?.name ?? department).toLowerCase() === 'mods'
   const useMods = isMods && (finished.length ? finished.every((f) => f.mods_count) : orders.some((o) => o.mods_count))
   const finishedMods = finished.reduce((sum, f) => sum + (f.mods_count ?? 0), 0)
+  const unitsToday = useUnitsToday([dept?.name ?? department])
   const doneNum = lastCount ? lastCount.count : useMods ? finishedMods : finished.length
   const unit = lastCount ? (plan ? finalStep.unit : rate.unit) : useMods ? (plan ? finalStep.unit : 'mods') : finished.length === 1 ? 'order' : 'orders'
 
@@ -446,6 +448,9 @@ export default function TVBoard({ department }) {
                 {judgedTarget != null && <div className="font-display font-bold text-[3.5vw] text-floorMute leading-none pb-3">/ {judgedTarget}</div>}
                 <div className="text-[1.6vw] text-floorMute pb-4">{unit}</div>
               </div>
+              {unitsToday.length > 0 && (
+                <div className="text-[1.5vw] text-paper mt-2 tabular-nums">Built today: {unitsText(unitsToday)}</div>
+              )}
               {judgedTarget != null ? (
                 <>
                   <div className="relative h-4 rounded-full bg-floorLine overflow-hidden mt-3">

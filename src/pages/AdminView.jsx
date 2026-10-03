@@ -11,6 +11,7 @@ import OrderFormModal from '../components/OrderFormModal.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
 import BulkRemoveModal from '../components/BulkRemoveModal.jsx'
 import AdminImport from './AdminImport.jsx'
+import OrderPackageUpload from '../components/OrderPackageUpload.jsx'
 import AdminOverview from './AdminOverview.jsx'
 import AdminReports from './AdminReports.jsx'
 import AdminTVs from './AdminTVs.jsx'
@@ -265,6 +266,7 @@ export default function AdminView() {
             ['overview', 'Overview'],
             ['grid', 'Grid'],
             ['import', 'Weekly Import'],
+            ['paperwork', 'Paperwork'],
             ['reports', 'Reports'],
             ['tvs', 'Targets & TVs'],
             ['skills', 'Skills Matrix'],
@@ -305,6 +307,12 @@ export default function AdminView() {
       {tab === 'skills' && <AdminSkillMatrix />}
 
       {tab === 'floaters' && <AdminFloaters />}
+
+      {tab === 'paperwork' && (
+        <main className="px-5 py-5 max-w-4xl mx-auto">
+          <OrderPackageUpload />
+        </main>
+      )}
 
       {tab === 'import' && (
         <AdminImport

@@ -1,3 +1,4 @@
+import { unitsText, useUnitsToday } from '../lib/unitsDone'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
@@ -264,6 +265,9 @@ export default function DepartmentView() {
     [departments, selectedDeptIds]
   )
 
+  const selectedNames = useMemo(() => departments.filter((d) => selectedDeptIds.includes(d.id)).map((d) => d.name), [departments, selectedDeptIds])
+  const unitsToday = useUnitsToday(selectedNames.length ? selectedNames : ['—'])
+
   function toggleDept(id) {
     setSelectedDeptIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
@@ -413,6 +417,7 @@ export default function DepartmentView() {
           <h1 className="font-display font-extrabold uppercase text-5xl sm:text-6xl leading-[0.9] mt-1 break-words">
             {currentDeptName}
           </h1>
+          {unitsToday.length > 0 && <p className="text-sm text-floorMute mt-1 tabular-nums">Built today: <span className="text-paper font-semibold">{unitsText(unitsToday)}</span></p>}
           <div className="flex items-center gap-2 mt-3 flex-wrap">
             <details className="relative">
               <summary className="list-none cursor-pointer select-none border border-floorLine rounded-full px-3 py-1.5 text-sm font-semibold text-floorMute hover:text-paper">

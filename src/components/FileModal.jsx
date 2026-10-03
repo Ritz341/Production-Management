@@ -19,7 +19,7 @@ export default function FileModal({ order, onClose, allowUpload = false }) {
     setLoading(true)
     const { data } = await supabase
       .from('bt_files')
-      .select('id, filename, storage_path, uploaded_at')
+      .select('id, filename, storage_path, uploaded_at, dept_label, page, kind')
       .eq('order_id', order.id)
       .order('uploaded_at', { ascending: false })
     const rows = data ?? []
@@ -52,7 +52,14 @@ export default function FileModal({ order, onClose, allowUpload = false }) {
 
   async function handleOpen(file) {
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(file.storage_path, 60)
-    if (!error && data?.signedUrl) window.open(data.signedUrl, '_blank')
+    if (!error && data?.signedUrl) window.open(file.page > 1 ? `${data.signedUrl}#page=${file.page}` : data.signedUrl, '_blank')
+  }
+
+  async function handleDelete(file) {
+    if (!window.confirm(`Remove ${file.filename} from ${order.tag_name}?`)) return
+    await supabase.storage.from(BUCKET).remove([file.storage_path])
+    await supabase.from('bt_files').delete().eq('id', file.id)
+    await loadFiles()
   }
 
   async function handleUpload(e) {
@@ -94,7 +101,7 @@ export default function FileModal({ order, onClose, allowUpload = false }) {
           )}
           <ul className="space-y-2">
             {files.map((f) => (
-              <li key={f.id}>
+              <li key={f.id} className="relative">
                 <button
                   onClick={() => handleOpen(f)}
                   className="w-full text-left bg-white border border-paperDim text-sm text-andonBlue font-medium"
@@ -107,8 +114,25 @@ export default function FileModal({ order, onClose, allowUpload = false }) {
                       className="w-full max-h-64 object-contain bg-paperDim border-b border-paperDim"
                     />
                   )}
-                  <span className="block px-3 py-2">{f.filename}</span>
+                  <span className="block px-3 py-2">
+                    {f.dept_label && (
+                      <span className="inline-block mr-2 px-2 py-0.5 rounded bg-charcoal text-paper text-xs font-semibold uppercase tracking-wide align-middle">
+                        {f.dept_label}
+                      </span>
+                    )}
+                    {f.filename}
+                    {f.page > 1 ? <span className="text-steelLight font-normal"> · from p.{f.page}</span> : null}
+                  </span>
                 </button>
+                {allowUpload && (
+                  <button
+                    onClick={() => handleDelete(f)}
+                    aria-label={`Remove ${f.filename}`}
+                    className="absolute top-1 right-1 text-xs text-andonRed bg-white/90 px-2 py-1 rounded"
+                  >
+                    Remove
+                  </button>
+                )}
               </li>
             ))}
           </ul>

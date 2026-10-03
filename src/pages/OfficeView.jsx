@@ -6,6 +6,7 @@ import { buildNumbers, byBuildOrder, daysUntil, relativeDay, shortDate } from '.
 import { PANEL_TYPES, ROOM_SHAPES, WINDOW_TYPES, difficulty, orderPersonDays, pickupLoads, roomSize, useSettings } from '../lib/catalog'
 import WeekLoad from '../components/WeekLoad.jsx'
 import { dbErrorText } from '../lib/dbError'
+import OrderPackageUpload from '../components/OrderPackageUpload.jsx'
 import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
 
 /**
@@ -155,6 +156,7 @@ export default function OfficeView() {
 
       <main className="px-4 sm:px-6 py-5 max-w-[90rem] mx-auto space-y-5">
         {error && <div className="bg-andonRedBg text-andonRed text-sm px-4 py-3 rounded-lg">⚠ {error}</div>}
+        <OrderPackageUpload />
         {groups.length === 0 && <p className="text-steelLight">No orders waiting.</p>}
 
         {groups.map(({ week, orders: list }) => {

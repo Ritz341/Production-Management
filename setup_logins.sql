@@ -1,16 +1,54 @@
 -- ============================================================
--- Link logins to their roles — run in the Supabase SQL editor
--- AFTER creating the users in Authentication → Users.
+-- Logins — run in the Supabase SQL editor. Safe to run again.
 --
--- Matches by email, so there are no UUIDs to copy. Safe to run again:
--- existing logins are updated, missing ones are skipped (see the check
--- at the bottom). Edit the list if your emails are different.
+--   1. Creates any login in the list below that doesn't exist yet in
+--      Authentication → Users (email + password, already confirmed).
+--      Logins that exist are left alone — their passwords are NOT touched.
+--   2. Links every login to its role and department (bt_profiles and
+--      bt_profile_departments), updating existing ones.
+--   3. Shows a check of every login.
 --
--- TV logins (tv-mods@…, tv-v4t@…) are deliberately NOT in this list:
+-- Change the password on the next line first, and change it again from
+-- Authentication → Users once people are using the logins.
+--
+-- TV logins (tv-mods@…, tv-v4t@…) are deliberately NOT linked to a role:
 -- the TV board works with no role, and without one the login can't
 -- change anything if someone opens it without ?tv= in the address.
+-- They are created here if missing.
 -- ============================================================
 
+-- ── 1. Create the missing logins ─────────────────────────────
+create extension if not exists pgcrypto;
+
+with new_users as (
+  insert into auth.users (
+    instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+    raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+    confirmation_token, recovery_token, email_change_token_new, email_change
+  )
+  select
+    '00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
+    e.email, crypt('ChangeMe-2026!', gen_salt('bf')), now(),
+    '{"provider":"email","providers":["email"]}', '{}', now(), now(),
+    '', '', '', ''
+  from (values
+    ('admin@sunspace.local'), ('office@sunspace.local'), ('logistics@sunspace.local'),
+    ('quality@sunspace.local'), ('shipping@sunspace.local'), ('mods-tablet@sunspace.local'),
+    ('v4t@sunspace.local'), ('panel@sunspace.local'), ('track@sunspace.local'), ('door@sunspace.local'),
+    ('sc220@sunspace.local'), ('ta144@sunspace.local'), ('manual@sunspace.local'),
+    ('tv-mods@sunspace.local'), ('tv-v4t@sunspace.local')
+  ) as e(email)
+  where not exists (select 1 from auth.users u where lower(u.email) = e.email)
+  returning id, email
+)
+insert into auth.identities (id, user_id, provider_id, provider, identity_data, last_sign_in_at, created_at, updated_at)
+select gen_random_uuid(), n.id, n.id::text, 'email',
+       jsonb_build_object('sub', n.id::text, 'email', n.email, 'email_verified', true),
+       now(), now(), now()
+from new_users n;
+
+
+-- ── 2. Link roles and departments ────────────────────────────
 with wanted(email, role, department, display_name) as (
   values
     ('admin@sunspace.local',     'admin',     null,    'Admin'),
@@ -18,7 +56,7 @@ with wanted(email, role, department, display_name) as (
     ('logistics@sunspace.local', 'logistics', null,    'Logistics'),
     ('quality@sunspace.local',   'quality',   null,    'Andrew (Quality)'),
     ('shipping@sunspace.local',  'shipping',  null,    'Shipping'),
-    ('mods@sunspace.local',      'crew',      'Mods',  'Mods Tablet'),
+    ('mods-tablet@sunspace.local', 'crew',    'Mods',  'Mods Tablet'),
     ('v4t@sunspace.local',       'crew',      'V4T',   'V4T Tablet'),
     ('panel@sunspace.local',     'crew',      'Panel', 'Panel Tablet'),
     ('track@sunspace.local',     'crew',      'Track', 'Track Tablet'),
@@ -48,13 +86,14 @@ select user_id, department_id from linked where department_id is not null
 on conflict do nothing;
 
 
--- Check: every login and what it can do. A blank role means the email
+-- ── 3. Check ─────────────────────────────────────────────────
+-- Every login and what it can do. A blank role means the email
 -- above has no matching user in Authentication → Users yet.
 select w.email, u.id is not null as user_exists, p.role, p.display_name,
        string_agg(d.name, ', ') as departments
 from (values
     ('admin@sunspace.local'), ('office@sunspace.local'), ('logistics@sunspace.local'),
-    ('quality@sunspace.local'), ('shipping@sunspace.local'), ('mods@sunspace.local'),
+    ('quality@sunspace.local'), ('shipping@sunspace.local'), ('mods-tablet@sunspace.local'),
     ('v4t@sunspace.local'), ('panel@sunspace.local'), ('track@sunspace.local'), ('door@sunspace.local'),
     ('sc220@sunspace.local'), ('ta144@sunspace.local'), ('manual@sunspace.local'),
     ('tv-mods@sunspace.local'), ('tv-v4t@sunspace.local')

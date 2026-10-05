@@ -5,7 +5,7 @@ import { useConnection } from '../lib/ConnectionContext.jsx'
 import { DONE_RANK, ago, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
 import { weekName } from '../lib/dates'
 import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
-import FileModal from '../components/FileModal.jsx'
+import OrderSheet from '../components/OrderSheet.jsx'
 import OrderFormModal from '../components/OrderFormModal.jsx'
 
 const LAST_COLUMNS_KEY = 'logistics.lastColumns'
@@ -391,7 +391,7 @@ export default function LogisticsView() {
           {toast}
         </div>
       )}
-      {filesFor && <FileModal order={filesFor} onClose={() => setFilesFor(null)} allowUpload />}
+      {filesFor && <OrderSheet order={filesFor} onClose={() => setFilesFor(null)} canEdit />}
       {editing && (
         <OrderFormModal
           order={editing}

@@ -5,6 +5,7 @@ import { useConnection } from '../lib/ConnectionContext.jsx'
 import { DONE_RANK, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
 import { dbErrorText } from '../lib/dbError'
 import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
+import OrderSheet from '../components/OrderSheet.jsx'
 
 /**
  * The loading dock. The question at the dock is "what can go on this
@@ -31,6 +32,7 @@ export default function ShippingView() {
       return false
     }
   })
+  const [sheetOrder, setSheetOrder] = useState(null)
   const [printDate, setPrintDate] = useState(null) // the pickup whose loading sheet is printing
   const [error, setError] = useState('')
 
@@ -186,9 +188,11 @@ export default function ShippingView() {
             picked ? 'bg-steelLight' : r.blocked ? 'bg-andonRed' : r.ready ? 'bg-andonGreen' : 'bg-safety'
           }`}
         />
-        <div className="flex-1 min-w-0 px-4 py-3 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="font-display text-xl font-bold text-charcoal truncate">{o.tag_name}</div>
+        {/* On a phone the button goes under the order, full width, so the
+            tag name isn't cut down to "SB-PM-DELACH…". */}
+        <div className="flex-1 min-w-0 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
+          <button onClick={() => setSheetOrder(o)} className="min-w-0 text-left" aria-label={`Open ${o.tag_name}`}>
+            <div className="font-display text-xl font-bold text-charcoal break-all sm:truncate">{o.tag_name}</div>
             <div className="text-sm text-steelLight truncate">
               {o.dealer}
               {o.truck_route ? ` · ${o.truck_route}` : ''}
@@ -207,16 +211,16 @@ export default function ShippingView() {
                 </span>
               )}
             </div>
-          </div>
+          </button>
           {picked ? (
-            <button onClick={() => setPicked(o, false)} disabled={!live} className="text-sm text-steelLight underline disabled:opacity-40">
+            <button onClick={() => setPicked(o, false)} disabled={!live} className="self-start sm:self-auto text-sm text-steelLight underline py-2 disabled:opacity-40">
               Undo
             </button>
           ) : (
             <button
               onClick={() => setPicked(o, true)}
               disabled={!live}
-              className={`shrink-0 rounded-lg font-display font-bold px-4 py-2.5 whitespace-nowrap disabled:opacity-40 ${
+              className={`shrink-0 w-full sm:w-auto min-h-[44px] rounded-lg font-display font-bold px-4 py-2.5 whitespace-nowrap disabled:opacity-40 ${
                 r.ready ? 'bg-safety text-charcoal' : 'border border-paperDim text-steel'
               }`}
             >
@@ -234,21 +238,25 @@ export default function ShippingView() {
     <>
     <div className={`min-h-full bg-paper ${printGroup ? 'print:hidden' : ''}`}>
       <NotificationBanner />
-      <header className="bg-charcoal px-5 py-4 flex items-center justify-between border-b-4 border-safety">
-        <h1 className="font-display text-3xl font-bold text-paper leading-none">Shipping</h1>
-        <div className="flex items-center gap-3">
-          <label className="text-sm text-floorMute flex items-center gap-1.5">
-            <input type="checkbox" checked={byTruck} onChange={(e) => chooseByTruck(e.target.checked)} />
+      <header className="bg-charcoal px-4 sm:px-5 py-3 border-b-4 border-safety">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="font-display text-3xl font-bold text-paper leading-none">Shipping</h1>
+          <div className="flex items-center gap-2">
+            <NotificationBell />
+            <button onClick={signOut} className="text-sm text-floorMute hover:text-paper px-2 py-2">
+              Sign out
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 mt-2">
+          <label className="text-sm text-floorMute flex items-center gap-2 min-h-[36px]">
+            <input type="checkbox" className="w-5 h-5" checked={byTruck} onChange={(e) => chooseByTruck(e.target.checked)} />
             By truck
           </label>
-          <label className="text-sm text-floorMute flex items-center gap-1.5">
-            <input type="checkbox" checked={showPicked} onChange={(e) => setShowPicked(e.target.checked)} />
+          <label className="text-sm text-floorMute flex items-center gap-2 min-h-[36px]">
+            <input type="checkbox" className="w-5 h-5" checked={showPicked} onChange={(e) => setShowPicked(e.target.checked)} />
             Show picked up
           </label>
-          <NotificationBell />
-          <button onClick={signOut} className="text-sm text-floorMute hover:text-paper">
-            Sign out
-          </button>
         </div>
       </header>
 
@@ -311,6 +319,7 @@ export default function ShippingView() {
       </main>
     </div>
 
+    {sheetOrder && <OrderSheet order={sheetOrder} onClose={() => setSheetOrder(null)} />}
     {printGroup && <LoadingSheet group={printGroup} trucks={trucksOf(printGroup.list.filter((o) => !o.actual_pickup_date))} />}
     </>
   )

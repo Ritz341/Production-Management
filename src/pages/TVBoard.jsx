@@ -433,7 +433,7 @@ export default function TVBoard({ department }) {
         </section>
       )}
 
-      <div className="flex-1 grid grid-cols-[1.15fr_1fr] gap-6 px-8 py-5 min-h-0">
+      <div className="flex-1 grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-6 px-8 py-5 min-h-0">
         {/* ── Left: today, then problems ── */}
         <div className="flex flex-col gap-5 min-h-0">
           {config.today !== false && (
@@ -560,22 +560,27 @@ export default function TVBoard({ department }) {
           )}
 
           {config.problems !== false && (
-            <section className="flex-1 rounded-3xl bg-floorCard border border-floorLine px-8 py-5 min-h-0 flex flex-col">
-              <div className="text-[1.1vw] tracking-[0.2em] uppercase text-floorMute">Problems</div>
+            <section className="flex-1 rounded-3xl bg-floorCard border border-floorLine px-8 py-4 min-h-[9vw] flex flex-col">
+              <div className="text-[1.1vw] tracking-[0.2em] uppercase text-floorMute">
+                Problems{blocked.length > 0 && <span className="text-[#FF8A8A]"> · {blocked.length} blocked</span>}
+              </div>
               {blocked.length === 0 ? (
                 <div className="flex-1 grid place-items-center text-[2.2vw] font-display font-bold text-[#4CC46F]">All clear</div>
               ) : (
-                <ul className="mt-2 space-y-3 overflow-hidden">
+                // One line each — tag and reason side by side — so the reason
+                // is still on screen when the board above it is tall.
+                <ul className="mt-2 space-y-2 overflow-hidden">
                   {blocked.slice(0, 4).map(({ o, id, cell }) => (
-                    <li key={`${o.id}-${id}`} className="rounded-2xl bg-[#2A1C1E] border-2 border-andonRed px-5 py-3">
-                      <div className="font-display font-bold text-[2vw] leading-tight">
+                    <li key={`${o.id}-${id}`} className="rounded-xl bg-[#2A1C1E] border-2 border-andonRed px-4 py-2 flex items-baseline gap-3 min-w-0">
+                      <span className="font-display font-bold text-[1.6vw] leading-tight whitespace-nowrap">
                         <span className="text-safety">#{o.buildNo}</span> {o.tag_name}
-                      </div>
-                      <div className="text-[1.3vw] text-[#FF9A9A]">
+                      </span>
+                      <span className="text-[1.2vw] text-[#FF9A9A] truncate">
                         {columnName[id]} — {blockText(cell)}
-                      </div>
+                      </span>
                     </li>
                   ))}
+                  {blocked.length > 4 && <li className="text-[1.1vw] text-[#FF8A8A]">+{blocked.length - 4} more blocked</li>}
                 </ul>
               )}
             </section>

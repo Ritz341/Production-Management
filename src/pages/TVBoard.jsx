@@ -1,4 +1,5 @@
 import { unitsText, useUnitsToday } from '../lib/unitsDone'
+import { PIECE_NAMES } from '../lib/measuredTimes'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
@@ -449,7 +450,14 @@ export default function TVBoard({ department }) {
                 <div className="text-[1.6vw] text-floorMute pb-4">{unit}</div>
               </div>
               {unitsToday.length > 0 && (
-                <div className="text-[1.5vw] text-paper mt-2 tabular-nums">Built today: {unitsText(unitsToday)}</div>
+                <div className="mt-3 flex flex-wrap gap-3" aria-label={`Built today: ${unitsText(unitsToday)}`}>
+                  {unitsToday.map((u) => (
+                    <div key={u.measure} className="rounded-xl bg-black/25 border border-floorLine px-3 py-1.5 min-w-[7vw]">
+                      <div className="font-display font-extrabold text-[2.2vw] leading-none tabular-nums text-paper">{fmtQty(u.units)}</div>
+                      <div className="text-[0.85vw] uppercase tracking-[0.12em] text-floorMute mt-0.5">built today · {PIECE_NAMES[u.measure] ?? u.measure}</div>
+                    </div>
+                  ))}
+                </div>
               )}
               {judgedTarget != null ? (
                 <>
@@ -592,7 +600,7 @@ export default function TVBoard({ department }) {
                   return (
                     <li
                       key={o.id}
-                      className={`rounded-2xl px-5 py-3 border-2 flex items-center gap-4 ${
+                      className={`rounded-2xl px-5 border-2 flex items-center gap-4 ${i === 0 ? 'py-5' : 'py-3'} ${
                         l === 'blocked'
                           ? 'bg-[#2A1C1E] border-andonRed'
                           : i === 0
@@ -602,9 +610,14 @@ export default function TVBoard({ department }) {
                               : 'bg-floor border-floorLine'
                       }`}
                     >
-                      <span className="font-display font-extrabold text-[2.6vw] leading-none tabular-nums w-[3.2vw]">{o.buildNo}</span>
+                      <span className={`font-display font-extrabold leading-none tabular-nums w-[3.6vw] ${i === 0 ? 'text-[3.6vw]' : 'text-[2.6vw]'}`}>{o.buildNo}</span>
                       <span className="min-w-0 flex-1">
-                        <span className="block font-display font-bold text-[1.9vw] leading-tight truncate">{o.tag_name}</span>
+                        {i === 0 && (
+                          <span className={`block text-[0.95vw] font-bold uppercase tracking-[0.2em] ${l === 'blocked' ? 'text-[#FF8A8A]' : 'text-charcoal/70'}`}>
+                            {l === 'doing' ? 'Now building' : 'Build this next'}
+                          </span>
+                        )}
+                        <span className={`block font-display font-bold leading-tight truncate ${i === 0 ? 'text-[2.6vw]' : 'text-[1.9vw]'}`}>{o.tag_name}</span>
                         <span className={`block text-[1.1vw] truncate ${i === 0 && l !== 'blocked' ? 'text-charcoal/70' : 'text-floorMute'}`}>
                           {l === 'blocked' ? 'BLOCKED' : l === 'doing' ? 'In progress' : 'Not started'} · {o.dealer}
                           {i > 0 && dueTodayIds.has(o.id) && <span className="text-safety font-bold"> · TODAY</span>}

@@ -1,3 +1,4 @@
+import { unitsText, useUnitsToday } from '../lib/unitsDone'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
@@ -7,11 +8,14 @@ import { nearestBuildWeekId, weekName, weekOptionLabel } from '../lib/dates'
 import { dbErrorText } from '../lib/dbError'
 import { DONE_RANK, HEADLINE_TONE_CLASS, buildNumbers, byBuildOrder, daysUntil, nextStageId as nextStage, relativeDay, shortDate, stageLabel, stageRank, wasMovedRecently, weekHeadline } from '../lib/schedule'
 import { useConnection } from '../lib/ConnectionContext.jsx'
-import FileModal from '../components/FileModal.jsx'
+import OrderSheet from '../components/OrderSheet.jsx'
+import { Chip } from '../components/ui.jsx'
 import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
 import QualityIssueModal, { departmentChoices } from '../components/QualityIssueModal.jsx'
 import CountBar from '../components/CountBar.jsx'
+
+const COUNT_WORDS = { mods: 'mod', v4t_frames: 'V4T frame', vents: 'vent', tracks: 'track', roof_panels: 'roof panel', filler_panels: 'filler panel', doors: 'door' }
 
 export default function DepartmentView() {
   const { profile, signOut } = useAuth()
@@ -31,7 +35,19 @@ export default function DepartmentView() {
   const [deptColumnMap, setDeptColumnMap] = useState({}) // deptId -> [columnId,…]
   const [ownColumnIds, setOwnColumnIds] = useState([])
   const [orders, setOrders] = useState([])
-  const [openOrder, setOpenOrder] = useState(null)
+  const [sheetOrder, setSheetOrder] = useState(null)
+  // Counts this tablet's departments may type (tracks on Track …), from
+  // bt_measure_editors. Empty until schema_v26 has been run.
+  const [typable, setTypable] = useState([])
+  useEffect(() => {
+    const ids = profile?.combinedDepartmentIds ?? []
+    if (!ids.length) return
+    supabase
+      .from('bt_measure_editors')
+      .select('measure')
+      .in('department_id', ids)
+      .then(({ data }) => setTypable([...new Set((data ?? []).map((r) => r.measure))]))
+  }, [profile?.combinedDepartmentIds])
   const [qualityFor, setQualityFor] = useState(null) // order being reported on
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -136,6 +152,17 @@ export default function DepartmentView() {
         .in('order_id', orderIds)
         .is('resolved_at', null)
 
+      // Which counts each of this department's jobs is worked out from, and
+      // which orders don't have them yet — a Done on those credits nothing.
+      // (Quietly skipped if schema_v23/v25 haven't been run.)
+      const [{ data: measureRows }, { data: qtyRows }] = await Promise.all([
+        supabase.from('bt_column_measures').select('status_column_id, base_measure').in('status_column_id', ownColumnIds),
+        supabase.from('bt_order_quantities').select('order_id, measure').in('order_id', orderIds),
+      ])
+      const haveQty = new Set((qtyRows ?? []).map((q) => `${q.order_id}:${q.measure}`))
+      const basesOf = new Map()
+      for (const m of measureRows ?? []) (basesOf.get(m.status_column_id) ?? basesOf.set(m.status_column_id, new Set()).get(m.status_column_id)).add(m.base_measure)
+
       if (!active) return
 
       // The build number is the order's place among ALL active orders in
@@ -161,6 +188,16 @@ export default function DepartmentView() {
       )
       // The floor builds in the order admin set: pickup first, then #1, #2 …
       relevant.sort(byBuildOrder)
+      for (const o of relevant) {
+        const missing = new Set()
+        for (const id of ownColumnIds) {
+          if (o.cells[id] == null) continue
+          for (const base of basesOf.get(id) ?? []) {
+            if (!haveQty.has(`${o.id}:${base}`) && !(base === 'mods' && o.mods_count)) missing.add(base)
+          }
+        }
+        o.missingCounts = [...missing]
+      }
       setOrders(relevant)
       setLoading(false)
     }
@@ -173,6 +210,7 @@ export default function DepartmentView() {
       // Order edits (dealer, pickup date, moved to another week) too.
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_orders' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_quality_issues' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_order_quantities' }, load)
       .subscribe()
 
     return () => {
@@ -263,6 +301,9 @@ export default function DepartmentView() {
     () => departments.filter((d) => selectedDeptIds.includes(d.id)).map((d) => d.name).join(' + ') || 'Loading…',
     [departments, selectedDeptIds]
   )
+
+  const selectedNames = useMemo(() => departments.filter((d) => selectedDeptIds.includes(d.id)).map((d) => d.name), [departments, selectedDeptIds])
+  const unitsToday = useUnitsToday(selectedNames.length ? selectedNames : ['—'])
 
   function toggleDept(id) {
     setSelectedDeptIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
@@ -413,6 +454,7 @@ export default function DepartmentView() {
           <h1 className="font-display font-extrabold uppercase text-5xl sm:text-6xl leading-[0.9] mt-1 break-words">
             {currentDeptName}
           </h1>
+          {unitsToday.length > 0 && <p className="text-sm text-floorMute mt-1 tabular-nums">Built today: <span className="text-paper font-semibold">{unitsText(unitsToday)}</span></p>}
           <div className="flex items-center gap-2 mt-3 flex-wrap">
             <details className="relative">
               <summary className="list-none cursor-pointer select-none border border-floorLine rounded-full px-3 py-1.5 text-sm font-semibold text-floorMute hover:text-paper">
@@ -614,7 +656,7 @@ export default function DepartmentView() {
         </div>
       )}
 
-      {openOrder && <FileModal order={openOrder} onClose={() => setOpenOrder(null)} />}
+      {sheetOrder && <OrderSheet order={sheetOrder} tone="floor" canEdit={typable} onClose={() => setSheetOrder(null)} />}
 
       {qualityFor && (
         <QualityIssueModal
@@ -654,6 +696,35 @@ export default function DepartmentView() {
     const isDueToday = !isDone && !isBlocked && dueTodayIds.has(o.id)
     const due = daysUntil(o.scheduled_pickup_date)
 
+    // One headline badge, by what matters most; the rest become small
+    // marks so a card never turns into a row of shouting labels.
+    const sentBack = o.issues.filter((q) => q.sent_back && own.includes(q.responsible_column_id))
+    const moved = wasMovedRecently(o)
+    const signals = isDone
+      ? []
+      : [
+          sentBack.length && {
+            kind: 'warn',
+            text: `↩ Sent back${sentBack[0].reporter_column_id ? ` by ${columnById[sentBack[0].reporter_column_id]}` : ''}: ${defectLabel[sentBack[0].defect_type] ?? sentBack[0].defect_type}`,
+            short: '↩ sent back',
+          },
+          isDueToday && { kind: 'warn', text: 'Do today', short: 'do today' },
+          moved && {
+            kind: o.moved_direction === 'up' ? 'info' : 'neutral',
+            text: o.moved_direction === 'up' ? '↑ Moved up by admin' : '↓ Moved down by admin',
+            short: o.moved_direction === 'up' ? '↑ moved up' : '↓ moved down',
+          },
+          o.missingCounts?.length && {
+            kind: 'outline',
+            text: `No ${o.missingCounts.map((b) => COUNT_WORDS[b] ?? b).join(' / ')} count — ${
+              o.missingCounts.every((b) => typable.includes(b)) ? 'tap Details to enter it' : 'tell the office'
+            }`,
+            short: `no ${o.missingCounts.map((b) => COUNT_WORDS[b] ?? b).join('/')} count`,
+          },
+        ].filter(Boolean)
+    const badge = signals[0]
+    const marks = signals.slice(1).map((x) => x.short)
+
     return (
       <article
         key={o.id}
@@ -668,14 +739,12 @@ export default function DepartmentView() {
         }`}
       >
         <div className="flex justify-between gap-2 items-start">
-          <div className="min-w-0">
+          <button onClick={() => setSheetOrder(o)} className="min-w-0 text-left" aria-label={`Open ${o.tag_name}`}>
             <div className={`font-display font-bold text-xl leading-tight break-words ${isDone ? 'text-[#B7ECC5]' : ''}`}>
               <span className={isDone ? 'text-[#4CC46F]' : 'text-safety'}>#{o.buildNo}</span> {o.tag_name}
             </div>
             <div className={`text-xs mt-0.5 ${isDone ? 'text-[#7FD49A]' : 'text-floorMute'}`}>
               {o.dealer}
-              {/* How big the job is, from the order confirmation: the
-                  mods total, and how many walls they're split across. */}
               {o.mods_count ? (
                 <>
                   {' · '}
@@ -684,17 +753,7 @@ export default function DepartmentView() {
                 </>
               ) : null}
             </div>
-            {isDueToday && (
-              <div className="inline-block mt-1.5 rounded-md bg-safety text-charcoal px-2 py-0.5 text-xs font-bold uppercase tracking-wide">
-                Do today
-              </div>
-            )}
-            {wasMovedRecently(o) && (
-              <div className={`inline-block mt-1.5 rounded-md px-2 py-0.5 text-xs font-bold ${o.moved_direction === 'up' ? 'bg-[#5B9BD5] text-charcoal' : 'bg-floorLine text-paper'}`}>
-                {o.moved_direction === 'up' ? '↑ Moved up' : '↓ Moved down'} by admin
-              </div>
-            )}
-          </div>
+          </button>
           {due != null && (
             <span
               className={`font-display font-bold text-sm rounded-md px-2 py-0.5 whitespace-nowrap tabular-nums ${
@@ -707,90 +766,86 @@ export default function DepartmentView() {
           )}
         </div>
 
+        {(badge || marks.length > 0) && (
+          <div className="flex items-center gap-2 flex-wrap -mt-1">
+            {badge && <Chip tone="floor" kind={badge.kind} className="uppercase tracking-wide whitespace-normal">{badge.text}</Chip>}
+            {marks.map((m) => (
+              <span key={m} className="text-[12px] text-floorMute">{m}</span>
+            ))}
+          </div>
+        )}
+
         {own.map((id, i) => {
           const cell = o.cells[id]
           const rank = stageRank(cell.stage)
           const next = nextStage(cell.stage)
           return (
-            <div key={id} className={`grid grid-cols-[1fr_auto] gap-2 items-center ${i > 0 ? 'border-t border-floorLine pt-2.5' : ''}`}>
+            <div key={id} className={`grid gap-2 ${i > 0 ? 'border-t border-floorLine pt-2.5' : ''}`}>
               <div className="min-w-0">
-                {/* Bench name on its own line: beside the state it wrapped
-                    ("Roof / Panels") in a four-lane layout. */}
-                {own.length > 1 && <div className="font-bold text-sm truncate">{columnById[id]}</div>}
-                <div className="flex items-baseline gap-2 text-sm">
+                <div className="flex items-baseline justify-between gap-2 text-sm">
+                  {own.length > 1 && <span className="font-bold truncate">{columnById[id]}</span>}
                   <span className={cell.blocked ? 'text-[#FF9A9A] font-semibold' : rank >= DONE_RANK ? 'text-[#7FD49A]' : 'text-floorMute'}>
                     {cell.blocked ? 'Blocked' : stageLabel(cell.stage)}
                   </span>
                 </div>
                 <StageSteps rank={rank} blocked={cell.blocked} />
-                {o.issues
-                  .filter((q) => q.sent_back && q.responsible_column_id === id)
-                  .map((q) => (
-                    <div key={q.id} className="mt-1.5 inline-block rounded-md bg-safety text-charcoal text-xs font-bold px-2 py-0.5">
-                      ↩ Sent back{q.reporter_column_id ? ` by ${columnById[q.reporter_column_id]}` : ''}: {defectLabel[q.defect_type] ?? q.defect_type}
-                    </div>
-                  ))}
               </div>
+              {cell.blocked && (
+                <p className="rounded-lg bg-andonRed/15 px-2.5 py-1.5 text-sm leading-snug text-[#FFB3B3]">{blockText(cell)}</p>
+              )}
               {!writableColumnIds.has(id) ? (
-                <span className="text-xs text-floorMute border border-floorLine rounded-md px-2 py-1" title="This tablet can see this department but not change it">
+                <span className="justify-self-start text-xs text-floorMute border border-floorLine rounded-md px-2 py-1" title="This tablet can see this department but not change it">
                   View only
                 </span>
               ) : (
-              <div className="flex items-center gap-1.5">
-                {cell.blocked ? (
-                  <button onClick={() => tapUnblock(o, id)} disabled={!live} className="rounded-lg border border-floorLine text-floorMute text-sm font-semibold px-3 py-2.5 disabled:opacity-40">
-                    Clear block
-                  </button>
-                ) : next ? (
-                  <button
-                    onClick={() => tapAdvance(o, id)}
-                    disabled={!live}
-                    className={`rounded-lg text-charcoal text-sm font-bold px-4 py-2.5 active:scale-95 transition-transform disabled:opacity-40 ${
-                      rank === 1 ? 'bg-[#4CC46F]' : 'bg-safety'
-                    }`}
-                  >
-                    {STAGE_VERB[next]}
-                  </button>
-                ) : null /* done: the label on the left already says so */}
-                {!cell.blocked && next && (
-                  <button
-                    onClick={() => requestToggleBlocked(o.id, id, false)}
-                    disabled={!live}
-                    aria-label={`Report a problem with ${columnById[id]}`}
-                    title="Report a problem"
-                    className="rounded-lg border border-floorLine text-floorMute px-2.5 py-2.5 text-sm disabled:opacity-40"
-                  >
-                    ⚠
-                  </button>
-                )}
-                {/* Coordinators can still jump straight to any stage. The
-                    select sits invisibly over the ⋮ so the icon, not the
-                    current stage's name, is what shows. */}
-                <span className="relative w-6 text-center text-floorMute text-lg leading-none">
-                  ⋮
-                  <select
-                    value={cell.stage ?? ''}
-                    onChange={(e) => setStage(o.id, id, e.target.value, cell.stage)}
-                    disabled={!live}
-                    aria-label={`Set any stage for ${columnById[id]}`}
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                  >
-                    <option value="">Not started</option>
-                    {WORKFLOW_STAGES.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-                </span>
-              </div>
-              )}
-              {/* Full card width, under the row: the reason is what the next
-                  person needs, and beside the button it wrapped four lines deep. */}
-              {cell.blocked && (
-                <p className="col-span-2 -mt-0.5 rounded-lg bg-andonRed/15 px-2.5 py-1.5 text-sm leading-snug text-[#FFB3B3]">
-                  {blockText(cell)}
-                </p>
+                (cell.blocked || next) && (
+                  <div className="flex items-stretch gap-1.5">
+                    {cell.blocked ? (
+                      <button onClick={() => tapUnblock(o, id)} disabled={!live} className="flex-1 min-h-[48px] rounded-xl border border-floorLine text-paper text-base font-semibold disabled:opacity-40">
+                        Clear block
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => tapAdvance(o, id)}
+                        disabled={!live}
+                        className={`flex-1 min-h-[48px] rounded-xl text-charcoal text-lg font-display font-extrabold uppercase tracking-wide active:scale-[0.98] transition-transform disabled:opacity-40 ${
+                          rank === 1 ? 'bg-[#4CC46F]' : 'bg-safety'
+                        }`}
+                      >
+                        {STAGE_VERB[next]}
+                      </button>
+                    )}
+                    {!cell.blocked && (
+                      <button
+                        onClick={() => requestToggleBlocked(o.id, id, false)}
+                        disabled={!live}
+                        aria-label={`Report a problem with ${columnById[id]}`}
+                        title="Report a problem"
+                        className="w-12 rounded-xl border border-floorLine text-floorMute text-lg disabled:opacity-40"
+                      >
+                        ⚠
+                      </button>
+                    )}
+                    {/* Coordinators can still jump straight to any stage. */}
+                    <span className="relative w-10 grid place-items-center rounded-xl border border-floorLine text-floorMute text-lg">
+                      ⋮
+                      <select
+                        value={cell.stage ?? ''}
+                        onChange={(e) => setStage(o.id, id, e.target.value, cell.stage)}
+                        disabled={!live}
+                        aria-label={`Set any stage for ${columnById[id]}`}
+                        className="absolute inset-0 opacity-0 cursor-pointer"
+                      >
+                        <option value="">Not started</option>
+                        {WORKFLOW_STAGES.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </select>
+                    </span>
+                  </div>
+                )
               )}
             </div>
           )
@@ -828,8 +883,8 @@ export default function DepartmentView() {
             >
               ⚑ {o.issues.length ? `${o.issues.length} quality issue${o.issues.length > 1 ? 's' : ''}` : 'Quality'}
             </button>
-            <button onClick={() => setOpenOrder(o)} className="text-xs text-floorMute hover:text-paper py-1">
-              📎 Files
+            <button onClick={() => setSheetOrder(o)} className="text-xs text-floorMute hover:text-paper py-2">
+              📎 Details
             </button>
           </div>
         </div>

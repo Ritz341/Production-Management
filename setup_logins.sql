@@ -1,16 +1,23 @@
 -- ============================================================
--- Link logins to their roles — run in the Supabase SQL editor
--- AFTER creating the users in Authentication → Users.
+-- Logins — run in the Supabase SQL editor. Safe to run again.
 --
--- Matches by email, so there are no UUIDs to copy. Safe to run again:
--- existing logins are updated, missing ones are skipped (see the check
--- at the bottom). Edit the list if your emails are different.
+-- Supabase doesn't let the SQL editor create users (auth.identities is
+-- locked), so create them in the dashboard first:
 --
--- TV logins (tv-mods@…, tv-v4t@…) are deliberately NOT in this list:
+--   Authentication → Users → Add user → Create new user
+--   tick "Auto Confirm User", enter the email and a password.
+--
+-- Create the ones the check table at the bottom shows as user_exists =
+-- false. Then run this file: it links every login to its role and
+-- department (bt_profiles and bt_profile_departments), updating existing
+-- ones, and shows a check of every login.
+--
+-- TV logins (tv-mods@…, tv-v4t@…) are deliberately NOT linked to a role:
 -- the TV board works with no role, and without one the login can't
 -- change anything if someone opens it without ?tv= in the address.
 -- ============================================================
 
+-- ── 2. Link roles and departments ────────────────────────────
 with wanted(email, role, department, display_name) as (
   values
     ('admin@sunspace.local',     'admin',     null,    'Admin'),
@@ -18,7 +25,7 @@ with wanted(email, role, department, display_name) as (
     ('logistics@sunspace.local', 'logistics', null,    'Logistics'),
     ('quality@sunspace.local',   'quality',   null,    'Andrew (Quality)'),
     ('shipping@sunspace.local',  'shipping',  null,    'Shipping'),
-    ('mods@sunspace.local',      'crew',      'Mods',  'Mods Tablet'),
+    ('mods-tablet@sunspace.local', 'crew',    'Mods',  'Mods Tablet'),
     ('v4t@sunspace.local',       'crew',      'V4T',   'V4T Tablet'),
     ('panel@sunspace.local',     'crew',      'Panel', 'Panel Tablet'),
     ('track@sunspace.local',     'crew',      'Track', 'Track Tablet'),
@@ -48,13 +55,14 @@ select user_id, department_id from linked where department_id is not null
 on conflict do nothing;
 
 
--- Check: every login and what it can do. A blank role means the email
+-- ── 3. Check ─────────────────────────────────────────────────
+-- Every login and what it can do. A blank role means the email
 -- above has no matching user in Authentication → Users yet.
 select w.email, u.id is not null as user_exists, p.role, p.display_name,
        string_agg(d.name, ', ') as departments
 from (values
     ('admin@sunspace.local'), ('office@sunspace.local'), ('logistics@sunspace.local'),
-    ('quality@sunspace.local'), ('shipping@sunspace.local'), ('mods@sunspace.local'),
+    ('quality@sunspace.local'), ('shipping@sunspace.local'), ('mods-tablet@sunspace.local'),
     ('v4t@sunspace.local'), ('panel@sunspace.local'), ('track@sunspace.local'), ('door@sunspace.local'),
     ('sc220@sunspace.local'), ('ta144@sunspace.local'), ('manual@sunspace.local'),
     ('tv-mods@sunspace.local'), ('tv-v4t@sunspace.local')

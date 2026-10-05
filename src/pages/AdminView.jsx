@@ -5,12 +5,13 @@ import { nearestBuildWeekId, weekOptionLabel } from '../lib/dates'
 import { dbErrorText } from '../lib/dbError'
 import { WORKFLOW_STAGES, workflowStageById, BLOCKED_CHIP_CLASS } from '../lib/statusColors'
 import { useConnection } from '../lib/ConnectionContext.jsx'
-import FileModal from '../components/FileModal.jsx'
+import OrderSheet from '../components/OrderSheet.jsx'
 import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
 import OrderFormModal from '../components/OrderFormModal.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
 import BulkRemoveModal from '../components/BulkRemoveModal.jsx'
 import AdminImport from './AdminImport.jsx'
+import OrderPackageUpload from '../components/OrderPackageUpload.jsx'
 import AdminOverview from './AdminOverview.jsx'
 import AdminReports from './AdminReports.jsx'
 import AdminTVs from './AdminTVs.jsx'
@@ -29,7 +30,23 @@ export default function AdminView() {
   const { signOut } = useAuth()
   const { live } = useConnection()
   const [blockTarget, setBlockTarget] = useState(null) // { orderId, columnId } while the reason picker is open
-  const [tab, setTab] = useState('overview') // 'overview' | 'grid' | 'import'
+  const [tab, setTab] = useState(() => {
+    try {
+      return localStorage.getItem('admin:tab') || 'overview'
+    } catch {
+      return 'overview'
+    }
+  })
+  const [navOpen, setNavOpen] = useState(false)
+  function pickTab(id) {
+    setTab(id)
+    setNavOpen(false)
+    try {
+      localStorage.setItem('admin:tab', id)
+    } catch {
+      /* private window */
+    }
+  }
   const [hideFinished, setHideFinished] = useState(true)
   const [showCancelled, setShowCancelled] = useState(false)
   const [buildWeeks, setBuildWeeks] = useState([])
@@ -258,43 +275,48 @@ export default function AdminView() {
   return (
     <div className="min-h-full bg-paper">
       <NotificationBanner />
-      <header className="bg-charcoal px-5 py-4 flex items-center justify-between gap-4 border-b-4 border-safety flex-wrap">
-        <h1 className="font-display text-2xl font-bold text-paper tracking-wide">Truesdale Build Tracker — Admin</h1>
-        <div className="flex items-center gap-2">
-          {[
-            ['overview', 'Overview'],
-            ['grid', 'Grid'],
-            ['import', 'Weekly Import'],
-            ['reports', 'Reports'],
-            ['tvs', 'Targets & TVs'],
-            ['skills', 'Skills Matrix'],
-            ['floaters', 'Who can cover'],
-          ].map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={`px-3 py-1.5 text-sm font-medium rounded ${tab === id ? 'bg-safety text-charcoal' : 'text-paper'}`}
-            >
-              {label}
-            </button>
-          ))}
+      <header className="bg-charcoal px-4 sm:px-5 py-3 flex items-center justify-between gap-3 border-b-4 border-safety">
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            onClick={() => setNavOpen(true)}
+            className="lg:hidden w-11 h-11 -ml-2 rounded-lg text-paper text-2xl leading-none"
+            aria-label="Menu"
+          >
+            ☰
+          </button>
+          <h1 className="font-display text-xl sm:text-2xl font-bold text-paper tracking-wide truncate">
+            <span className="hidden sm:inline">Truesdale Build Tracker · </span>
+            <span className="lg:hidden">{NAV.flatMap((g) => g.items).find(([id]) => id === tab)?.[1]}</span>
+            <span className="hidden lg:inline">Admin</span>
+          </h1>
         </div>
         <div className="flex items-center gap-2">
           <NotificationBell />
-          <button onClick={signOut} className="text-sm text-floorMute hover:text-paper">
+          <button onClick={signOut} className="text-sm text-floorMute hover:text-paper px-2 py-2">
             Sign out
           </button>
         </div>
       </header>
 
+      <div className="lg:flex">
+        <AdminNav tab={tab} onPick={pickTab} className="hidden lg:block w-56 shrink-0 border-r border-paperDim bg-white min-h-[calc(100vh-64px)]" />
+        {navOpen && (
+          <div className="lg:hidden fixed inset-0 z-[150]" role="dialog" aria-modal="true" aria-label="Menu">
+            <div className="absolute inset-0 bg-charcoal/60" onClick={() => setNavOpen(false)} />
+            <AdminNav tab={tab} onPick={pickTab} className="relative h-full w-72 max-w-[85vw] bg-white shadow-2xl overflow-y-auto animate-[sheetIn_.18s_ease-out]" />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
       {tab === 'overview' && (
         <AdminOverview
           buildWeeks={buildWeeks}
           onWeeksChanged={loadBuildWeeks}
           onEditOrder={(o) => setFormOrder(o)}
           onNewOrder={() => setFormOrder('new')}
-          onImport={() => setTab('import')}
-          onOpenGrid={() => setTab('grid')}
+          onImport={() => pickTab('import')}
+          onOpenGrid={() => pickTab('grid')}
+          onOpenOrder={(o) => setOpenOrder(o)}
+          onOpenTvs={() => pickTab('tvs')}
         />
       )}
 
@@ -306,12 +328,18 @@ export default function AdminView() {
 
       {tab === 'floaters' && <AdminFloaters />}
 
+      {tab === 'paperwork' && (
+        <main className="px-5 py-5 max-w-4xl mx-auto">
+          <OrderPackageUpload />
+        </main>
+      )}
+
       {tab === 'import' && (
         <AdminImport
           buildWeeks={buildWeeks}
           onCommitted={() => {
             loadBuildWeeks()
-            setTab('grid')
+            pickTab('grid')
           }}
         />
       )}
@@ -473,9 +501,12 @@ export default function AdminView() {
                       <td className="px-3 py-2">
                         {/* An identifier: broken at its hyphens it became
                             three lines and hard to read as one tag. */}
-                        <span className={`font-display text-base font-semibold whitespace-nowrap ${o.status === 'cancelled' ? 'text-steelLight line-through' : 'text-charcoal'}`}>
+                        <button
+                          onClick={() => setOpenOrder(o)}
+                          className={`font-display text-base font-semibold whitespace-nowrap hover:underline ${o.status === 'cancelled' ? 'text-steelLight line-through' : 'text-charcoal'}`}
+                        >
                           {o.tag_name}
-                        </span>
+                        </button>
                         {o.status === 'cancelled' && (
                           <span className="block text-xs font-semibold text-andonRed">Cancelled{o.cancel_reason ? ` — ${o.cancel_reason}` : ''}</span>
                         )}
@@ -564,7 +595,7 @@ export default function AdminView() {
                       })}
                       <td className="px-3 py-2 whitespace-nowrap">
                         <button onClick={() => setOpenOrder(o)} className="text-andonBlue font-medium text-sm">
-                          Files
+                          Open
                         </button>
                         <span className="text-paperDim mx-1.5">·</span>
                         <button onClick={() => setFormOrder(o)} className="text-andonBlue font-medium text-sm">
@@ -580,7 +611,10 @@ export default function AdminView() {
         </>
       )}
 
-      {openOrder && <FileModal order={openOrder} onClose={() => setOpenOrder(null)} allowUpload />}
+        </div>
+      </div>
+
+      {openOrder && <OrderSheet order={openOrder} onClose={() => setOpenOrder(null)} canEdit />}
 
       {formOrder && (
         <OrderFormModal
@@ -618,5 +652,46 @@ export default function AdminView() {
         />
       )}
     </div>
+  )
+}
+
+// The admin screens, grouped by when you reach for them.
+const NAV = [
+  { group: 'Today', items: [['overview', 'Overview', '◉'], ['grid', 'Grid', '▦']] },
+  { group: 'Orders', items: [['import', 'Weekly import', '⇩'], ['paperwork', 'Paperwork', '📎']] },
+  {
+    group: 'Floor setup',
+    items: [
+      ['tvs', 'Targets & TVs', '▣'],
+      ['skills', 'Skills matrix', '✦'],
+      ['floaters', 'Who can cover', '⇄'],
+    ],
+  },
+  { group: 'Look back', items: [['reports', 'Reports', '▤']] },
+]
+
+function AdminNav({ tab, onPick, className }) {
+  return (
+    <nav className={className} aria-label="Admin">
+      <div className="px-4 pt-4 pb-2 font-display font-bold text-lg text-charcoal lg:hidden">Truesdale · Admin</div>
+      {NAV.map((g) => (
+        <div key={g.group} className="px-2 py-2">
+          <div className="px-2 pb-1 text-[11px] uppercase tracking-[0.14em] font-semibold text-steelLight">{g.group}</div>
+          {g.items.map(([id, label, icon]) => (
+            <button
+              key={id}
+              onClick={() => onPick(id)}
+              aria-current={tab === id ? 'page' : undefined}
+              className={`w-full flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-left text-[15px] font-medium ${
+                tab === id ? 'bg-safety text-charcoal font-semibold' : 'text-steel hover:bg-paperDim'
+              }`}
+            >
+              <span className="w-5 text-center opacity-70" aria-hidden="true">{icon}</span>
+              {label}
+            </button>
+          ))}
+        </div>
+      ))}
+    </nav>
   )
 }

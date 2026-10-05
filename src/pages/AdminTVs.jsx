@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { clockLabel, isoDate, processesFor, rateFor, useSettings } from '../lib/catalog'
 import ProcessEditor from '../components/ProcessEditor.jsx'
+import MeasuredTimes from '../components/MeasuredTimes.jsx'
 
 const ZONES = [
   ['today', 'Finished today', 'The big number, against the day’s target from Crew today.'],
@@ -223,6 +224,8 @@ export default function AdminTVs() {
           </section>
         )
       })}
+
+      <MeasuredTimes settings={settings} departments={departments} saveSetting={saveSetting} saveProcesses={saveProcesses} />
 
       <section className="rounded-2xl bg-white border border-paperDim p-5">
         <h3 className="font-display font-bold text-xl uppercase tracking-wide text-charcoal">Count check-ins</h3>

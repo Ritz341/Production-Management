@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { WORKFLOW_STAGES } from '../lib/statusColors'
-import { blockText, fmtQty, isoDate, pickupLoads, planLine, processesFor, ratePerHourOf, useSettings } from '../lib/catalog'
+import { blockText, fmtQty, isoDate, pickupLoads, planLine, processesFor, ratePerHourOf, rateFor, useSettings } from '../lib/catalog'
 import WeekLoad from '../components/WeekLoad.jsx'
 import { nearestBuildWeekId, weekName, weekOptionLabel } from '../lib/dates'
 import { dbErrorText } from '../lib/dbError'
@@ -21,7 +21,7 @@ const STAGE_BAR = {
  * along it is, and what needs a decision — blocked jobs, orders that
  * won't make their pickup — with the fix one tap away.
  */
-export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder, onNewOrder, onImport, onOpenGrid }) {
+export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder, onNewOrder, onImport, onOpenGrid, onOpenOrder, onOpenTvs }) {
   const { live } = useConnection()
   const [weekId, setWeekId] = useState(null)
   const [departments, setDepartments] = useState([])
@@ -35,6 +35,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
   const [toast, setToast] = useState('')
   const settings = useSettings()
   const [crewRows, setCrewRows] = useState([]) // bt_crew_days rows
+  const [qtyKeys, setQtyKeys] = useState(new Set()) // 'orderId:measure' with a count
   const [processDays, setProcessDays] = useState([]) // today's bt_process_days rows
   const today = isoDate(new Date())
 
@@ -69,7 +70,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       // picked up it no longer needs the coordinator's attention.
       const { data: orderRows, error: oErr } = await supabase
         .from('bt_orders')
-        .select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, created_at, notes, sequence, status, cancel_reason, mods_count, walls_count, room_shape, window_type, panel_type')
+        .select('id, tag_name, dealer, truck_route, shipping_status, build_week_id, scheduled_pickup_date, created_at, notes, sequence, status, cancel_reason, paperwork_ready_at, mods_count, walls_count, room_shape, window_type, panel_type')
         .is('actual_pickup_date', null)
         .eq('status', 'active')
       const ids = (orderRows ?? []).map((o) => o.id)
@@ -88,6 +89,10 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
         .not('event_type', 'in', '(column_started,column_completed)')
         .order('created_at', { ascending: false })
         .limit(25)
+      const { data: qtyRows } = ids.length
+        ? await supabase.from('bt_order_quantities').select('order_id, measure').in('order_id', ids)
+        : { data: [] }
+      if (active) setQtyKeys(new Set((qtyRows ?? []).map((q) => `${q.order_id}:${q.measure}`)))
       const { data: crew } = await supabase.from('bt_crew_days').select('work_date, department_id, people')
       const { data: procDays } = await supabase
         .from('bt_process_days')
@@ -305,6 +310,52 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
     return dated.sort((a, b) => a.ship_date.localeCompare(b.ship_date)).slice(0, 5)
   }, [buildWeeks])
 
+  // ── Ready for the day? One checklist instead of notes scattered
+  // across every screen. Each line is green when nothing's needed.
+  const readiness = useMemo(() => {
+    const crewToday = new Set(crewRows.filter((c) => c.work_date === today && Number(c.people) > 0).map((c) => c.department_id))
+    const noCrew = departments.filter((d) => !crewToday.has(d.id))
+    const noTarget = departments.filter((d) => !rateFor(settings, d.name).perPerson && !processesFor(settings, d.name).some((p) => ratePerHourOf(p)))
+    const noMods = weekOrders.filter((o) => !o.mods_count)
+    const noV4T = weekOrders.filter((o) => o.window_type === 'v4t' && !qtyKeys.has(`${o.id}:v4t_frames`))
+    const noPaper = weekOrders.filter((o) => !o.paperwork_ready_at)
+    const names = (list, f) => list.slice(0, 3).map(f).join(', ') + (list.length > 3 ? ` +${list.length - 3} more` : '')
+    return [
+      {
+        id: 'crew',
+        ok: noCrew.length === 0,
+        title: noCrew.length ? `No people entered today for ${noCrew.length} department${noCrew.length === 1 ? '' : 's'}` : 'Crew entered for every department',
+        detail: noCrew.length ? `${names(noCrew, (d) => d.name)} — their TVs show no target` : null,
+        action: noCrew.length ? ['Enter crew', () => document.getElementById('crew-today')?.scrollIntoView({ behavior: 'smooth' })] : null,
+      },
+      {
+        id: 'targets',
+        ok: noTarget.length === 0,
+        title: noTarget.length ? `${noTarget.length} department${noTarget.length === 1 ? ' has' : 's have'} no target rate` : 'Every department has a target',
+        detail: noTarget.length ? names(noTarget, (d) => d.name) : null,
+        action: noTarget.length && onOpenTvs ? ['Set targets', onOpenTvs] : null,
+      },
+      {
+        id: 'counts',
+        ok: noMods.length + noV4T.length === 0,
+        title:
+          noMods.length + noV4T.length
+            ? [noMods.length && `${noMods.length} missing mod counts`, noV4T.length && `${noV4T.length} V4T orders missing frame counts`].filter(Boolean).join(' · ')
+            : 'Counts in for this week',
+        detail: noMods.length + noV4T.length ? `${names([...noMods, ...noV4T], (o) => `#${o.buildNo} ${o.tag_name}`)} — their Done won't be counted` : null,
+        orders: [...new Map([...noMods, ...noV4T].map((o) => [o.id, o])).values()],
+      },
+      {
+        id: 'paper',
+        ok: noPaper.length === 0,
+        title: noPaper.length ? `Paperwork not ready for ${noPaper.length} of ${weekOrders.length} orders this week` : 'Paperwork ready for this week',
+        detail: noPaper.length ? names(noPaper, (o) => `#${o.buildNo} ${o.tag_name}`) : null,
+        orders: noPaper,
+      },
+    ]
+  }, [crewRows, departments, settings, weekOrders, qtyKeys, today, onOpenTvs])
+  const readyCount = readiness.filter((r) => r.ok).length
+
   const shipDays = daysUntil(week?.ship_date)
   // Counted in orders, not department jobs: the tile is about whether
   // this week still owes the yard anything.
@@ -369,8 +420,8 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       {loadError && <div className="mt-4 bg-andonRedBg text-andonRed text-sm px-4 py-3 rounded-lg">⚠ {loadError}</div>}
 
       {/* ── KPIs ── */}
-      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.3fr_1fr_1fr_1fr] gap-3">
-        <div className="rounded-2xl bg-charcoal text-paper p-4">
+      <div className="mt-4 grid grid-cols-2 lg:grid-cols-[1.3fr_1fr_1fr_1fr] gap-3">
+        <div className="col-span-2 lg:col-span-1 rounded-2xl bg-charcoal text-paper p-4">
           <div className="text-[11px] uppercase tracking-[0.12em] text-floorMute font-semibold">
             {weekName(week) || 'This build week'} ships
           </div>
@@ -427,6 +478,43 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
           </div>
         </Kpi>
       </div>
+
+      {/* ── Ready for today ── */}
+      <section className="mt-3 rounded-2xl bg-white border border-paperDim p-4">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">Ready for today</h2>
+          <span className={`font-display font-bold text-lg tabular-nums ${readyCount === readiness.length ? 'text-andonGreen' : 'text-safetyDark'}`}>
+            {readyCount}/{readiness.length}
+          </span>
+        </div>
+        <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+          {readiness.map((r) => (
+            <li key={r.id} className={`rounded-xl border px-3 py-2.5 flex gap-3 items-start ${r.ok ? 'border-paperDim' : 'border-safety bg-safety/10'}`}>
+              <span className={`mt-0.5 w-6 h-6 shrink-0 rounded-full grid place-items-center text-sm font-bold ${r.ok ? 'bg-andonGreenBg text-andonGreen' : 'bg-safety text-charcoal'}`} aria-hidden="true">
+                {r.ok ? '✓' : '!'}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className={`text-sm font-semibold ${r.ok ? 'text-steelLight' : 'text-charcoal'}`}>{r.title}</div>
+                {r.detail && <div className="text-xs text-steelLight mt-0.5">{r.detail}</div>}
+                {!r.ok && r.orders?.length > 0 && onOpenOrder && (
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {r.orders.slice(0, 4).map((o) => (
+                      <button key={o.id} onClick={() => onOpenOrder(o)} className="rounded-md border border-paperDim bg-white px-2 py-1 text-xs font-semibold text-andonBlue">
+                        #{o.buildNo} open
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {r.action && (
+                <button onClick={r.action[1]} className="shrink-0 rounded-lg bg-charcoal text-paper text-xs font-semibold px-3 min-h-[36px]">
+                  {r.action[0]}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      </section>
 
       {/* Two stacks of about the same height: what's happening on the
           left, planning on the right. The left used to hold Needs
@@ -548,7 +636,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
           )}
 
           {/* ── Crew today ── */}
-          <section className="rounded-2xl bg-white border border-paperDim p-4">
+          <section id="crew-today" className="rounded-2xl bg-white border border-paperDim p-4 scroll-mt-4">
             <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">Crew today</h2>
             <p className="text-sm text-steelLight">
               People on each department today. Leave blank to assume {settings.default_mods_crew} on Mods.

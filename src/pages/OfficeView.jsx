@@ -3,10 +3,12 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { buildNumbers, byBuildOrder, daysUntil, relativeDay, shortDate } from '../lib/schedule'
-import { PANEL_TYPES, ROOM_SHAPES, WINDOW_TYPES, difficulty, orderPersonDays, pickupLoads, roomSize, useSettings } from '../lib/catalog'
+import { PANEL_TYPES, ROOM_SHAPES, WINDOW_TYPES, difficulty, orderPersonDays, pickupLoads, useSettings } from '../lib/catalog'
 import WeekLoad from '../components/WeekLoad.jsx'
 import { dbErrorText } from '../lib/dbError'
 import OrderPackageUpload from '../components/OrderPackageUpload.jsx'
+import OrderSheet from '../components/OrderSheet.jsx'
+import { Chip } from '../components/ui.jsx'
 import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
 
 /**
@@ -28,6 +30,7 @@ export default function OfficeView() {
   const [quantities, setQuantities] = useState({}) // order id -> { measure: { qty, source } }
   const [modsDone, setModsDone] = useState(new Set()) // order ids whose Mods work is finished
   const [onlyNotReady, setOnlyNotReady] = useState(false)
+  const [sheetId, setSheetId] = useState(null)
   const [error, setError] = useState('')
 
   async function load() {
@@ -120,31 +123,6 @@ export default function OfficeView() {
     }
   }
 
-  // A number typed here is the office's and survives re-uploads; blank
-  // removes it (the next upload of the sheets fills it in again).
-  async function saveQuantity(order, measure, value) {
-    if (!live) return
-    const had = quantities[order.id]?.[measure]
-    if (value === null && !had) return
-    if (value !== null && had && had.qty === value && had.source === 'typed') return
-    setQuantities((prev) => {
-      const mine = { ...(prev[order.id] ?? {}) }
-      if (value === null) delete mine[measure]
-      else mine[measure] = { qty: value, source: 'typed' }
-      return { ...prev, [order.id]: mine }
-    })
-    const { error: err } =
-      value === null
-        ? await supabase.from('bt_order_quantities').delete().eq('order_id', order.id).eq('measure', measure)
-        : await supabase
-            .from('bt_order_quantities')
-            .upsert({ order_id: order.id, measure, qty: value, source: 'typed', updated_at: new Date().toISOString() }, { onConflict: 'order_id,measure' })
-    if (err) {
-      setError(dbErrorText(err, `Couldn't save the count for ${order.tag_name}`))
-      load()
-    }
-  }
-
   async function saveDetails(order, patch) {
     if (!live) return
     const next = { ...order, ...patch }
@@ -163,6 +141,7 @@ export default function OfficeView() {
     }
   }
 
+  const sheetOrder = orders.find((o) => o.id === sheetId) ?? null
   const totalOpen = orders.filter((o) => !o.paperwork_ready_at).length
   const missingDetails = orders.filter((o) => !o.mods_count).length
   const missingV4T = orders.filter((o) => o.window_type === 'v4t' && !(quantities[o.id]?.v4t_frames || quantities[o.id]?.vents)).length
@@ -231,147 +210,117 @@ export default function OfficeView() {
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="text-left text-xs uppercase tracking-wider text-steelLight">
-                    <tr>
-                      <th className="px-4 py-2 font-semibold">Paperwork</th>
-                      <th className="px-2 py-2 font-semibold">#</th>
-                      <th className="px-2 py-2 font-semibold">Order</th>
-                      <th className="px-2 py-2 font-semibold">Mods · walls</th>
-                      <th className="px-2 py-2 font-semibold">V4T · vents</th>
-                      <th className="px-2 py-2 font-semibold">Room</th>
-                      <th className="px-2 py-2 font-semibold">Windows</th>
-                      <th className="px-2 py-2 font-semibold">Panels</th>
-                      <th className="px-4 py-2 font-semibold text-right">Estimate</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-paperDim">
-                    {shown.map((o) => {
-                      const ready = !!o.paperwork_ready_at
-                      const level = difficulty(o)
-                      const days = orderPersonDays(o, settings)
-                      return (
-                        <tr key={o.id} className="align-middle">
-                          <td className="px-4 py-2.5">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={ready}
-                                disabled={!live}
-                                onChange={() => setReady([o.id], !ready)}
-                                className="w-6 h-6 accent-andonGreen"
-                                aria-label={`Paperwork ready for ${o.tag_name}`}
-                              />
-                              <span className={`text-xs font-semibold ${ready ? 'text-andonGreen' : 'text-steelLight'}`}>{ready ? 'Ready' : '—'}</span>
-                            </label>
-                          </td>
-                          <td className="px-2 py-2.5 font-display font-bold text-xl text-steelLight tabular-nums">{o.buildNo}</td>
-                          <td className="px-2 py-2.5 min-w-[12rem]">
-                            <div className="font-display font-bold text-base text-charcoal">{o.tag_name}</div>
-                            <div className="text-xs text-steelLight truncate max-w-[16rem]">{o.dealer}</div>
-                          </td>
-                          <td className="px-2 py-2.5 whitespace-nowrap">
-                            <label className="flex items-center gap-1.5">
-                            <input
-                              type="number"
-                              min="0"
-                              max="99"
-                              defaultValue={o.mods_count ?? ''}
-                              key={`${o.id}-${o.mods_count}`}
-                              disabled={!live}
-                              onBlur={(e) => {
-                                const v = e.target.value === '' ? null : Number(e.target.value)
-                                if (v !== (o.mods_count ?? null)) saveDetails(o, { mods_count: v })
-                              }}
-                              aria-label={`Mods for ${o.tag_name}`}
-                              className={`w-16 rounded border px-2 py-1.5 tabular-nums ${o.mods_count ? 'border-paperDim' : 'border-safety bg-safety/10'}`}
-                            />
-                            <span className="text-xs text-steelLight">mods</span>
-                            </label>
-                            {/* How the drawing splits those mods up.
-                                Optional — the estimate runs off the
-                                total, this is for the floor. */}
-                            <label className="flex items-center gap-1.5 mt-1">
-                            <input
-                              type="number"
-                              min="0"
-                              max="50"
-                              defaultValue={o.walls_count ?? ''}
-                              key={`${o.id}-walls-${o.walls_count}`}
-                              disabled={!live}
-                              onBlur={(e) => {
-                                const v = e.target.value === '' ? null : Number(e.target.value)
-                                if (v !== (o.walls_count ?? null)) saveDetails(o, { walls_count: v })
-                              }}
-                              aria-label={`Walls for ${o.tag_name}`}
-                              className="w-16 rounded border border-paperDim px-2 py-1.5 tabular-nums"
-                            />
-                            <span className="text-xs text-steelLight">walls</span>
-                            </label>
-                          </td>
-                          <td className="px-2 py-2.5 whitespace-nowrap">
-                            {[['v4t_frames', 'frames'], ['vents', 'vents']].map(([measure, word]) => {
-                              const q = quantities[o.id]?.[measure]
-                              return (
-                                <label key={measure} className="flex items-center gap-1.5 first:mb-1">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    max="999"
-                                    defaultValue={q?.qty ?? ''}
-                                    key={`${o.id}-${measure}-${q?.qty ?? ''}-${q?.source ?? ''}`}
-                                    disabled={!live}
-                                    onBlur={(e) => saveQuantity(o, measure, e.target.value === '' ? null : Number(e.target.value))}
-                                    aria-label={`${word === 'frames' ? 'V4T frames' : 'Vents'} for ${o.tag_name}`}
-                                    className={`w-16 rounded border px-2 py-1.5 tabular-nums ${!q && o.window_type === 'v4t' ? 'border-safety bg-safety/10' : 'border-paperDim'}`}
-                                  />
-                                  <span className="text-xs text-steelLight">
-                                    {word}
-                                    {q ? (q.source === 'file' ? ' · from sheet' : ' · typed') : ''}
-                                  </span>
-                                </label>
-                              )
-                            })}
-                          </td>
-                          <DetailSelect order={o} field="room_shape" options={ROOM_SHAPES} onSave={saveDetails} disabled={!live} />
-                          <DetailSelect order={o} field="window_type" options={WINDOW_TYPES} onSave={saveDetails} disabled={!live} />
-                          <DetailSelect order={o} field="panel_type" options={PANEL_TYPES} onSave={saveDetails} disabled={!live} />
-                          <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                            {days == null ? (
-                              <span className="text-xs text-steelLight">enter mods</span>
-                            ) : (
-                              <>
-                                <LevelChip level={level} />
-                                <div className="text-xs text-steelLight mt-0.5 tabular-nums">
-                                  {roomSize(o.mods_count, settings)} · {days.toFixed(1)} person-days
-                                </div>
-                              </>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <ul className="divide-y divide-paperDim">
+                {shown.map((o) => {
+                  const ready = !!o.paperwork_ready_at
+                  const level = difficulty(o)
+                  const days = orderPersonDays(o, settings)
+                  const q = quantities[o.id] ?? {}
+                  const needsV4T = o.window_type === 'v4t' && !q.v4t_frames
+                  return (
+                    <li key={o.id} className="flex items-stretch">
+                      <label className="flex items-center px-3 sm:px-4 cursor-pointer" title="Paperwork ready">
+                        <input
+                          type="checkbox"
+                          checked={ready}
+                          disabled={!live}
+                          onChange={() => setReady([o.id], !ready)}
+                          className="w-7 h-7 accent-andonGreen"
+                          aria-label={`Paperwork ready for ${o.tag_name}`}
+                        />
+                      </label>
+                      <button
+                        onClick={() => setSheetId(o.id)}
+                        className="flex-1 min-w-0 text-left py-3 pr-3 sm:pr-4 grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center hover:bg-paper"
+                        aria-label={`Open ${o.tag_name}`}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-baseline gap-2">
+                            <span className="font-display font-bold text-lg text-steelLight tabular-nums">#{o.buildNo}</span>
+                            <span className="font-display font-bold text-lg text-charcoal truncate">{o.tag_name}</span>
+                          </div>
+                          <div className="text-xs text-steelLight truncate">{o.dealer}</div>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap sm:justify-end">
+                          {o.mods_count ? (
+                            <Chip>
+                              {o.mods_count} mods{o.walls_count ? ` · ${o.walls_count} walls` : ''}
+                            </Chip>
+                          ) : (
+                            <Chip kind="warn">No mod count</Chip>
+                          )}
+                          {q.v4t_frames ? (
+                            <Chip kind="info">
+                              V4T {q.v4t_frames.qty}
+                              {q.vents ? ` · ${q.vents.qty} vents` : ''}
+                            </Chip>
+                          ) : needsV4T ? (
+                            <Chip kind="warn">No V4T count</Chip>
+                          ) : null}
+                          {days != null && (
+                            <span className="inline-flex items-center gap-1">
+                              <LevelChip level={level} />
+                              <span className="text-xs text-steelLight tabular-nums">{days.toFixed(1)} p-days</span>
+                            </span>
+                          )}
+                          <span className="text-steelLight text-lg leading-none pl-1" aria-hidden="true">›</span>
+                        </div>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
             </section>
           )
         })}
       </main>
+
+      {sheetOrder && (
+        <OrderSheet
+          order={sheetOrder}
+          canEdit
+          onClose={() => {
+            setSheetId(null)
+            load()
+          }}
+          top={<OrderDetailsEditor order={sheetOrder} onSave={saveDetails} disabled={!live} />}
+        />
+      )}
     </div>
   )
 }
 
-function DetailSelect({ order, field, options, onSave, disabled }) {
-  return (
-    <td className="px-2 py-2.5">
+/** The order-confirmation details the office types, inside the order page. */
+function OrderDetailsEditor({ order, onSave, disabled }) {
+  const num = (field, label, max) => (
+    <label className="rounded-xl border border-paperDim bg-white p-3">
+      <span className="block text-xs text-steelLight">{label}</span>
+      <input
+        type="number"
+        min="0"
+        max={max}
+        inputMode="numeric"
+        defaultValue={order[field] ?? ''}
+        key={`${field}-${order[field] ?? ''}`}
+        disabled={disabled}
+        onBlur={(e) => {
+          const v = e.target.value === '' ? null : Number(e.target.value)
+          if (v !== (order[field] ?? null)) onSave(order, { [field]: v })
+        }}
+        aria-label={label}
+        className={`mt-0.5 w-full rounded-lg border px-2 py-2 text-xl font-display font-bold tabular-nums ${order[field] || field !== 'mods_count' ? 'border-paperDim' : 'border-safety bg-safety/10'}`}
+      />
+    </label>
+  )
+  const pick = (field, label, options) => (
+    <label className="rounded-xl border border-paperDim bg-white p-3">
+      <span className="block text-xs text-steelLight">{label}</span>
       <select
         value={order[field] ?? ''}
         disabled={disabled}
         onChange={(e) => onSave(order, { [field]: e.target.value || null })}
-        aria-label={`${field.replace('_', ' ')} for ${order.tag_name}`}
-        className="rounded border border-paperDim bg-white px-2 py-1.5"
+        aria-label={label}
+        className="mt-0.5 w-full rounded-lg border border-paperDim bg-white px-2 py-2.5 text-sm"
       >
         <option value="">—</option>
         {options.map((x) => (
@@ -380,7 +329,19 @@ function DetailSelect({ order, field, options, onSave, disabled }) {
           </option>
         ))}
       </select>
-    </td>
+    </label>
+  )
+  return (
+    <section>
+      <h3 className="font-display font-bold uppercase tracking-wide text-lg text-charcoal">From the order confirmation</h3>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        {num('mods_count', 'Mods', 99)}
+        {num('walls_count', 'Walls', 50)}
+        {pick('room_shape', 'Room', ROOM_SHAPES)}
+        {pick('window_type', 'Windows', WINDOW_TYPES)}
+        {pick('panel_type', 'Panels', PANEL_TYPES)}
+      </div>
+    </section>
   )
 }
 

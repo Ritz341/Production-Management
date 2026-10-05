@@ -41,7 +41,7 @@ const fmtTime = (iso) =>
  *   canEdit  office / admin: counts can be changed here
  *   tone     'floor' on the tablets, 'paper' elsewhere
  */
-export default function OrderSheet({ order, onClose, canEdit = false, tone = 'paper' }) {
+export default function OrderSheet({ order, onClose, canEdit = false, tone = 'paper', top = null }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState('')
@@ -185,6 +185,7 @@ export default function OrderSheet({ order, onClose, canEdit = false, tone = 'pa
     >
       <div className="p-4 space-y-5">
         {error && <p className="rounded-lg bg-andonRedBg text-andonRed text-sm px-3 py-2">⚠ {error}</p>}
+        {top}
         {!data && <p className={`text-sm ${muted}`}>Loading…</p>}
 
         {data && (
@@ -345,8 +346,8 @@ export default function OrderSheet({ order, onClose, canEdit = false, tone = 'pa
               <h3 className={h}>History</h3>
               <ul className="mt-2 space-y-1">
                 {data.acts.map((a) => (
-                  <li key={a.id} className="text-sm flex gap-2">
-                    <span className={`shrink-0 tabular-nums w-[8.5rem] ${muted}`}>{fmtTime(a.at)}</span>
+                  <li key={a.id} className="text-sm flex flex-col sm:flex-row sm:gap-2">
+                    <span className={`shrink-0 tabular-nums text-xs sm:text-sm sm:w-[11rem] ${muted}`}>{fmtTime(a.at)}</span>
                     <span>
                       {a.status_column_id ? <b>{colName[a.status_column_id]} </b> : null}
                       {KIND_WORDS[a.kind] ?? a.kind}

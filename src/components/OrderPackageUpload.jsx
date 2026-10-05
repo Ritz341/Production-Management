@@ -189,6 +189,12 @@ export default function OrderPackageUpload() {
               ))}
             </div>
             <p className="text-xs text-steelLight mt-1">Mods are counted from the mod count on the order itself.</p>
+            {pkg.items.some((i) => i.runs.some((r) => r.label === 'V4T')) && !counts.v4t_frames && (
+              <p className="text-xs text-safetyDark font-semibold mt-1">⚠ A V4T sheet is in this package but no frame count was read — enter it, or V4T’s Done won’t be counted.</p>
+            )}
+            {pkg.items.some((i) => i.doc?.scanned) && (
+              <p className="text-xs text-safetyDark mt-1">⚠ Scanned sheets can’t be read for counts — upload the text PDF version for the counts to come through.</p>
+            )}
           </div>
 
           <div className="flex gap-2">

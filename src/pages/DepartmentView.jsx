@@ -14,6 +14,8 @@ import BlockReasonModal from '../components/BlockReasonModal.jsx'
 import QualityIssueModal, { departmentChoices } from '../components/QualityIssueModal.jsx'
 import CountBar from '../components/CountBar.jsx'
 
+const COUNT_WORDS = { mods: 'mod', v4t_frames: 'V4T frame', vents: 'vent' }
+
 export default function DepartmentView() {
   const { profile, signOut } = useAuth()
   const { live } = useConnection()
@@ -137,6 +139,17 @@ export default function DepartmentView() {
         .in('order_id', orderIds)
         .is('resolved_at', null)
 
+      // Which counts each of this department's jobs is worked out from, and
+      // which orders don't have them yet — a Done on those credits nothing.
+      // (Quietly skipped if schema_v23/v25 haven't been run.)
+      const [{ data: measureRows }, { data: qtyRows }] = await Promise.all([
+        supabase.from('bt_column_measures').select('status_column_id, base_measure').in('status_column_id', ownColumnIds),
+        supabase.from('bt_order_quantities').select('order_id, measure').in('order_id', orderIds),
+      ])
+      const haveQty = new Set((qtyRows ?? []).map((q) => `${q.order_id}:${q.measure}`))
+      const basesOf = new Map()
+      for (const m of measureRows ?? []) (basesOf.get(m.status_column_id) ?? basesOf.set(m.status_column_id, new Set()).get(m.status_column_id)).add(m.base_measure)
+
       if (!active) return
 
       // The build number is the order's place among ALL active orders in
@@ -162,6 +175,16 @@ export default function DepartmentView() {
       )
       // The floor builds in the order admin set: pickup first, then #1, #2 …
       relevant.sort(byBuildOrder)
+      for (const o of relevant) {
+        const missing = new Set()
+        for (const id of ownColumnIds) {
+          if (o.cells[id] == null) continue
+          for (const base of basesOf.get(id) ?? []) {
+            if (!haveQty.has(`${o.id}:${base}`) && !(base === 'mods' && o.mods_count)) missing.add(COUNT_WORDS[base] ?? base)
+          }
+        }
+        o.missingCounts = [...missing]
+      }
       setOrders(relevant)
       setLoading(false)
     }
@@ -689,6 +712,11 @@ export default function DepartmentView() {
                 </>
               ) : null}
             </div>
+            {o.missingCounts?.length > 0 && (
+              <div className="mt-1.5 inline-block rounded-md border border-safety text-safety px-2 py-0.5 text-xs font-semibold">
+                No {o.missingCounts.join(' / ')} count — Done won’t be counted · tell the office
+              </div>
+            )}
             {isDueToday && (
               <div className="inline-block mt-1.5 rounded-md bg-safety text-charcoal px-2 py-0.5 text-xs font-bold uppercase tracking-wide">
                 Do today

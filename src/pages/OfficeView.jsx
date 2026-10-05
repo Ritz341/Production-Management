@@ -165,6 +165,7 @@ export default function OfficeView() {
 
   const totalOpen = orders.filter((o) => !o.paperwork_ready_at).length
   const missingDetails = orders.filter((o) => !o.mods_count).length
+  const missingV4T = orders.filter((o) => o.window_type === 'v4t' && !(quantities[o.id]?.v4t_frames || quantities[o.id]?.vents)).length
 
   return (
     <div className="min-h-full bg-paper">
@@ -175,6 +176,7 @@ export default function OfficeView() {
           <p className="text-sm text-floorMute mt-1">
             {totalOpen ? `${totalOpen} still need paperwork` : 'All paperwork is ready'}
             {missingDetails ? ` · ${missingDetails} missing mod counts` : ''}
+            {missingV4T ? ` · ${missingV4T} V4T orders missing frame / vent counts` : ''}
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -322,7 +324,7 @@ export default function OfficeView() {
                                     disabled={!live}
                                     onBlur={(e) => saveQuantity(o, measure, e.target.value === '' ? null : Number(e.target.value))}
                                     aria-label={`${word === 'frames' ? 'V4T frames' : 'Vents'} for ${o.tag_name}`}
-                                    className="w-16 rounded border border-paperDim px-2 py-1.5 tabular-nums"
+                                    className={`w-16 rounded border px-2 py-1.5 tabular-nums ${!q && o.window_type === 'v4t' ? 'border-safety bg-safety/10' : 'border-paperDim'}`}
                                   />
                                   <span className="text-xs text-steelLight">
                                     {word}

@@ -16,3 +16,8 @@ body {
   font-family: 'Barlow Condensed', sans-serif;
   letter-spacing: 0.01em;
 }
+
+@keyframes sheetIn {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}

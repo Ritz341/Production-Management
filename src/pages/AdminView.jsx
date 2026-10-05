@@ -5,7 +5,7 @@ import { nearestBuildWeekId, weekOptionLabel } from '../lib/dates'
 import { dbErrorText } from '../lib/dbError'
 import { WORKFLOW_STAGES, workflowStageById, BLOCKED_CHIP_CLASS } from '../lib/statusColors'
 import { useConnection } from '../lib/ConnectionContext.jsx'
-import FileModal from '../components/FileModal.jsx'
+import OrderSheet from '../components/OrderSheet.jsx'
 import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
 import OrderFormModal from '../components/OrderFormModal.jsx'
 import BlockReasonModal from '../components/BlockReasonModal.jsx'
@@ -481,9 +481,12 @@ export default function AdminView() {
                       <td className="px-3 py-2">
                         {/* An identifier: broken at its hyphens it became
                             three lines and hard to read as one tag. */}
-                        <span className={`font-display text-base font-semibold whitespace-nowrap ${o.status === 'cancelled' ? 'text-steelLight line-through' : 'text-charcoal'}`}>
+                        <button
+                          onClick={() => setOpenOrder(o)}
+                          className={`font-display text-base font-semibold whitespace-nowrap hover:underline ${o.status === 'cancelled' ? 'text-steelLight line-through' : 'text-charcoal'}`}
+                        >
                           {o.tag_name}
-                        </span>
+                        </button>
                         {o.status === 'cancelled' && (
                           <span className="block text-xs font-semibold text-andonRed">Cancelled{o.cancel_reason ? ` — ${o.cancel_reason}` : ''}</span>
                         )}
@@ -572,7 +575,7 @@ export default function AdminView() {
                       })}
                       <td className="px-3 py-2 whitespace-nowrap">
                         <button onClick={() => setOpenOrder(o)} className="text-andonBlue font-medium text-sm">
-                          Files
+                          Open
                         </button>
                         <span className="text-paperDim mx-1.5">·</span>
                         <button onClick={() => setFormOrder(o)} className="text-andonBlue font-medium text-sm">
@@ -588,7 +591,7 @@ export default function AdminView() {
         </>
       )}
 
-      {openOrder && <FileModal order={openOrder} onClose={() => setOpenOrder(null)} allowUpload />}
+      {openOrder && <OrderSheet order={openOrder} onClose={() => setOpenOrder(null)} canEdit />}
 
       {formOrder && (
         <OrderFormModal

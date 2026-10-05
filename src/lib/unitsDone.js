@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
+import { PIECE_NAMES } from './measuredTimes'
 
 /**
  * What the department finished today, in units — 12 mods, 30 V4T frames,
@@ -50,7 +51,7 @@ export function useUnitsToday(names) {
   return rows
 }
 
-const UNIT_NAMES = { mods: 'mods', v4t_frames: 'V4T frames', vents: 'vents' }
+const UNIT_NAMES = PIECE_NAMES
 
 export function unitsText(rows) {
   return rows.map((r) => `${r.units} ${UNIT_NAMES[r.measure] ?? r.measure}`).join(' · ')

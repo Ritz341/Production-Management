@@ -25,6 +25,7 @@ export default function OfficeView() {
   const [weeks, setWeeks] = useState([])
   const [orders, setOrders] = useState([])
   const [crewByDate, setCrewByDate] = useState({})
+  const [quantities, setQuantities] = useState({}) // order id -> { measure: { qty, source } }
   const [modsDone, setModsDone] = useState(new Set()) // order ids whose Mods work is finished
   const [onlyNotReady, setOnlyNotReady] = useState(false)
   const [error, setError] = useState('')
@@ -45,6 +46,15 @@ export default function OfficeView() {
     const numbers = buildNumbers(orderRows ?? [])
     setWeeks(weekRows ?? [])
     setOrders((orderRows ?? []).map((o) => ({ ...o, buildNo: numbers.get(o.id) })).sort(byBuildOrder))
+    // Counts read from the order's sheets, or typed here. Not fatal if the
+    // table isn't there yet (schema_v23 not run): the columns just stay blank.
+    const ids = (orderRows ?? []).map((o) => o.id)
+    if (ids.length) {
+      const { data: qRows } = await supabase.from('bt_order_quantities').select('order_id, measure, qty, source').in('order_id', ids)
+      const q = {}
+      for (const r of qRows ?? []) (q[r.order_id] ??= {})[r.measure] = { qty: Number(r.qty), source: r.source }
+      setQuantities(q)
+    }
     if (mods?.id) {
       const [{ data: crew }, { data: modCols }] = await Promise.all([
         supabase.from('bt_crew_days').select('work_date, people').eq('department_id', mods.id),
@@ -106,6 +116,31 @@ export default function OfficeView() {
     const { error: err } = await supabase.rpc('bt_set_paperwork_ready', { p_order_ids: ids, p_ready: ready })
     if (err) {
       setError(`Couldn't save: ${err.message}`)
+      load()
+    }
+  }
+
+  // A number typed here is the office's and survives re-uploads; blank
+  // removes it (the next upload of the sheets fills it in again).
+  async function saveQuantity(order, measure, value) {
+    if (!live) return
+    const had = quantities[order.id]?.[measure]
+    if (value === null && !had) return
+    if (value !== null && had && had.qty === value && had.source === 'typed') return
+    setQuantities((prev) => {
+      const mine = { ...(prev[order.id] ?? {}) }
+      if (value === null) delete mine[measure]
+      else mine[measure] = { qty: value, source: 'typed' }
+      return { ...prev, [order.id]: mine }
+    })
+    const { error: err } =
+      value === null
+        ? await supabase.from('bt_order_quantities').delete().eq('order_id', order.id).eq('measure', measure)
+        : await supabase
+            .from('bt_order_quantities')
+            .upsert({ order_id: order.id, measure, qty: value, source: 'typed', updated_at: new Date().toISOString() }, { onConflict: 'order_id,measure' })
+    if (err) {
+      setError(dbErrorText(err, `Couldn't save the count for ${order.tag_name}`))
       load()
     }
   }
@@ -202,6 +237,7 @@ export default function OfficeView() {
                       <th className="px-2 py-2 font-semibold">#</th>
                       <th className="px-2 py-2 font-semibold">Order</th>
                       <th className="px-2 py-2 font-semibold">Mods · walls</th>
+                      <th className="px-2 py-2 font-semibold">V4T · vents</th>
                       <th className="px-2 py-2 font-semibold">Room</th>
                       <th className="px-2 py-2 font-semibold">Windows</th>
                       <th className="px-2 py-2 font-semibold">Panels</th>
@@ -271,6 +307,30 @@ export default function OfficeView() {
                             />
                             <span className="text-xs text-steelLight">walls</span>
                             </label>
+                          </td>
+                          <td className="px-2 py-2.5 whitespace-nowrap">
+                            {[['v4t_frames', 'frames'], ['vents', 'vents']].map(([measure, word]) => {
+                              const q = quantities[o.id]?.[measure]
+                              return (
+                                <label key={measure} className="flex items-center gap-1.5 first:mb-1">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="999"
+                                    defaultValue={q?.qty ?? ''}
+                                    key={`${o.id}-${measure}-${q?.qty ?? ''}-${q?.source ?? ''}`}
+                                    disabled={!live}
+                                    onBlur={(e) => saveQuantity(o, measure, e.target.value === '' ? null : Number(e.target.value))}
+                                    aria-label={`${word === 'frames' ? 'V4T frames' : 'Vents'} for ${o.tag_name}`}
+                                    className="w-16 rounded border border-paperDim px-2 py-1.5 tabular-nums"
+                                  />
+                                  <span className="text-xs text-steelLight">
+                                    {word}
+                                    {q ? (q.source === 'file' ? ' · from sheet' : ' · typed') : ''}
+                                  </span>
+                                </label>
+                              )
+                            })}
                           </td>
                           <DetailSelect order={o} field="room_shape" options={ROOM_SHAPES} onSave={saveDetails} disabled={!live} />
                           <DetailSelect order={o} field="window_type" options={WINDOW_TYPES} onSave={saveDetails} disabled={!live} />

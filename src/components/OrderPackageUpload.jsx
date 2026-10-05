@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
-import { MEASURE_LABELS, matchOrder, readPackage, savePackage } from '../lib/orderFiles'
+import { MEASURE_LABELS, matchOrder, parseV4T, readPackage, savePackage } from '../lib/orderFiles'
 import { dbErrorText } from '../lib/dbError'
 
 const EXTRA_LABELS = ['Office', 'Shipping', 'Paperwork']
-const COUNT_ORDER = ['v4t_frames', 'vents', 'walls', 'windows']
+const COUNT_ORDER = ['v4t_frames', 'vents', 'tracks', 'filler_panels', 'roof_panels', 'doors', 'walls', 'windows']
 
 /**
  * Drop an order's whole paperwork package here (the office PC). Every PDF
@@ -188,9 +188,17 @@ export default function OrderPackageUpload() {
                 </label>
               ))}
             </div>
-            <p className="text-xs text-steelLight mt-1">Mods are counted from the mod count on the order itself.</p>
+            <p className="text-xs text-steelLight mt-1">
+              Mods are counted from the mod count on the order itself. Tracks, panels and doors aren't on the sheets yet — type them if you have
+              them; the Track, Panel and Door tablets can also enter their own.
+            </p>
             {pkg.items.some((i) => i.runs.some((r) => r.label === 'V4T')) && !counts.v4t_frames && (
               <p className="text-xs text-safetyDark font-semibold mt-1">⚠ A V4T sheet is in this package but no frame count was read — enter it, or V4T’s Done won’t be counted.</p>
+            )}
+            {pkg.items.some((i) => i.doc && !i.doc.scanned && parseV4T(i.doc)?.ventsFrom === 'window type') && (
+              <p className="text-xs text-safetyDark font-semibold mt-1">
+                ⚠ Vents worked out from the window type, not read frame by frame (no QC page found) — check the number.
+              </p>
             )}
             {pkg.items.some((i) => i.doc?.scanned) && (
               <p className="text-xs text-safetyDark mt-1">⚠ Scanned sheets can’t be read for counts — upload the text PDF version for the counts to come through.</p>

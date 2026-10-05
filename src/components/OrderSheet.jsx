@@ -9,6 +9,10 @@ const BUCKET = 'bt-files'
 const COUNT_FIELDS = [
   ['v4t_frames', 'V4T frames'],
   ['vents', 'Vents'],
+  ['tracks', 'Tracks'],
+  ['filler_panels', 'Mod filler panels'],
+  ['roof_panels', 'Roof panels'],
+  ['doors', 'Doors'],
   ['walls', 'Walls (sheet)'],
   ['windows', 'Windows'],
 ]
@@ -38,7 +42,8 @@ const fmtTime = (iso) =>
  * the admin grid.
  *
  *   order    at least { id, tag_name }
- *   canEdit  office / admin: counts can be changed here
+ *   canEdit  true for office / admin (counts, files); or a list of the
+ *            counts a department tablet may type (['tracks'] on Track)
  *   tone     'floor' on the tablets, 'paper' elsewhere
  */
 export default function OrderSheet({ order, onClose, canEdit = false, tone = 'paper', top = null }) {
@@ -46,6 +51,8 @@ export default function OrderSheet({ order, onClose, canEdit = false, tone = 'pa
   const [error, setError] = useState('')
   const [saving, setSaving] = useState('')
   const floor = tone === 'floor'
+  const full = canEdit === true
+  const canType = (m) => full || (Array.isArray(canEdit) && canEdit.includes(m))
 
   async function load() {
     const id = order.id
@@ -267,7 +274,7 @@ export default function OrderSheet({ order, onClose, canEdit = false, tone = 'pa
                         {label}
                         {q && <span> · {q.source === 'file' ? 'from sheet' : 'typed'}</span>}
                       </span>
-                      {canEdit ? (
+                      {canType(m) ? (
                         <input
                           type="number"
                           min="0"
@@ -286,7 +293,7 @@ export default function OrderSheet({ order, onClose, canEdit = false, tone = 'pa
                   )
                 })}
               </div>
-              {canEdit && <p className={`text-xs mt-1 ${muted}`}>A number typed here stays through re-uploads; clear it to go back to the sheet's.</p>}
+              {COUNT_FIELDS.some(([m]) => canType(m)) && <p className={`text-xs mt-1 ${muted}`}>A number typed here stays through re-uploads; clear it to go back to the sheet's.</p>}
             </section>
 
             {/* ── Paperwork ── */}
@@ -303,7 +310,7 @@ export default function OrderSheet({ order, onClose, canEdit = false, tone = 'pa
                       <span className="text-sm font-medium break-all">{f.filename}</span>
                       {f.page > 1 && <span className={`text-xs ${muted}`}>p.{f.page}</span>}
                     </button>
-                    {canEdit && (
+                    {full && (
                       <button onClick={() => removeFile(f)} aria-label={`Remove ${f.filename}`} className="shrink-0 w-11 rounded-xl text-andonRed text-lg">
                         ×
                       </button>
@@ -312,7 +319,7 @@ export default function OrderSheet({ order, onClose, canEdit = false, tone = 'pa
                 ))}
                 {data.files.length === 0 && <li className={`text-sm ${muted}`}>No paperwork uploaded yet.</li>}
               </ul>
-              {canEdit && (
+              {full && (
                 <label className={`mt-2 inline-flex items-center gap-2 text-sm font-semibold cursor-pointer ${floor ? 'text-safety' : 'text-andonBlue'}`}>
                   <input type="file" onChange={attach} disabled={saving === 'upload'} className="hidden" />
                   {saving === 'upload' ? 'Uploading…' : '+ Attach a file or photo'}

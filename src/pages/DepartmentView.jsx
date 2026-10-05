@@ -15,7 +15,7 @@ import BlockReasonModal from '../components/BlockReasonModal.jsx'
 import QualityIssueModal, { departmentChoices } from '../components/QualityIssueModal.jsx'
 import CountBar from '../components/CountBar.jsx'
 
-const COUNT_WORDS = { mods: 'mod', v4t_frames: 'V4T frame', vents: 'vent' }
+const COUNT_WORDS = { mods: 'mod', v4t_frames: 'V4T frame', vents: 'vent', tracks: 'track', roof_panels: 'roof panel', filler_panels: 'filler panel', doors: 'door' }
 
 export default function DepartmentView() {
   const { profile, signOut } = useAuth()
@@ -36,6 +36,18 @@ export default function DepartmentView() {
   const [ownColumnIds, setOwnColumnIds] = useState([])
   const [orders, setOrders] = useState([])
   const [sheetOrder, setSheetOrder] = useState(null)
+  // Counts this tablet's departments may type (tracks on Track …), from
+  // bt_measure_editors. Empty until schema_v26 has been run.
+  const [typable, setTypable] = useState([])
+  useEffect(() => {
+    const ids = profile?.combinedDepartmentIds ?? []
+    if (!ids.length) return
+    supabase
+      .from('bt_measure_editors')
+      .select('measure')
+      .in('department_id', ids)
+      .then(({ data }) => setTypable([...new Set((data ?? []).map((r) => r.measure))]))
+  }, [profile?.combinedDepartmentIds])
   const [qualityFor, setQualityFor] = useState(null) // order being reported on
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -181,7 +193,7 @@ export default function DepartmentView() {
         for (const id of ownColumnIds) {
           if (o.cells[id] == null) continue
           for (const base of basesOf.get(id) ?? []) {
-            if (!haveQty.has(`${o.id}:${base}`) && !(base === 'mods' && o.mods_count)) missing.add(COUNT_WORDS[base] ?? base)
+            if (!haveQty.has(`${o.id}:${base}`) && !(base === 'mods' && o.mods_count)) missing.add(base)
           }
         }
         o.missingCounts = [...missing]
@@ -198,6 +210,7 @@ export default function DepartmentView() {
       // Order edits (dealer, pickup date, moved to another week) too.
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_orders' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_quality_issues' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bt_order_quantities' }, load)
       .subscribe()
 
     return () => {
@@ -643,7 +656,7 @@ export default function DepartmentView() {
         </div>
       )}
 
-      {sheetOrder && <OrderSheet order={sheetOrder} tone="floor" onClose={() => setSheetOrder(null)} />}
+      {sheetOrder && <OrderSheet order={sheetOrder} tone="floor" canEdit={typable} onClose={() => setSheetOrder(null)} />}
 
       {qualityFor && (
         <QualityIssueModal
@@ -703,8 +716,10 @@ export default function DepartmentView() {
           },
           o.missingCounts?.length && {
             kind: 'outline',
-            text: `No ${o.missingCounts.join(' / ')} count — tell the office`,
-            short: `no ${o.missingCounts.join('/')} count`,
+            text: `No ${o.missingCounts.map((b) => COUNT_WORDS[b] ?? b).join(' / ')} count — ${
+              o.missingCounts.every((b) => typable.includes(b)) ? 'tap Details to enter it' : 'tell the office'
+            }`,
+            short: `no ${o.missingCounts.map((b) => COUNT_WORDS[b] ?? b).join('/')} count`,
           },
         ].filter(Boolean)
     const badge = signals[0]

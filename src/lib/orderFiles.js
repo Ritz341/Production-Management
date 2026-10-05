@@ -127,14 +127,42 @@ export function parseBooklet(doc) {
   return { order, ship, walls: walls.size || null, windows: windows.size || null }
 }
 
-/** The V4T frame / QC / vent sheets. */
+/**
+ * The V4T frame / QC / vent sheets.
+ *
+ * Vents are read per frame from the QC page's Quantity column (the last
+ * number on each frame's row), so an order mixing 2- and 4-vent windows
+ * adds up right. Only if the QC page isn't there or a row can't be read
+ * does it fall back to "N Vent" in the window type × frames — and says so
+ * (ventsFrom), so the upload screen can ask someone to check it.
+ */
 export function parseV4T(doc) {
   const text = doc.pages.map((p) => p.text).join('\n')
   if (!/VERTICAL 4 TRACK/i.test(text)) return null
   const items = new Set([...text.matchAll(/\b(W\d{1,3}-\d{1,3})\b/g)].map((m) => m[1]))
   if (items.size === 0) return null
+
+  const perFrame = new Map()
+  for (const page of doc.pages) {
+    if (!/QUALITY CONTROL/i.test(page.lines.slice(0, 4).join(' '))) continue
+    for (const line of page.lines) {
+      const id = line.match(/\b(W\d{1,3}-\d{1,3})\b/)?.[1]
+      if (!id) continue
+      // the row's last whole number; sizes are decimals, so they never match
+      const nums = [...line.matchAll(/(?:^|\s)(\d{1,2})(?=\s|$)/g)].map((m) => Number(m[1]))
+      const q = nums.at(-1)
+      if (q >= 1 && q <= 12) perFrame.set(id, q)
+    }
+  }
   const per = Number(text.match(/Track\s*(\d)\s*Vent|(\d)\s*Vent/i)?.slice(1).find(Boolean)) || null
-  return { frames: items.size, vents: per ? items.size * per : null, ventsPerFrame: per }
+  const allRead = [...items].every((id) => perFrame.has(id))
+  const vents = allRead ? [...perFrame.values()].reduce((a, b) => a + b, 0) : per ? items.size * per : null
+  return {
+    frames: items.size,
+    vents,
+    ventsFrom: allRead ? 'qc' : per ? 'window type' : null,
+    perFrame: Object.fromEntries(perFrame),
+  }
 }
 
 /** Counts this document gives the order: { v4t_frames, vents, walls, windows }. */
@@ -235,4 +263,8 @@ export const MEASURE_LABELS = {
   vents: 'vents',
   walls: 'walls',
   windows: 'windows',
+  tracks: 'tracks',
+  roof_panels: 'roof panels',
+  filler_panels: 'mod filler panels',
+  doors: 'doors',
 }

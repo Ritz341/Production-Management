@@ -27,10 +27,14 @@ export const PIECE_NAMES = {
   frame_uprights: 'uprights',
   v4t_uprights: 'V4T uprights',
   v4t_head_sill: 'V4T heads & sills',
+  tracks: 'tracks',
+  roof_panels: 'roof panels',
+  filler_panels: 'mod filler panels',
+  doors: 'doors',
 }
 
 /** The order counts a Done is worked out from. */
-export const BASE_NAMES = { mods: 'mods', v4t_frames: 'V4T frames', vents: 'vents' }
+export const BASE_NAMES = { mods: 'mods', v4t_frames: 'V4T frames', vents: 'vents', tracks: 'tracks', roof_panels: 'roof panels', filler_panels: 'mod filler panels', doors: 'doors' }
 
 /**
  * What one Done on this column credits for this order:

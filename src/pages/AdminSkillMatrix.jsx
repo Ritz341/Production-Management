@@ -220,7 +220,7 @@ export default function AdminSkillMatrix() {
       {/* ── Toolbar ──────────────────────────────────────────── */}
       <div className="flex items-center gap-3 flex-wrap mb-4">
         <h2 className="font-display text-xl font-bold text-charcoal">Skill & Lead Matrix</h2>
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex items-center gap-2 sm:ml-auto flex-wrap w-full sm:w-auto">
           <select value={filterDept} onChange={(e) => setFilterDept(e.target.value)} className="border border-paperDim rounded px-2 py-1.5 text-sm">
             <option value="all">All Departments</option>
             {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -233,7 +233,7 @@ export default function AdminSkillMatrix() {
             value={filterSearch}
             onChange={(e) => setFilterSearch(e.target.value)}
             placeholder="Search employee…"
-            className="border border-paperDim rounded px-2 py-1.5 text-sm w-48"
+            className="border border-paperDim rounded px-2 py-1.5 text-sm w-full sm:w-48"
           />
         </div>
         <button onClick={openNewEmployee} className="bg-safety text-charcoal font-display font-bold text-sm px-4 py-2 rounded whitespace-nowrap">
@@ -343,7 +343,7 @@ export default function AdminSkillMatrix() {
       </div>
 
       {/* ── Rating Legend ────────────────────────────────────── */}
-      <div className="mt-4 flex items-center gap-4 text-xs text-steelLight">
+      <div className="mt-4 flex items-center gap-x-4 gap-y-2 flex-wrap text-xs text-steelLight">
         <span className="font-medium text-charcoal">Rating Scale:</span>
         {[1, 2, 3, 4].map((r) => (
           <span key={r} className={`px-2 py-0.5 rounded font-bold ${RATING_COLORS[r]}`}>{RATING_LABELS[r]}</span>

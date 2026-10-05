@@ -28,3 +28,8 @@ jobs:
           VITE_SUPABASE_URL: https://placeholder.supabase.co
           VITE_SUPABASE_ANON_KEY: placeholder-anon-key
         run: npm run build
+
+      - name: Unit tests
+        # Pure logic only (PDF readers, piece counts, working minutes) — no
+        # Supabase, no browser. See tests/register.mjs.
+        run: npm test

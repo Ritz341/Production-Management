@@ -60,7 +60,7 @@ Every order goes on every department's sheet as the build sheet lists it, and a 
 | Sheet | Jobs (build-sheet column it follows → label) | Stations in the daily count | Unit | Notes |
 |---|---|---|---|---|
 | **Mods** | Mods → Mods | Framing (frames), Staging (finished mods) | mods | Start · **Pause** · Done boxes; extra write-in columns `# of mods` (pre-filled when known) and `# of corner posts` |
-| **V4T** | V4T, Vin. Fix, Vin. Trap | Vents building, Vents glazing, Frames built, Frames squared | inserts | Vent cutting is **not** on this sheet (it's TA144's) |
+| **V4T** | **One row per step under each tag:** V4T vents, V4T frame, V4T squaring, V4T screen (follow V4T); Vinyl fix (Vin. Fix); Vinyl trap (Vin. Trap) | Vents building, Vents glazing, Frames built, Frames squared | inserts | Each step row has its own Start / Done. A step whose column is blank for the order is left out (vinyl rows only show when the order has them); C shows a light C. Steps editable on the PC. Vent cutting is **not** on this sheet (it's TA144's) |
 | **Track** | Track | Tracks done | tracks | |
 | **Panel** | Roof Panels, Roof Extr., Acrylic, Mod Filler Panels → "Filler" | Roof panels, Mod filler panels, Acrylic panels | panels | **Every order** is on it (every order gets filler); roof items hatched when the room has no roof panel. Each bench counts its own panels |
 | **SC220** (CNC) | Mods → Mods frames; V4T → V4T uprights | Mods frames, V4T uprights | pieces | Jobs editable on the PC |
@@ -73,6 +73,7 @@ Under *Check-in times & stations* the PC can change:
 - The time blocks (default **7:00–9:00, 9:15–12:00, 12:30–2:00, 2:15–4:00**, up to 6).
 - Each department's stations (up to 6).
 - For SC220, TA144 and Manual cut: the jobs, their build-sheet column, and an optional heading that groups jobs on the same machine.
+- For V4T: the steps (one row each under every order) and the column each follows.
 - *Back to the defaults* resets all of it.
 
 ---
@@ -86,6 +87,7 @@ One US-letter page per department (7.6 in printable width):
   - The first job's headings carry an example time ("e.g. 7:40") so the floor knows to write the clock time.
   - Long tags break only after a dash or before the order number, never mid-word.
 - **Fitting on one page:** with more orders than the normal 15 rows, the rows and their text shrink down to 0.18 in each before spilling onto a second page.
+  - The V4T sheet counts in step rows instead (0.24 in each, shrinking to 0.18 in). An order's block of steps never splits across pages. About 6–7 orders fit on a page.
   - Each station past four, a machine-heading row, and a floor note each take one order row.
 - **Daily count:** a Crew column, the station, and one box per time block. Each box is how many units were finished *in that block*, not a running total. A crew change is written in the box (e.g. `12 · 4→3`).
 - **Problem codes:**
@@ -154,6 +156,7 @@ Clearing the browser's site data resets all of this. A different PC or browser s
 - SC220 and TA144 got separate sheets, following the floor's drawing. Vent cutting moved off the V4T sheet to TA144. The V4T stations became Vents building, Vents glazing, Frames built and Frames squared.
 - Copies to print per department.
 - The text-paste reader was later brought into the main app's Weekly Import, so the app and this page read pastes the same way.
+- V4T changed to one row per step under each tag (vents, frame, squaring, screen, plus vinyl fix / trap when the order has them), so each step gets its own Start / Done.
 - The page is finished. Change it only for a real floor need, and keep it in step with the app's importer when the build sheet changes.
 
 ## Related

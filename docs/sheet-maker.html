@@ -190,6 +190,9 @@
   .orders td.box{text-align:center}
   .orders td.box .cdone{font-family:var(--display);font-weight:700;font-size:10pt;color:#B9B3A8}
   .orders td.box.first{border-left:2.5px solid var(--ink2)}
+  .orders td.stp{font-size:8pt;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:6px}
+  .orders tr.ofirst td{border-top:2px solid var(--ink2)}
+  .orders td.tag.span{vertical-align:middle}
   .orders td.na{background:repeating-linear-gradient(135deg,#fff 0 3px,#D9D4CA 3px 4px);-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .sheet th.qty{font-size:7pt;line-height:1.05}
   .bottom{display:grid;grid-template-columns:1.6fr 1fr;gap:10px;margin-top:auto}
@@ -293,7 +296,12 @@ const DEPARTMENTS = [
     extra: [['# of mods', 'qty'], ['# of corner posts']],
     // A Pause box between Start and Done, for a job stopped part-way.
     pause: true },
-  { key: 'v4t',   name: 'V4T',   jobs: [['V4T', 'V4T'], ['Vin. Fix', 'Vin. Fix'], ['Vin. Trap', 'Vin. Trap']], stations: ['Vents building', 'Vents glazing', 'Frames built', 'Frames squared'], unit: 'inserts' },
+  // V4T: each order is a block of rows, one per step, each with its own
+  // Start / Done — the tag on the left, the steps stacked beside it.
+  // Vinyl fix / trap rows only show for orders that have them.
+  { key: 'v4t',   name: 'V4T',   stepRows: true, editJobs: true,
+    jobs: [['V4T', 'V4T vents'], ['V4T', 'V4T frame'], ['V4T', 'V4T squaring'], ['V4T', 'V4T screen'], ['Vin. Fix', 'Vinyl fix'], ['Vin. Trap', 'Vinyl trap']],
+    stations: ['Vents building', 'Vents glazing', 'Frames built', 'Frames squared'], unit: 'inserts' },
   { key: 'track', name: 'Track', jobs: [['Track', 'Track']], stations: ['Tracks done'], unit: 'tracks' },
   { key: 'panel', name: 'Panel', jobs: [['Roof Panels', 'Roof Panels'], ['Roof Extr.', 'Roof Extr.'], ['Acrylic', 'Acrylic'], ['Mod Filler Panels', 'Filler']], stations: ['Roof panels', 'Mod filler panels', 'Acrylic panels'], unit: 'panels', note: ' Each bench counts its own panels.',
     // Every order gets filler panels, so every order is on the Panel sheet.
@@ -710,7 +718,7 @@ function renderSetup() {
       ${times.map((t, i) => item(`data-ci="${i}"`, t, 'time')).join('')}
       ${times.length < 6 ? '<button class="btn tiny" data-add-ci="1">+ Time</button>' : ''}</div>
     ${DEPARTMENTS.filter((d) => d.editJobs).map((d) => { const js = jobsOf(d); return `
-    <div class="srow jobs"><span class="sl">${d.name} sheet — jobs <small>(the first box groups jobs under a heading, optional; the column says which build-sheet column tells whether an order has it)</small></span>
+    <div class="srow jobs"><span class="sl">${d.name} sheet — ${d.stepRows ? 'steps <small>(one row each under every order; the column says which build-sheet column tells whether an order has it; the first box is not used)</small>' : 'jobs <small>(the first box groups jobs under a heading, optional; the column says which build-sheet column tells whether an order has it)</small>'}</span>
       ${js.map(([c, label, m], i) => `<span class="it job"><input data-jm="${d.key}" data-i="${i}" value="${esc(m ?? '')}" placeholder="Heading (optional)" class="m"><input data-jl="${d.key}" data-i="${i}" value="${esc(label)}" placeholder="Job"><select data-jc="${d.key}" data-i="${i}">${STATUS_COLS.map((x) => `<option${x === c ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select><button data-del-job="${d.key}" data-del-i="${i}" title="Remove">✕</button></span>`).join('')}
       ${js.length < 6 ? `<button class="btn tiny" data-add-job="${d.key}">+ Job</button>` : ''}</div>` }).join('')}
     ${DEPARTMENTS.map((d) => { const st = stationsOf(d); return `
@@ -762,6 +770,15 @@ for (const id of ['date', 'ship', 'crew', 'note']) $(id).addEventListener('input
 // breaks as 142-BIRCH-BARK- / WALLS-86_166190.
 const tagBreaks = (tag) => esc(tag).replace(/-/g, '-<wbr>').replace(/_/g, '<wbr>_')
 
+// The steps an order gets a row for on a step sheet: every step whose
+// build-sheet column applies (blank = not part of this order, left out).
+// An order with none of them still gets one hatched row, so it's on the list.
+function stepsFor(d, o) {
+  const js = jobsOf(d)
+  const mine = js.filter(([col]) => { const st = o?.jobs?.[col]; return !(st === 'na' || st === false) })
+  return mine.length ? mine : [[js[0][0], js[0][1], null, 'none']]
+}
+
 function sheetHtml(d, list, page, pages, perPage = rowsFor(d), rowH = ROW_H) {
   const day = { date: nice($('date').value), ship: nice($('ship').value), crew: $('crew').value.trim(), note: $('note').value.trim() }
   const lead = store.get('leads', {})[d.key] ?? ''
@@ -769,7 +786,7 @@ function sheetHtml(d, list, page, pages, perPage = rowsFor(d), rowH = ROW_H) {
   // example, which says "write the clock time here" without any rules.
   const steps = d.pause ? [['Start', '7:40'], ['Pause', '10:05'], ['Done', '11:20']] : [['Start', '7:40'], ['Done', '9:15']]
   const extra = d.extra ?? []
-  const jobs = jobsOf(d)
+  const jobs = d.stepRows ? [['', 'Step']] : jobsOf(d)
   const jobHead = jobs.map(([, label]) => `<th class="job" colspan="${steps.length}">${esc(label)}</th>`).join('')
   const jobSub = jobs.map((_, j) => steps.map(([name, eg]) => `<th class="sub">${name}${j ? '' : `<i>e.g. ${eg}</i>`}</th>`).join('')).join('')
   // Jobs on the same machine, next to each other, share a heading above.
@@ -783,14 +800,36 @@ function sheetHtml(d, list, page, pages, perPage = rowsFor(d), rowH = ROW_H) {
   // and Problem code / comments takes what's left (at least 1.4).
   // Squeezed rows: tags go on one line in a smaller size, and the tag
   // column widens a little to take them.
-  const dense = rowH < ROW_H - 1e-6
+  const dense = !d.stepRows && rowH < ROW_H - 1e-6
   const tagW = dense ? 2.05 : 1.65
   const scale = rowH / ROW_H
   const nBoxes = jobs.length * steps.length
   const boxW = Math.min(0.85, Math.max(0.5, (7.6 - 0.34 - tagW - extra.length * 0.55 - 1.2) / nBoxes))
-  const cols = `<colgroup><col style="width:.34in"><col style="width:${tagW}in">${extra.map(() => '<col style="width:.55in">').join('')}${Array.from({ length: nBoxes }, () => `<col style="width:${boxW}in">`).join('')}<col></colgroup>`
+  const cols = d.stepRows
+    ? `<colgroup><col style="width:.34in"><col style="width:${tagW}in"><col style="width:1.15in"><col style="width:.85in"><col style="width:.85in"><col></colgroup>`
+    : `<colgroup><col style="width:.34in"><col style="width:${tagW}in">${extra.map(() => '<col style="width:.55in">').join('')}${Array.from({ length: nBoxes }, () => `<col style="width:${boxW}in">`).join('')}<col></colgroup>`
   const times = checkins()
-  const rows = Array.from({ length: perPage }, (_, i) => {
+  // Step sheet: per order, a block of rows — tag once, a row per step.
+  // perPage here is how many step rows fit; blank rows fill the rest.
+  const stepRowsHtml = () => {
+    const out = []
+    let used = 0
+    list.forEach((o, i) => {
+      const st = stepsFor(d, o)
+      st.forEach(([col, label, , none], k) => {
+        const s0 = o.jobs?.[col]
+        const na = none === 'none'
+        const c = s0 === 'done' ? '<span class="cdone">C</span>' : ''
+        const head = k === 0 ? `<td class="num" rowspan="${st.length}">${o._n ?? i + 1}</td><td class="tag span" rowspan="${st.length}"><b${o.tag.length > 16 ? ' class="long"' : ''}>${tagBreaks(o.tag)}</b></td>` : ''
+        out.push(`<tr class="${k === 0 ? 'ofirst' : ''}">${head}<td class="stp${na ? ' na' : ''}">${na ? '' : esc(label)}</td><td class="box first${na ? ' na' : ''}">${c}</td><td class="box${na ? ' na' : ''}">${c}</td><td class="reason"></td></tr>`)
+        used++
+      })
+    })
+    // room left: blank rows to write in an order that came in late
+    for (let k = used; k < perPage; k++) out.push(`<tr class="${k === used ? 'ofirst' : ''}"><td class="num"></td><td class="tag"></td><td class="stp"></td><td class="box first"></td><td class="box"></td><td class="reason"></td></tr>`)
+    return out.join('')
+  }
+  const rows = d.stepRows ? stepRowsHtml() : Array.from({ length: perPage }, (_, i) => {
     const o = list[i]
     const n = page * perPage + i + 1
     // Blank on the build sheet (not part of this order) is hatched out;
@@ -826,7 +865,7 @@ function sheetHtml(d, list, page, pages, perPage = rowsFor(d), rowH = ROW_H) {
     <div>
       <h2><span class="ttl">Today's orders</span> <small>${d.hint ?? ''}Top to bottom · Stuck? Write a code and <b>tell the office now</b></small></h2>
       <table class="orders${dense ? ' dense' : ''}" style="--rowh:${rowH.toFixed(3)}in;--tagfs:${dense ? Math.max(7.5, Math.min(10, 10.5 * scale + 1.5)).toFixed(1) : 10.5}pt;--numfs:${dense ? Math.max(8, 11 * scale + 1).toFixed(1) : 11}pt">${cols}
-        <thead><tr><th rowspan="${hRows}">#</th><th rowspan="${hRows}" style="text-align:left">Tag name</th>${extra.map(([label]) => `<th rowspan="${hRows}" class="qty">${esc(label)}</th>`).join('')}${byMachine ? machineHead : jobHead}<th rowspan="${hRows}" style="text-align:left">Problem code / comments</th></tr>${byMachine ? `<tr>${jobHead}</tr>` : ''}<tr>${jobSub}</tr></thead>
+        <thead>${d.stepRows ? `<tr><th rowspan="2">#</th><th rowspan="2" style="text-align:left">Tag name</th><th rowspan="2" style="text-align:left">Step</th><th class="job" colspan="${steps.length}">Time</th><th rowspan="2" style="text-align:left">Problem code / comments</th></tr><tr>${jobSub}</tr>` : `<tr><th rowspan="${hRows}">#</th><th rowspan="${hRows}" style="text-align:left">Tag name</th>${extra.map(([label]) => `<th rowspan="${hRows}" class="qty">${esc(label)}</th>`).join('')}${byMachine ? machineHead : jobHead}<th rowspan="${hRows}" style="text-align:left">Problem code / comments</th></tr>${byMachine ? `<tr>${jobHead}</tr>` : ''}<tr>${jobSub}</tr>`}</thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
@@ -872,7 +911,28 @@ function buildSheets(forPrint = false) {
     return Array.from({ length: times }, () => buildDept(d)).join('')
   }).join('')
 }
+// A step sheet counts in step rows (a V4T order is 4–6 of them). They start
+// at STEP_H and shrink to MIN_ROW to keep the day on one page; only past
+// that does it run on, and an order's block never splits across pages.
+const STEP_H = 0.24
+function buildStepDept(d) {
+  const list = orders.filter((o) => o.tag.trim() && o.depts[d.key]).map((o, i) => ({ ...o, _n: i + 1 }))
+  const space = rowsFor(d) * ROW_H
+  const need = list.reduce((n, o) => n + stepsFor(d, o).length, 0)
+  const rowH = need * STEP_H <= space ? STEP_H : Math.max(MIN_ROW, space / need)
+  const fit = Math.floor(space / rowH + 1e-6)
+  const pages = [[]]
+  let used = 0
+  for (const o of list) {
+    const k = stepsFor(d, o).length
+    if (used && used + k > fit) { pages.push([]); used = 0 }
+    pages[pages.length - 1].push(o); used += k
+  }
+  return pages.map((pg, p) => sheetHtml(d, pg, p, pages.length, fit, rowH)).join('')
+}
+
 function buildDept(d) {
+  if (d.stepRows) return buildStepDept(d)
   const list = orders.filter((o) => o.tag.trim() && o.depts[d.key])
   const base = rowsFor(d)
   const space = base * ROW_H

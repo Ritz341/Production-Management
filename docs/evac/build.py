@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
-"""Builds docs/evac/evacuation-plan.html — a tabloid (17x11 in) emergency
-evacuation plan for Sunspace USA, Truesdale. Run: python3 build.py
+"""Builds docs/evac/evacuation-plan.html — tabloid (17x11 in) emergency
+evacuation plan, Sunspace USA, Truesdale. Run: python3 build.py
 
-The floor plan is drawn in "plan units" (the building as the hand-marked
-draft shows it, turned upright so the office is on the left / south end),
-then scaled into the map card. Edit the lists below to move a door, an
-extinguisher or a label, and run it again.
+Version 2 follows the typeset plan (numbered exits 1-7, exit key, assembly
+point, you-are-here, gas main) with the hand-marked changes applied:
+alternate point, employee entrance & smoking area, mailbox, first-aid
+kits (FA), a second eyewash by the office.
+
+The plan is drawn in "plan units", upright: NORTH is the LEFT end (office),
+EAST is the TOP edge. Edit the lists, run again, then render.cjs.
 """
-GREEN, BLUE, YEL, RED, PURPLE = '#1E8A44', '#2563C9', '#F2B705', '#D7262E', '#6B3FA0'
+GREEN, BLUE, YEL, RED, PURPLE, ORANGE = '#1E8A44', '#2563C9', '#F2B705', '#D7262E', '#6B3FA0', '#E08A00'
 INK = '#1C2127'
+GREY = '#46505C'
 
-out = []
-add = out.append
+plan = []
+p = plan.append
 
-# ── drawing helpers (plan units) ─────────────────────────────
 def text(x, y, s, size=22, weight=600, fill=INK, anchor='middle', extra=''):
     lines = s.split('\n')
     dy = size * 1.12
@@ -22,8 +25,6 @@ def text(x, y, s, size=22, weight=600, fill=INK, anchor='middle', extra=''):
     return f'<text font-size="{size}" font-weight="{weight}" fill="{fill}" text-anchor="{anchor}" {extra}>{tsp}</text>'
 
 def man_door(x, y, rot, color=GREEN, w=44):
-    """A door in a wall: gap, leaf and swing arc. rot 0 = wall runs
-    left-right and the door swings up; 90 right, 180 down, 270 left."""
     h = w / 2
     return (f'<g transform="translate({x} {y}) rotate({rot})">'
             f'<rect x="{-h}" y="-8" width="{w}" height="16" fill="#fff"/>'
@@ -33,173 +34,199 @@ def man_door(x, y, rot, color=GREEN, w=44):
 
 def overhead(x, y, rot, length=70):
     h = length / 2
-    return (f'<g transform="translate({x} {y}) rotate({rot})">'
-            f'<rect x="{-h}" y="-10" width="{length}" height="20" fill="#FFE08A" stroke="#C9950A" stroke-width="3" stroke-dasharray="9 5"/></g>')
+    return (f'<g transform="translate({x} {y}) rotate({rot})"><rect x="{-h}" y="-10" width="{length}" height="20" fill="#FFE08A" stroke="#C9950A" stroke-width="3" stroke-dasharray="9 5"/></g>')
 
-def chip(x, y, label='EXIT', fill=GREEN, w=None, size=17):
-    w = w or (len(label) * size * 0.68 + 18)
-    return (f'<rect x="{x - w/2:.1f}" y="{y - size*0.85:.1f}" width="{w:.1f}" height="{size*1.5:.1f}" rx="5" fill="{fill}"/>'
-            f'<text x="{x}" y="{y + size*0.38:.1f}" font-size="{size}" font-weight="800" fill="#fff" text-anchor="middle">{label}</text>')
+def badge(x, y, n, size=26):
+    s = size * 1.5
+    return (f'<rect x="{x - s/2}" y="{y - s/2}" width="{s}" height="{s}" rx="6" fill="{GREEN}" stroke="#fff" stroke-width="3"/>'
+            f'<text x="{x}" y="{y + size*0.36:.1f}" font-size="{size}" font-weight="800" fill="#fff" text-anchor="middle">{n}</text>')
 
 def extinguisher(x, y):
     return (f'<circle cx="{x}" cy="{y}" r="15" fill="{RED}" stroke="#fff" stroke-width="2.5"/>'
             f'<text x="{x}" y="{y+6}" font-size="18" font-weight="800" fill="#fff" text-anchor="middle">F</text>')
 
-def route(points, color=GREEN):
+def first_aid(x, y):
+    return (f'<rect x="{x-16}" y="{y-16}" width="32" height="32" rx="5" fill="#fff" stroke="{GREEN}" stroke-width="4"/>'
+            f'<path d="M {x-4} {y-11} h8 v7 h7 v8 h-7 v7 h-8 v-7 h-7 v-8 h7 z" fill="{GREEN}"/>'
+            + text(x, y + 38, 'FA', 17, 800, GREEN))
+
+def eyewash(x, y, label=True):
+    return (f'<circle cx="{x}" cy="{y}" r="15" fill="{BLUE}" stroke="#fff" stroke-width="2.5"/>'
+            f'<text x="{x}" y="{y+5}" font-size="13" font-weight="800" fill="#fff" text-anchor="middle">EW</text>')
+
+def route(points, color=GREEN, dash=False, width=7):
     d = 'M ' + ' L '.join(f'{x} {y}' for x, y in points)
-    return f'<path d="{d}" fill="none" stroke="{color}" stroke-width="7" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#ah)" opacity=".9"/>'
+    da = ' stroke-dasharray="16 10"' if dash else ''
+    m = 'ahy' if color == ORANGE else 'ah'
+    return f'<path d="{d}" fill="none" stroke="{color}" stroke-width="{width}" stroke-linejoin="round" stroke-linecap="round"{da} marker-end="url(#{m})" opacity=".92"/>'
 
-# ── the plan ─────────────────────────────────────────────────
-BUILDING = [(380,1010),(380,465),(1040,465),(1040,285),(1945,285),(1945,1000),(1440,1000),(1440,1090),(480,1090),(480,1010)]
-plan = []
-p = plan.append
-pts = ' '.join(f'{x},{y}' for x, y in BUILDING)
-p(f'<polygon points="{pts}" fill="#F4F6F9" stroke="{INK}" stroke-width="10" stroke-linejoin="miter"/>')
+zone = 'fill="none" stroke="#8893A1" stroke-width="3" stroke-dasharray="14 9"'
 
-# Office, on the south end, with its main door facing the muster side
-p(f'<rect x="255" y="565" width="125" height="280" fill="#E3E8EF" stroke="{INK}" stroke-width="9"/>')
-p(text(318, 700, 'OFFICE', 26, 800))
-p(text(318, 730, 'main door ◂', 16, 600, '#46505C'))
+# ── building (north = left, east = top) ──────────────────────
+BUILDING = [(540,430),(1040,430),(1040,365),(1140,365),(1140,305),(1945,305),(1945,945),(1480,945),(1480,1060),(600,1060),(600,985),(540,985)]
+p(f'<polygon points="{" ".join(f"{x},{y}" for x, y in BUILDING)}" fill="#F4F6F9" stroke="{INK}" stroke-width="10" stroke-linejoin="miter"/>')
 
-# Zones (dashed) and benches
-zone = f'fill="none" stroke="#8893A1" stroke-width="3" stroke-dasharray="14 9"'
-p(f'<line x1="1048" y1="455" x2="1940" y2="455" {zone[zone.index("stroke"):]}/>')
-p(text(1495, 372, 'PANEL PLANT AREA', 36, 800, '#46505C'))
-p(f'<line x1="625" y1="1000" x2="1435" y2="1000" {zone[zone.index("stroke"):]}/>')
-p(text(1030, 1045, 'MANUAL CUT – SAW AREA', 24, 700, '#46505C'))
-p(f'<line x1="625" y1="672" x2="625" y2="1000" {zone[zone.index("stroke"):]}/>')
-p(text(548, 862, 'MACHINE\nAREA', 21, 700, '#46505C'))
+# Office (with its rooms)
+p(f'<rect x="425" y="595" width="115" height="175" fill="#E3E8EF" stroke="{INK}" stroke-width="8"/>')
+for ly in (650, 710): p(f'<line x1="425" y1="{ly}" x2="540" y2="{ly}" stroke="#9AA4B2" stroke-width="3"/>')
+p(text(482, 690, 'OFFICE', 24, 800))
 
-p(f'<rect x="760" y="585" width="390" height="96" rx="6" fill="#DCE3EC" stroke="#333" stroke-width="4"/>')
-p(text(955, 646, 'MODS DEPT', 34, 800))
-p(f'<rect x="760" y="712" width="395" height="88" rx="6" fill="#DCE3EC" stroke="#333" stroke-width="4"/>')
-p(text(957, 770, 'V4T DEPT', 34, 800))
+# Zones and labelled areas
+p(f'<rect x="618" y="610" width="77" height="370" {zone}/>')
+p(text(656, 795, 'CNC AREA', 26, 700, GREY, extra='transform="rotate(-90 656 795)"'))
+p(f'<rect x="715" y="590" width="220" height="380" {zone} fill="#EEF1F5"/>')
+p(text(825, 780, 'STORAGE\nRACK', 30, 700, GREY))
+p(text(1085, 1005, 'MANUAL CUT AREA', 26, 700, GREY))
+p(f'<rect x="985" y="575" width="445" height="92" {zone} fill="#EEF1F5"/>')
+p(text(1207, 632, 'MODS ASSEMBLY AREA', 30, 800, GREY))
+p(f'<rect x="1130" y="700" width="275" height="110" {zone} fill="#EEF1F5"/>')
+p(text(1267, 763, 'V4T ASSEMBLY AREA', 28, 800, GREY))
+p(text(1165, 395, 'RAW MATERIAL\n(PANEL) CUTTING AREA', 19, 700, GREY))
+p(text(1700, 390, 'PANEL PLANT', 34, 800, GREY))
+p(f'<line x1="1520" y1="430" x2="1520" y2="540" stroke="#8893A1" stroke-width="3"/>')
 
-# Compressor room
-p(f'<rect x="820" y="465" width="104" height="58" fill="#E9EDF2" stroke="#333" stroke-width="5"/>')
-p(text(872, 491, 'Compressor\nroom', 14, 700, '#46505C'))
+# Compressor room, washrooms (tornado shelter), gas main
+p(f'<rect x="915" y="430" width="78" height="50" fill="#EDEFF3" stroke="#555" stroke-width="5"/>')
+p(text(990, 392, 'COMPRESSOR\nROOM', 17, 700, GREY))
+p(f'<rect x="705" y="436" width="40" height="52" fill="#fff" stroke="{BLUE}" stroke-width="5"/><rect x="745" y="436" width="40" height="52" fill="#fff" stroke="{BLUE}" stroke-width="5"/>')
+p(text(725, 472, 'M', 28, 800, BLUE)); p(text(765, 472, 'F', 28, 800, BLUE))
+p(text(795, 458, 'SHELTER AREA\n(WASHROOMS)', 15, 800, BLUE, 'start'))
+p(f'<line x1="300" y1="490" x2="470" y2="490" stroke="{YEL}" stroke-width="9" stroke-dasharray="14 8"/>')
+p(f'<polygon points="495,462 523,490 495,518 467,490" fill="{YEL}" stroke="{INK}" stroke-width="4"/>')
+p(f'<path d="M 495 476 C 504 486 506 492 495 504 C 485 494 486 486 495 476 Z" fill="{INK}"/>')
+p(text(385, 458, 'NATURAL GAS MAIN\n(AMEREN MISSOURI)', 16, 800, '#8A6606'))
 
-# Washrooms = tornado shelter
-p(f'<rect x="555" y="465" width="145" height="82" fill="#E7DDF6" stroke="{PURPLE}" stroke-width="5"/>')
-p(f'<line x1="627" y1="465" x2="627" y2="547" stroke="{PURPLE}" stroke-width="4"/>')
-p(text(591, 505, 'MALE', 14, 700, PURPLE)); p(text(663, 505, 'FEMALE', 14, 700, PURPLE))
-p(text(627, 622, 'TORNADO SHELTER', 17, 800, PURPLE))
-p(text(627, 642, '(washrooms)', 14, 600, PURPLE))
+# Handwritten changes
+p(text(790, 366, 'EMPLOYEE ENTRANCE\n& SMOKING AREA', 20, 800, INK))
+p(f'<rect x="488" y="1070" width="36" height="26" rx="3" fill="#C9D1DB" stroke="{INK}" stroke-width="3"/><line x1="506" y1="1070" x2="506" y2="1096" stroke="{INK}" stroke-width="2"/><rect x="520" y="1062" width="6" height="12" fill="{RED}"/>')
+p(text(506, 1124, 'MAILBOX', 18, 700, GREY))
 
-# Washroom with eyewash, shipping office, area being built
-p(f'<rect x="1472" y="640" width="130" height="82" fill="#E3EEFB" stroke="{BLUE}" stroke-width="5"/>')
-p(text(1540, 672, 'WASHROOM', 18, 700, BLUE))
-p(f'<circle cx="1510" cy="702" r="12" fill="{BLUE}"/><text x="1510" y="707" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">EW</text>')
-p(text(1568, 706, 'Eyewash\nstation', 13, 600, BLUE))
-p(f'<rect x="1488" y="878" width="104" height="56" fill="#E9EDF2" stroke="#333" stroke-width="5"/>')
-p(text(1540, 908, 'Shipping\noffice', 16, 700))
-p('<defs><pattern id="hatch" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="14" stroke="#C3CAD4" stroke-width="5"/></pattern></defs>')
-p(f'<rect x="1560" y="494" width="140" height="66" fill="url(#hatch)" stroke="#8893A1" stroke-width="3" stroke-dasharray="10 6"/>')
-p(text(1630, 532, 'AREA BEING\nBUILT', 17, 800, '#46505C', extra='paint-order="stroke" stroke="#F4F6F9" stroke-width="5"'))
+# Right-hand features
+p(f'<rect x="1470" y="440" width="0" height="0"/>')
+p(text(1690, 1000, 'OVERHEAD\nDOOR', 16, 700, '#8A6606'))
+p(text(1530, 998, 'DOCKS', 18, 700, '#8A6606'))
+p(eyewash(1530, 580)); p(text(1590, 586, 'EYEWASH', 17, 800, BLUE))
 
-# Doors. Man doors are all exits; overhead and dock doors are not.
-MAN = [  # x, y, rotation, chip label position (dx, dy)
-    (515, 465, 0, (0, -62)),        # top wall, left section
-    (610, 1090, 180, (82, 30)),     # bottom wall, left section (lower-left exit)
-    (1150, 285, 0, (0, -62)),       # top wall, right section
-    (1860, 285, 0, (0, -62)),       # top-right corner
-    (1945, 590, 90, (66, 0)),       # right wall
-    (1760, 1000, 180, (82, 30)),    # bottom wall, dock end
-    (255, 705, 270, (-66, 0)),      # office main door
+# Doors: man doors are exits (numbered); overhead / dock doors are not
+EXITS = [  # n, x, y, rot, badge dx, dy
+    (1, 660, 430, 0, 0, -58),
+    (2, 570, 985, 180, 52, 38),
+    (3, 1280, 305, 0, 0, -58),
+    (4, 1905, 305, 0, 0, -58),
+    (5, 1600, 945, 180, 0, 58),
+    (6, 425, 680, 270, -58, 0),
+    (7, 490, 595, 0, 0, -50),
 ]
-for x, y, rot, (dx, dy) in MAN:
-    p(man_door(x, y, rot))
-    p(chip(x + dx, y + dy + (6 if (dy and abs(dy) > 40) else 0)))
-p(man_door(380, 765, 90, BLUE))                       # office -> plant
-p(text(448, 730, 'Office → plant', 14, 700, BLUE, 'middle'))
-p(man_door(591, 547, 180, BLUE, 34)); p(man_door(663, 547, 180, BLUE, 34))   # washrooms
-p(man_door(1472, 681, 270, BLUE, 34))                 # eyewash washroom
+for n, x, y, rot, dx, dy in EXITS:
+    p(man_door(x, y, rot)); p(badge(x + dx, y + dy, n))
+p(man_door(540, 735, 90, BLUE))                       # office -> plant
+p(text(598, 742, 'to plant', 13, 700, BLUE))
+p(man_door(725, 488, 180, BLUE, 30)); p(man_door(765, 488, 180, BLUE, 30))  # washroom doors
+p(man_door(1470, 600, 270, BLUE, 30))                 # eyewash washroom? (drawn open to the aisle)
+p(overhead(590, 430, 0, 90)); p(overhead(1325, 305, 0, 60))
+for x in (1495, 1530, 1565): p(overhead(x, 945, 180, 28))
+p(overhead(1685, 945, 180, 70))
+p(text(604, 470, 'OVERHEAD DOOR\n(not an exit)', 13, 700, '#8A6606'))
+p(text(1335, 352, 'OVERHEAD DOOR\n(not an exit)', 13, 700, '#8A6606'))
 
-OH = [(425, 465, 0, 60), (430, 1010, 180, 80), (1325, 285, 0, 80)]
-for x, y, rot, l in OH: p(overhead(x, y, rot, l))
-for x in (1470, 1512, 1554): p(overhead(x, 1000, 180, 34))   # 3 docks
-p(overhead(1668, 1000, 180, 70))                              # big overhead door
-
-# Door labels
-p(text(405, 418, 'Overhead door\n(not an exit)', 15, 600, '#8A6606'))
-p(text(452, 968, 'Overhead door\n(not an exit)', 14, 600, '#8A6606'))
-p(text(1325, 238, 'Overhead door\n(not an exit)', 15, 600, '#8A6606'))
-p(text(1512, 1050, '3 docks', 18, 700, '#8A6606'))
-p(text(1668, 1050, 'Overhead door\n(big)', 15, 600, '#8A6606'))
-
-# Evacuation routes (to the nearest man door)
+# Routes
 for r in [
-    [(570, 940), (590, 1062)],                       # machine area -> lower-left door
-    [(850, 1050), (700, 1075), (625, 1078)],         # saw area -> lower-left door
-    [(752, 697), (518, 697), (518, 488)],            # mods / V4T aisle -> top-left door
-    [(1230, 400), (1160, 305)],                      # panel plant -> top door
-    [(1790, 400), (1860, 305)],                      # panel plant -> top-right door
-    [(1750, 590), (1925, 590)],                      # shipping floor -> right door
-    [(1640, 880), (1748, 975)],                      # shipping area -> bottom door
-    [(1330, 960), (1735, 972)],                      # along the dock side -> bottom door
-]:
-    p(route(r))
+    [(660, 410), (660, 390), (150, 390), (150, 900)],       # exit 1 -> assembly
+    [(415, 680), (210, 680), (210, 900)],                    # exit 6
+    [(490, 570), (490, 585), (265, 585), (265, 900)],        # exit 7
+    [(570, 1015), (570, 1030), (345, 1030)],                 # exit 2 -> assembly (west side)
+]: p(route(r))
+p(route([(1320, 215), (1120, 215)]))                         # exit 3 -> north along the outside
+p(route([(1900, 215), (1740, 215)]))                         # exit 4
+p(text(1130, 188, 'PROCEED TO ASSEMBLY POINT', 20, 800, GREEN, 'middle'))
+# inside: you are here -> exit 1 and exit 3
+p(route([(1465, 590), (1465, 560), (660, 560), (660, 455)], GREEN, width=6))
+p(route([(1465, 530), (1465, 455), (1270, 455), (1270, 325)], GREEN, width=6))
+# dock side -> assembly point the long way (orange)
+p(route([(1480, 650), (1600, 650), (1600, 915)], ORANGE, True))
+p(route([(1600, 1010), (1600, 1100), (1380, 1100)], ORANGE, True))
+p(text(1180, 1104, 'PROCEED TO ASSEMBLY POINT', 20, 800, ORANGE))
 
+# You are here
+p(f'<circle cx="1465" cy="560" r="28" fill="#fff" stroke="{GREEN}" stroke-width="5"/>')
+p(f'<circle cx="1465" cy="550" r="7" fill="{GREEN}"/><path d="M 1457 560 h 16 v 16 h -4 v 10 h -8 v -10 h -4 z" fill="{GREEN}"/>')
+p(text(1465, 608, 'YOU ARE HERE', 17, 800, GREEN))
+
+# First aid kits (FA) and a second eyewash by the office
+p(first_aid(600, 862)); p(first_aid(870, 522)); p(first_aid(1540, 515))
+p(eyewash(590, 640))
 # Fire extinguishers — 17
-FIRE = [(407,617),(462,800),(482,480),(478,1002),(663,1003),(955,490),(1045,478),(899,834),(1298,1003),
-        (1388,822),(1190,333),(1448,303),(1525,632),(1646,305),(1713,985),(1913,302),(1883,620)]
+FIRE = [(575,795),(558,652),(660,1022),(625,525),(1215,335),(1023,450),(1245,340),(1118,792),(1418,717),(1527,640),
+        (1724,920),(1890,600),(1895,355),(760,990),(1300,990),(1750,620),(1800,430)]
 assert len(FIRE) == 17
 for x, y in FIRE: p(extinguisher(x, y))
 
-# Muster point — one, at the south end by the lower-left man door
-p(f'<circle cx="200" cy="1030" r="44" fill="{GREEN}" stroke="#fff" stroke-width="5"/>')
-p(text(200, 1048, 'M', 52, 800, '#fff'))
-p(text(200, 1112, 'MUSTER POINT', 22, 800, GREEN))
-p(route([(560, 1130), (330, 1075), (250, 1050)], GREEN))
+# Muster point (main) and alternate point
+p(f'<rect x="110" y="910" width="230" height="230" rx="26" fill="#E3F2E8" stroke="{GREEN}" stroke-width="5" stroke-dasharray="16 10"/>')
+for i in range(6):
+    for j in range(2): p(f'<circle cx="{145+i*32}" cy="{945+j*30}" r="9" fill="{GREEN}" opacity=".5"/>')
+p(text(225, 1065, 'MUSTER\nPOINT', 34, 800, GREEN, 'middle'))
+p(f'<rect x="70" y="225" width="260" height="200" rx="22" fill="#FFF6DA" stroke="{ORANGE}" stroke-width="5" stroke-dasharray="16 10"/>')
+p(text(200, 305, 'ALTERNATE\nPOINT', 34, 800, ORANGE))
+p(text(200, 380, '(assembly)', 18, 700, ORANGE))
 
-# Compass: the south end (office) is on the left
-p(f'<line x1="160" y1="360" x2="420" y2="360" stroke="{INK}" stroke-width="5" marker-end="url(#ahk)"/>')
-p(text(160, 335, 'SOUTH', 20, 700, '#46505C', 'start')); p(text(420, 335, 'NORTH', 20, 700, '#46505C', 'end'))
+# Compass: north is the left (office) end
+p(f'<circle cx="1850" cy="1065" r="52" fill="#fff" stroke="{INK}" stroke-width="4"/>')
+p(f'<path d="M 1805 1065 L 1850 1048 L 1850 1082 Z" fill="{INK}"/><path d="M 1895 1065 L 1850 1048 L 1850 1082 Z" fill="#fff" stroke="{INK}" stroke-width="3"/>')
+p(text(1778, 1073, 'N', 28, 800)); p(text(1922, 1073, 'S', 24, 700)); p(text(1850, 1000, 'E', 24, 700)); p(text(1850, 1140, 'W', 24, 700))
+p(text(1995, 1128, 'SCHEMATIC.\nNOT TO SCALE', 16, 700, GREY, 'end'))
 
 PLAN = '\n'.join(plan)
 
 # ── the poster ───────────────────────────────────────────────
-S = 0.66
-TX, TY = -25.8, -5
+S = 0.62
+TX, TY = 1.6, 34
+KEY = [(1, 'NORTHEAST CORNER MAN DOOR', 'employee entrance'), (2, 'NORTHWEST CORNER MAN DOOR', ''), (3, 'EAST WALL MAN DOOR', ''),
+       (4, 'SOUTHEAST CORNER MAN DOOR', ''), (5, 'SOUTHWEST MAN DOOR (DOCKS)', ''), (6, 'OFFICE NORTH DOOR', ''), (7, 'OFFICE EAST DOOR', '')]
+key = ''
+for i, (n, name, note) in enumerate(KEY):
+    y = 60 + i * 35
+    key += f'<g transform="translate(22 {y})"><rect width="30" height="30" rx="5" fill="{GREEN}"/><text x="15" y="23" font-size="21" font-weight="800" fill="#fff" text-anchor="middle">{n}</text><text x="42" y="22" font-size="14" font-weight="700" fill="{INK}">{name}</text></g>'
+
 legend_items = [
-    (f'<circle cx="16" cy="16" r="13" fill="{RED}"/><text x="16" y="22" font-size="16" font-weight="800" fill="#fff" text-anchor="middle">F</text>', 'Fire extinguisher', '17 of them'),
-    (f'<g transform="translate(10 30) scale(.62)">{man_door(0,0,0,GREEN,44)}</g>', 'Man door = EXIT', 'every man door can be used'),
-    (f'<g transform="translate(10 30) scale(.62)">{man_door(0,0,0,BLUE,44)}</g>', 'Blue door', 'office → plant, washrooms'),
-    (f'<g transform="translate(16 16)"><rect x="-16" y="-8" width="32" height="16" fill="#FFE08A" stroke="#C9950A" stroke-width="2.5" stroke-dasharray="7 4"/></g>', 'Overhead / dock door', 'NOT an exit'),
-    (f'<circle cx="16" cy="16" r="14" fill="{GREEN}"/><text x="16" y="23" font-size="19" font-weight="800" fill="#fff" text-anchor="middle">M</text>', 'Muster point', 'meet here, then roll call'),
-    (f'<rect x="2" y="5" width="28" height="22" fill="#E7DDF6" stroke="{PURPLE}" stroke-width="3"/>', 'Tornado shelter', 'male / female washrooms'),
-    (f'<circle cx="16" cy="16" r="13" fill="{BLUE}"/><text x="16" y="20" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">EW</text>', 'Eyewash station', 'in the washroom by shipping'),
-    ('<path d="M 2 16 L 28 16" stroke="%s" stroke-width="6" marker-end="url(#ah)"/>' % GREEN, 'Exit route', 'to the nearest man door'),
+    (f'<circle cx="15" cy="15" r="13" fill="{RED}"/><text x="15" y="21" font-size="16" font-weight="800" fill="#fff" text-anchor="middle">F</text>', 'Fire extinguisher (17)'),
+    (f'<rect x="1" y="1" width="28" height="28" rx="4" fill="#fff" stroke="{GREEN}" stroke-width="3"/><path d="M 11 6 h8 v6 h6 v8 h-6 v6 h-8 v-6 h-6 v-8 h6 z" fill="{GREEN}"/>', 'First aid kit (FA)'),
+    (f'<circle cx="15" cy="15" r="13" fill="{BLUE}"/><text x="15" y="20" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">EW</text>', 'Eyewash station'),
+    (f'<rect x="1" y="5" width="28" height="20" fill="#fff" stroke="{BLUE}" stroke-width="3"/>', 'Shelter area (washrooms)'),
+    (f'<rect x="0" y="9" width="30" height="12" fill="#FFE08A" stroke="#C9950A" stroke-width="2.5" stroke-dasharray="7 4"/>', 'Overhead / dock door (not exit)'),
+    (f'<rect x="1" y="1" width="28" height="28" rx="6" fill="{YEL}" transform="rotate(45 15 15) scale(.75) translate(5 5)"/>', 'Natural gas main'),
+    ('<path d="M 0 15 L 24 15" stroke="%s" stroke-width="6" marker-end="url(#ah)"/>' % GREEN, 'Route to assembly point'),
+    ('<path d="M 0 15 L 24 15" stroke="%s" stroke-width="6" stroke-dasharray="7 5" marker-end="url(#ahy)"/>' % ORANGE, 'Dock-side route'),
 ]
 leg = ''
-for i, (icon, t1, t2) in enumerate(legend_items):
-    y = 70 + i * 72
-    leg += f'<g transform="translate(24 {y})">{icon}<text x="50" y="14" font-size="19" font-weight="700" fill="{INK}">{t1}</text><text x="50" y="35" font-size="15" fill="#5A6270">{t2}</text></g>'
+for i, (icon, label) in enumerate(legend_items):
+    y = 56 + i * 33
+    leg += f'<g transform="translate(22 {y})">{icon}<text x="44" y="21" font-size="14.5" font-weight="600" fill="{INK}">{label}</text></g>'
 
-def box(x, w, title, tcolor, body, extra=''):
-    return f'''<g transform="translate({x} 780)"><rect width="{w}" height="270" rx="14" fill="#fff" stroke="#C9CED6" stroke-width="2.5"/>
-    <text x="22" y="44" font-size="25" font-weight="800" fill="{tcolor}">{title}</text>{body}{extra}</g>'''
+def box(x, w, title, tcolor, body, fill='#fff', border='#C9CED6'):
+    return f'<g transform="translate({x} 780)"><rect width="{w}" height="270" rx="14" fill="{fill}" stroke="{border}" stroke-width="2.5"/><text x="18" y="40" font-size="19" font-weight="800" fill="{tcolor}">{title}</text>{body}</g>'
 
-def steps(items, color):
+def lines(items, x=18, y0=76, step=26, size=16, fill=INK):
+    return ''.join(f'<text x="{x}" y="{y0 + i*step}" font-size="{size}" fill="{fill}">{t}</text>' for i, t in enumerate(items))
+
+def steps(items, color, y0=82, gap=46):
     s = ''
     for i, (k, t) in enumerate(items):
-        s += f'<text x="26" y="{92 + i*46}" font-size="30" font-weight="800" fill="{color}">{k}</text>'
+        s += f'<text x="18" y="{y0 + i*gap + 6}" font-size="28" font-weight="800" fill="{color}">{k}</text>'
         for j, line in enumerate(t.split('\n')):
-            s += f'<text x="62" y="{86 + i*46 + j*20}" font-size="17" fill="{INK}">{line}</text>'
+            s += f'<text x="50" y="{y0 + i*gap + j*18}" font-size="15" fill="{INK}">{line}</text>'
     return s
 
 race = steps([('R', 'Remove people from the danger area.'),
-              ('A', 'Alert people nearby and raise the alarm.\nDial 911 with your name and location.'),
+              ('A', 'Alert people nearby, raise the alarm.\nDial 911: your name and location.'),
               ('C', 'Confine fire and smoke.\nClose doors behind you.'),
-              ('E', 'Extinguish or evacuate. Fight a fire only if\nyou are trained and it is safe.')], RED)
-pass_ = steps([('P', 'Pull the pin'), ('A', 'Aim at the base of the fire'), ('S', 'Squeeze the handle'), ('S', 'Sweep side to side')], RED)
-tornado = ('<text x="22" y="90" font-size="19" font-weight="700" fill="%s">Go to the washrooms (male / female).</text>' % INK +
-           ''.join(f'<text x="22" y="{128 + i*30}" font-size="17" fill="{INK}">{t}</text>' for i, t in enumerate(
-               ['• Stay away from overhead doors and docks', '• Close the washroom doors behind you', '• Stay put until the all-clear', '• Take a head count when you get there'])))
-services = ('<text x="22" y="112" font-size="58" font-weight="800" fill="%s">DIAL 911</text>' % RED +
-            ''.join(f'<text x="22" y="{150 + i*26}" font-size="17" fill="{INK}">{t}</text>' for i, t in enumerate(
-                ['Go to the muster point (green M) at the south', 'end of the building. Stay there for roll call.', 'Do not re-enter until you are told it is safe.'])) +
-            f'<text x="22" y="238" font-size="15" fill="#5A6270">Questions: Rizwan Khanjra · 519 778 7280</text>')
+              ('E', 'Extinguish or evacuate. Fight a fire\nonly if trained and it is safe.')], RED)
+pass_ = steps([('P', 'Pull the pin'), ('A', 'Aim at the base of the fire'), ('S', 'Squeeze the handle'), ('S', 'Sweep side to side')], RED, 84, 42)
+tornado = lines(['Go to the SHELTER AREA', '(male / female washrooms).', '', '• Stay away from overhead doors', '   and docks', '• Close the washroom doors', '• Stay put until the all-clear'], 18, 76, 25, 16)
+gas = lines(['• Leave the area at once', '• Do not use switches, phones or', '   flames inside the building', '• Call 911 from a safe distance', '• Go to the assembly point', '• Do not re-enter until cleared', '', 'Gas main: outside the north end'], 18, 76, 25, 15.5)
+services = ('<text x="18" y="108" font-size="52" font-weight="800" fill="%s">DIAL 911</text>' % RED +
+            lines(['Go to the MUSTER POINT (north-west', 'corner, outside). If it cannot be used,', 'go to the ALTERNATE POINT.', 'Stay for roll call. Do not re-enter', 'until you are told it is safe.'], 18, 142, 24, 15.5) +
+            f'<text x="18" y="262" font-size="14" fill="{GREY}">Questions: Rizwan Khanjra · 519 778 7280</text>')
 
 html = f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Emergency Evacuation Plan — Sunspace USA, Truesdale</title>
@@ -211,30 +238,33 @@ html = f'''<!doctype html>
 </style></head><body>
 <svg viewBox="0 0 1700 1100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Emergency evacuation plan">
   <defs>
-    <marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="3.2" markerHeight="3.2" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="{GREEN}"/></marker>
-    <marker id="ahk" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="3.2" markerHeight="3.2" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="{INK}"/></marker>
+    <marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="3" markerHeight="3" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="{GREEN}"/></marker>
+    <marker id="ahk" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="3" markerHeight="3" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="{INK}"/></marker>
+    <marker id="ahy" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="3" markerHeight="3" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="{ORANGE}"/></marker>
   </defs>
   <rect width="1700" height="1100" fill="#fff"/>
-  <!-- header -->
-  <rect x="0" y="0" width="1700" height="108" fill="#1F5F3A"/>
-  <text x="40" y="76" font-size="62" font-weight="800" fill="#fff" letter-spacing="1">EMERGENCY EVACUATION PLAN</text>
-  <text x="1670" y="52" font-size="30" font-weight="800" fill="#fff" text-anchor="end">Sunspace USA INC</text>
-  <text x="1670" y="86" font-size="21" fill="#E6F1EA" text-anchor="end">1402 E Veterans Memorial Pkwy, Truesdale, MO 63380</text>
-  <!-- map -->
+  <rect x="0" y="0" width="1700" height="108" fill="#26272A"/>
+  <rect x="0" y="100" width="1700" height="8" fill="{YEL}"/>
+  <circle cx="68" cy="52" r="34" fill="{YEL}"/><path d="M 40 70 L 58 38 L 68 52 L 78 40 L 96 70 Z" fill="#26272A"/>
+  <text x="122" y="64" font-size="40" font-weight="800" fill="#fff" letter-spacing="3">SUNSPACE</text>
+  <text x="1670" y="62" font-size="54" font-weight="800" fill="#fff" text-anchor="end" letter-spacing="1">EMERGENCY EVACUATION PLAN</text>
+  <text x="1670" y="92" font-size="19" fill="#E5E5E5" text-anchor="end">Sunspace USA INC · 1402 E Veterans Memorial Pkwy, Truesdale, MO 63380</text>
   <rect x="30" y="128" width="1310" height="632" rx="14" fill="#fff" stroke="#C9CED6" stroke-width="2.5"/>
   <g transform="translate({TX} {TY}) scale({S})" font-family="Liberation Sans, Arial, sans-serif">
 {PLAN}
   </g>
-  <text x="1322" y="750" font-size="14" fill="#5A6270" text-anchor="end">Not to scale</text>
-  <!-- legend -->
-  <g transform="translate(1360 128)"><rect width="310" height="632" rx="14" fill="#fff" stroke="#C9CED6" stroke-width="2.5"/>
-    <text x="24" y="44" font-size="26" font-weight="800" fill="{INK}" letter-spacing="1">LEGEND</text>{leg}</g>
-  <!-- bottom boxes -->
-  {box(30, 395, 'IF THERE IS A FIRE: R.A.C.E.', RED, race)}
-  {box(445, 395, 'EXTINGUISHER GUIDE', RED, pass_)}
-  {box(860, 395, 'TORNADO WARNING', PURPLE, tornado)}
-  {box(1275, 395, 'EMERGENCY SERVICES', RED, services)}
-  <text x="30" y="1082" font-size="15" fill="#5A6270">Reviewed by: ______________________   Date: ______________   Post at every exit and by the time clock.</text>
+  <!-- right column: exit key + legend -->
+  <g transform="translate(1360 128)"><rect width="310" height="300" rx="14" fill="#fff" stroke="#C9CED6" stroke-width="2.5"/>
+    <text x="22" y="40" font-size="22" font-weight="800" fill="{INK}" letter-spacing="1">EXIT KEY</text>{key}</g>
+  <g transform="translate(1360 438)"><rect width="310" height="322" rx="14" fill="#fff" stroke="#C9CED6" stroke-width="2.5"/>
+    <text x="22" y="36" font-size="22" font-weight="800" fill="{INK}" letter-spacing="1">LEGEND</text>{leg}</g>
+  {box(30, 308, 'IF THERE IS A FIRE: R.A.C.E.', RED, race)}
+  {box(363, 308, 'EXTINGUISHER GUIDE', RED, pass_)}
+  {box(696, 308, 'TORNADO WARNING', PURPLE, tornado)}
+  {box(1029, 308, 'NATURAL GAS LEAK', '#8A6606', gas, '#FFF8E1', YEL)}
+  {box(1362, 308, 'EMERGENCY SERVICES', RED, services)}
+  <text x="30" y="1082" font-size="15" fill="{GREY}">Reviewed by: ______________________   Date: ______________   Post at every exit and by the time clock.</text>
 </svg></body></html>'''
+html = html.replace('url(#ahy)', 'url(#ahy)')
 open('evacuation-plan.html', 'w').write(html)
 print('wrote evacuation-plan.html', len(html), 'bytes')

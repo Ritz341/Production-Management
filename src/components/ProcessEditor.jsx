@@ -73,31 +73,18 @@ export default function ProcessEditor({ department, settings, peopleToday, onSav
 
   return (
     <div className="mt-3">
-      <p className="text-sm text-steelLight mb-2">
-        Enter what each station actually makes and how long <b>one</b> takes one person. If several of them go into one
-        finished piece — 3 frames in a wall, 4 vents in an insert — put that number in <b>Per finished</b> and the app
-        converts. Averages are fine: 2.5 is allowed.
-      </p>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="text-left text-xs uppercase tracking-wider text-steelLight">
-            <tr>
-              <th className="py-1 pr-2 font-semibold">Station (in order)</th>
-              <th className="py-1 px-2 font-semibold">Unit</th>
-              <th className="py-1 px-2 font-semibold" title="How long it takes ONE person to make ONE">
-                Minutes for one
-              </th>
-              <th className="py-1 px-2 font-semibold" title="How many of this step's units make one finished unit — 4 vents per insert">
-                Per finished
-              </th>
-              <th className="py-1 px-2 font-semibold" title="How many orders can wait here before the next step — carts, racks or stations">
-                Buffer
-              </th>
-              <th className="py-1 px-2 font-semibold text-center" title="Does the tablet ask for a count here?">
-                Count
-              </th>
-              <th className="py-1 px-2 font-semibold text-right">People</th>
-              <th className="py-1 px-2 font-semibold text-right">Target today</th>
+            <tr className="align-top">
+              <Th cls="pr-2" hint="in the order they happen">Station</Th>
+              <Th hint="what it makes">Unit</Th>
+              <Th hint="one person, making one">Minutes for one</Th>
+              <Th hint="e.g. 4 vents → 1 insert; 2.5 is fine">Per finished</Th>
+              <Th hint="orders that can wait here">Buffer</Th>
+              <Th cls="text-center" hint="tablet asks for a count">Count</Th>
+              <Th cls="text-right" hint="from Crew today">People</Th>
+              <Th cls="text-right" hint="pieces">Target today</Th>
               <th className="py-1 pl-2"></th>
             </tr>
           </thead>
@@ -308,5 +295,17 @@ export default function ProcessEditor({ department, settings, peopleToday, onSav
         )}
       </div>
     </div>
+  )
+}
+
+// A column heading with its one-line explanation under it.
+function Th({ children, hint, cls = '' }) {
+  return (
+    <th className={`py-1 px-2 font-semibold ${cls}`}>
+      {children}
+      <span className="block normal-case tracking-normal font-normal text-[11px] leading-tight text-steelLight/80 mt-0.5 max-w-[7.5rem]">
+        {hint}
+      </span>
+    </th>
   )
 }

@@ -107,10 +107,7 @@ export default function AdminTVs() {
     <div className="px-4 sm:px-6 py-5 max-w-4xl mx-auto space-y-4">
       <section className="rounded-2xl bg-white border border-paperDim p-5">
         <h2 className="font-display font-bold text-3xl uppercase tracking-wide text-charcoal">Targets &amp; TVs</h2>
-        <p className="text-sm text-steelLight mt-1">
-          Each TV shows one department. Set it up once on that PC, then control it from here — it's read-only, so nobody
-          can change a job from the TV.
-        </p>
+        <p className="text-sm text-steelLight mt-1">One board per department. TVs are read-only.</p>
         {status && <p className="mt-2 text-sm font-semibold text-andonGreen">{status}</p>}
       </section>
 

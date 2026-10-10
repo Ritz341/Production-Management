@@ -123,7 +123,7 @@ funcs as (
   where p.pronamespace = 'public'::regnamespace and p.proname like 'bt\_%' and p.prokind = 'f'
 ),
 
--- 7. Migrations: markers of v23-v27
+-- 7. Migrations: markers of v23-v28
 versions as (
   select '7 migration', m.item,
          case when m.ok then 'OK' else 'PROBLEM' end,
@@ -136,7 +136,11 @@ versions as (
     ('v26 bt_can_edit_measure()',  to_regprocedure('public.bt_can_edit_measure(text)') is not null, 'schema_v26.sql'),
     ('v27 trigger fns locked',
        coalesce(not has_function_privilege('authenticated', to_regprocedure('public.bt_close_sent_back()'), 'execute'), false),
-       'schema_v27.sql')
+       'schema_v27.sql'),
+    ('v28 no bt_ function open to signed-out users',
+       not exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace
+                   and p.proname like 'bt\_%' and has_function_privilege('anon', p.oid, 'execute')),
+       'schema_v28.sql')
   ) as m(item, ok, file)
 ),
 

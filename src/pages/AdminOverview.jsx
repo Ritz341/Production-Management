@@ -4,6 +4,7 @@ import { useConnection } from '../lib/ConnectionContext.jsx'
 import { WORKFLOW_STAGES } from '../lib/statusColors'
 import { blockText, fmtQty, isoDate, pickupLoads, planLine, processesFor, ratePerHourOf, rateFor, useSettings } from '../lib/catalog'
 import WeekLoad from '../components/WeekLoad.jsx'
+import { purgeOld, purgeSummary } from '../lib/purgeOld'
 import { nearestBuildWeekId, weekName, weekOptionLabel } from '../lib/dates'
 import { dbErrorText } from '../lib/dbError'
 import { DONE_RANK, HEADLINE_TONE_CLASS, ago, buildNumbers, daysUntil, relativeDay, shortDate, stageRank, weekHeadline } from '../lib/schedule'
@@ -45,6 +46,37 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
   useEffect(() => {
     setWeekId((prev) => prev ?? nearestBuildWeekId(buildWeeks))
   }, [buildWeeks])
+
+  // Six weeks of history, then it clears itself — once a day, the first
+  // time admin opens the app (schema_v31). Quiet if there's nothing to do,
+  // and quiet if it can't (migration not run, not an admin): it just tries
+  // again on the next visit.
+  useEffect(() => {
+    if (!live) return
+    let last = null
+    try {
+      last = localStorage.getItem('purge:last')
+    } catch {}
+    if (last === today) return
+    let active = true
+    purgeOld(supabase, { ask: (text) => window.confirm(text) })
+      .then((r) => {
+        if (r.skipped) return
+        try {
+          localStorage.setItem('purge:last', today)
+        } catch {}
+        const msg = purgeSummary(r)
+        if (msg && active) {
+          setToast(msg)
+          onWeeksChanged?.()
+        }
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live])
 
   const week = buildWeeks.find((w) => w.id === weekId)
   useEffect(() => setShipDraft(week?.ship_date ?? ''), [week?.ship_date])

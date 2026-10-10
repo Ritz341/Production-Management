@@ -428,6 +428,13 @@ export default function AdminView() {
               placeholder="Search tag or dealer…"
               className="border border-paperDim rounded px-3 py-2 text-sm w-64 ml-auto"
             />
+            <button
+              onClick={toggleAllShown}
+              disabled={visibleOrders.length === 0}
+              className="border border-paperDim bg-white text-charcoal text-sm font-semibold px-4 py-2 rounded whitespace-nowrap min-h-[40px] disabled:opacity-40"
+            >
+              {allShownSelected ? 'Clear selection' : `Select all ${visibleOrders.length} shown`}
+            </button>
             <button onClick={() => setFormOrder('new')} className="bg-safety text-charcoal font-display font-bold text-sm px-4 py-2 rounded whitespace-nowrap">
               + New Order
             </button>
@@ -667,10 +674,11 @@ export default function AdminView() {
         <BulkRemoveModal
           orders={selectedOrders}
           onClose={() => setRemoving(false)}
-          onDone={({ count, permanent, announce }) => {
+          onDone={({ count, permanent, announce, weeksDeleted }) => {
             setSelectedIds(new Set())
             setNotice(
               `${count} ${count === 1 ? 'order' : 'orders'} ${permanent ? 'deleted for good' : 'cancelled'}` +
+                (weeksDeleted ? ` (and ${weeksDeleted} empty ${weeksDeleted === 1 ? 'week' : 'weeks'})` : '') +
                 (announce ? ' — the floor has been told.' : ' — the floor was not notified.')
             )
             loadAll()

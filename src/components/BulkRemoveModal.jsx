@@ -23,6 +23,10 @@ export default function BulkRemoveModal({ orders, onClose, onDone }) {
   const [announce, setAnnounce] = useState(false)
   const [reason, setReason] = useState('')
   const [typed, setTyped] = useState('')
+  // After a permanent delete, a pickup week with nothing left in it is just
+  // clutter in every week list. Checked by default; weeks that still hold
+  // any order (cancelled ones included) are never touched.
+  const [dropWeeks, setDropWeeks] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -49,9 +53,24 @@ export default function BulkRemoveModal({ orders, onClose, onDone }) {
       p_announce: announce,
       p_reason: reason,
     })
+    if (err) {
+      setBusy(false)
+      return setError(dbErrorText(err, "Couldn't remove those orders"))
+    }
+    let weeksDeleted = 0
+    if (permanent && dropWeeks) {
+      for (const weekId of new Set(orders.map((o) => o.build_week_id).filter(Boolean))) {
+        const { count: left, error: cErr } = await supabase
+          .from('bt_orders')
+          .select('id', { count: 'exact', head: true })
+          .eq('build_week_id', weekId)
+        if (cErr || left !== 0) continue
+        const { error: dErr } = await supabase.from('bt_build_weeks').delete().eq('id', weekId)
+        if (!dErr) weeksDeleted++
+      }
+    }
     setBusy(false)
-    if (err) return setError(dbErrorText(err, "Couldn't remove those orders"))
-    onDone?.({ count: data ?? count, permanent, announce })
+    onDone?.({ count: data ?? count, permanent, announce, weeksDeleted })
     onClose()
   }
 
@@ -126,6 +145,16 @@ export default function BulkRemoveModal({ orders, onClose, onDone }) {
               className="mt-1 w-full border border-paperDim rounded px-3 py-2"
             />
           </label>
+
+          {permanent && orders.some((o) => o.build_week_id) && (
+            <label className="flex items-start gap-2 text-sm text-steel cursor-pointer">
+              <input type="checkbox" checked={dropWeeks} onChange={(e) => setDropWeeks(e.target.checked)} className="mt-0.5 w-4 h-4 accent-charcoal" />
+              <span>
+                Also delete any pickup week left with no orders
+                <span className="block text-xs text-steelLight">A week that still has any order in it, cancelled ones included, is kept.</span>
+              </span>
+            </label>
+          )}
 
           {permanent && (
             <label className="text-sm font-semibold text-andonRed">

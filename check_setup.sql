@@ -123,7 +123,7 @@ funcs as (
   where p.pronamespace = 'public'::regnamespace and p.proname like 'bt\_%' and p.prokind = 'f'
 ),
 
--- 7. Migrations: markers of v23-v28
+-- 7. Migrations: markers of v23-v29
 versions as (
   select '7 migration', m.item,
          case when m.ok then 'OK' else 'PROBLEM' end,
@@ -140,7 +140,9 @@ versions as (
     ('v28 no bt_ function open to signed-out users',
        not exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace
                    and p.proname like 'bt\_%' and has_function_privilege('anon', p.oid, 'execute')),
-       'schema_v28.sql')
+       'schema_v28.sql'),
+    ('v29 view v_cross_dept_floaters', to_regclass('public.v_cross_dept_floaters') is not null, 'schema_v29.sql'),
+    ('v29 view v_employee_versatility', to_regclass('public.v_employee_versatility') is not null, 'schema_v29.sql')
   ) as m(item, ok, file)
 ),
 

@@ -32,13 +32,32 @@ export default function AdminView() {
   const [blockTarget, setBlockTarget] = useState(null) // { orderId, columnId } while the reason picker is open
   const [tab, setTab] = useState(() => {
     try {
-      return localStorage.getItem('admin:tab') || 'overview'
+      const t = localStorage.getItem('admin:tab') || 'overview'
+      return SETUP_TABS.some(([id]) => id === t) ? 'setup' : t
     } catch {
       return 'overview'
     }
   })
   const [navOpen, setNavOpen] = useState(false)
+  const [setupTab, setSetupTab] = useState(() => {
+    try {
+      const t = localStorage.getItem('admin:tab')
+      return SETUP_TABS.some(([id]) => id === t) ? t : localStorage.getItem('admin:setup') || 'tvs'
+    } catch {
+      return 'tvs'
+    }
+  })
+  function pickSetup(id) {
+    setSetupTab(id)
+    try {
+      localStorage.setItem('admin:setup', id)
+    } catch {}
+  }
   function pickTab(id) {
+    if (SETUP_TABS.some(([t]) => t === id)) {
+      pickSetup(id)
+      id = 'setup'
+    }
     setTab(id)
     setNavOpen(false)
     try {
@@ -322,11 +341,28 @@ export default function AdminView() {
 
       {tab === 'reports' && <AdminReports />}
 
-      {tab === 'tvs' && <AdminTVs />}
-
-      {tab === 'skills' && <AdminSkillMatrix />}
-
-      {tab === 'floaters' && <AdminFloaters />}
+      {tab === 'setup' && (
+        <>
+          <div className="bg-white border-b border-paperDim px-4 py-3 flex gap-2 overflow-x-auto" role="tablist" aria-label="Setup">
+            {SETUP_TABS.map(([id, label]) => (
+              <button
+                key={id}
+                role="tab"
+                aria-selected={setupTab === id}
+                onClick={() => pickSetup(id)}
+                className={`shrink-0 min-h-[44px] px-4 rounded-full text-sm font-semibold ${
+                  setupTab === id ? 'bg-charcoal text-paper' : 'bg-paperDim text-steel'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {setupTab === 'tvs' && <AdminTVs />}
+          {setupTab === 'skills' && <AdminSkillMatrix />}
+          {setupTab === 'floaters' && <AdminFloaters />}
+        </>
+      )}
 
       {tab === 'paperwork' && (
         <main className="px-5 py-5 max-w-4xl mx-auto">
@@ -655,28 +691,31 @@ export default function AdminView() {
   )
 }
 
-// The admin screens, grouped by when you reach for them.
+// The admin screens. Six places, no headings: the three setup screens
+// share one "Setup" tab because they're touched a few times a year.
+const SETUP_TABS = [
+  ['tvs', 'Targets & TVs'],
+  ['skills', 'Who can do what'],
+  ['floaters', 'Who can cover'],
+]
 const NAV = [
-  { group: 'Today', items: [['overview', 'Overview', '◉'], ['grid', 'Grid', '▦']] },
-  { group: 'Orders', items: [['import', 'Weekly import', '⇩'], ['paperwork', 'Paperwork', '📎']] },
-  {
-    group: 'Floor setup',
-    items: [
-      ['tvs', 'Targets & TVs', '▣'],
-      ['skills', 'Skills matrix', '✦'],
-      ['floaters', 'Who can cover', '⇄'],
-    ],
-  },
-  { group: 'Look back', items: [['reports', 'Reports', '▤']] },
+  { group: null, items: [
+    ['overview', 'Today', '◉'],
+    ['grid', 'All orders', '▦'],
+    ['import', 'Add the week', '⇩'],
+    ['paperwork', 'Paperwork', '📎'],
+    ['setup', 'Setup', '⚙'],
+    ['reports', 'Reports', '▤'],
+  ] },
 ]
 
 function AdminNav({ tab, onPick, className }) {
   return (
     <nav className={className} aria-label="Admin">
       <div className="px-4 pt-4 pb-2 font-display font-bold text-lg text-charcoal lg:hidden">Truesdale · Admin</div>
-      {NAV.map((g) => (
-        <div key={g.group} className="px-2 py-2">
-          <div className="px-2 pb-1 text-[11px] uppercase tracking-[0.14em] font-semibold text-steelLight">{g.group}</div>
+      {NAV.map((g, gi) => (
+        <div key={gi} className="px-2 py-2">
+          {g.group && <div className="px-2 pb-1 text-[11px] uppercase tracking-[0.14em] font-semibold text-steelLight">{g.group}</div>}
           {g.items.map(([id, label, icon]) => (
             <button
               key={id}

@@ -1,0 +1,10 @@
+const { chromium } = require('playwright')
+;(async () => {
+  const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' })
+  const p = await b.newPage({ viewport: { width: 1632, height: 1056 } })
+  await p.goto('file://' + process.cwd() + '/evacuation-plan.html')
+  await p.emulateMedia({ media: 'print' })
+  await p.pdf({ path: 'evacuation-plan.pdf', width: '17in', height: '11in', printBackground: true, pageRanges: '1' })
+  await p.screenshot({ path: process.argv[2] || 'preview.png', fullPage: false })
+  await b.close()
+})()

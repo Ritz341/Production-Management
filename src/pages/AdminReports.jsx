@@ -97,7 +97,7 @@ export default function AdminReports() {
         <h3 className="font-display font-bold text-xl uppercase tracking-wide text-charcoal">What's in it</h3>
         <dl className="mt-2 divide-y divide-paperDim">
           {SHEETS.map(([name, what]) => (
-            <div key={name} className="py-2 grid grid-cols-[9rem_1fr] gap-3 text-sm">
+            <div key={name} className="py-2 grid sm:grid-cols-[9rem_1fr] gap-x-3 gap-y-0.5 text-sm">
               <dt className="font-semibold text-charcoal">{name}</dt>
               <dd className="text-steelLight">{what}</dd>
             </div>

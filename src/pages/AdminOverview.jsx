@@ -33,6 +33,9 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
   const [loadError, setLoadError] = useState('')
   const [shipDraft, setShipDraft] = useState('')
   const [toast, setToast] = useState('')
+  const [crewOpen, setCrewOpen] = useState(false)
+  const [showAllReady, setShowAllReady] = useState(false)
+  const [showAllAttention, setShowAllAttention] = useState(false)
   const settings = useSettings()
   const [crewRows, setCrewRows] = useState([]) // bt_crew_days rows
   const [qtyKeys, setQtyKeys] = useState(new Set()) // 'orderId:measure' with a count
@@ -326,7 +329,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
         ok: noCrew.length === 0,
         title: noCrew.length ? `No people entered today for ${noCrew.length} department${noCrew.length === 1 ? '' : 's'}` : 'Crew entered for every department',
         detail: noCrew.length ? `${names(noCrew, (d) => d.name)} — their TVs show no target` : null,
-        action: noCrew.length ? ['Enter crew', () => document.getElementById('crew-today')?.scrollIntoView({ behavior: 'smooth' })] : null,
+        action: noCrew.length ? ['Enter crew', () => { setCrewOpen(true); setTimeout(() => document.getElementById('crew-today')?.scrollIntoView({ behavior: 'smooth' }), 50) }] : null,
       },
       {
         id: 'targets',
@@ -409,7 +412,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
         </div>
         <div className="flex gap-2">
           <button onClick={onImport} className="rounded-lg border border-paperDim bg-white px-4 py-2.5 text-sm font-semibold text-charcoal">
-            Weekly import
+            Add the week
           </button>
           <button onClick={onNewOrder} className="rounded-lg bg-safety px-4 py-2.5 font-display font-bold text-charcoal">
             + New order
@@ -420,8 +423,8 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
       {loadError && <div className="mt-4 bg-andonRedBg text-andonRed text-sm px-4 py-3 rounded-lg">⚠ {loadError}</div>}
 
       {/* ── KPIs ── */}
-      <div className="mt-4 grid grid-cols-2 lg:grid-cols-[1.3fr_1fr_1fr_1fr] gap-3">
-        <div className="col-span-2 lg:col-span-1 rounded-2xl bg-charcoal text-paper p-4">
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="rounded-2xl bg-charcoal text-paper p-4">
           <div className="text-[11px] uppercase tracking-[0.12em] text-floorMute font-semibold">
             {weekName(week) || 'This build week'} ships
           </div>
@@ -464,57 +467,52 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
           </div>
         </Kpi>
 
-        <Kpi label="At risk" value={atRisk.length} tone={atRisk.length ? 'amber' : null}>
-          <div className="text-sm text-steelLight mt-1">
-            {atRisk.filter((r) => r.days < 0).length
-              ? `${atRisk.filter((r) => r.days < 0).length} already past pickup`
-              : `picking up within ${AT_RISK_DAYS} days, not finished`}
-          </div>
-        </Kpi>
-
-        <Kpi label="Blocked" value={blocked.length} tone={blocked.length ? 'red' : null}>
-          <div className="text-sm text-steelLight mt-1 truncate">
-            {blocked.length ? `oldest ${ago(blocked[0].c.blockedAt)} — ${blockText(blocked[0].c)}` : 'nothing stuck'}
-          </div>
-        </Kpi>
       </div>
 
-      {/* ── Ready for today ── */}
-      <section className="mt-3 rounded-2xl bg-white border border-paperDim p-4">
-        <div className="flex items-baseline justify-between gap-3">
-          <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">Ready for today</h2>
-          <span className={`font-display font-bold text-lg tabular-nums ${readyCount === readiness.length ? 'text-andonGreen' : 'text-safetyDark'}`}>
-            {readyCount}/{readiness.length}
-          </span>
+      {/* ── Before the day starts ──
+          Only what's still open. When everything's in place it is one
+          green line, not a checklist to read. */}
+      {readyCount === readiness.length ? (
+        <div className="mt-3 rounded-2xl bg-andonGreenBg text-andonGreen font-semibold px-4 py-3 text-sm">
+          ✓ Ready for today — crew, targets and paperwork are all in.
         </div>
-        <ul className="mt-2 grid gap-2 sm:grid-cols-2">
-          {readiness.map((r) => (
-            <li key={r.id} className={`rounded-xl border px-3 py-2.5 flex gap-3 items-start ${r.ok ? 'border-paperDim' : 'border-safety bg-safety/10'}`}>
-              <span className={`mt-0.5 w-6 h-6 shrink-0 rounded-full grid place-items-center text-sm font-bold ${r.ok ? 'bg-andonGreenBg text-andonGreen' : 'bg-safety text-charcoal'}`} aria-hidden="true">
-                {r.ok ? '✓' : '!'}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className={`text-sm font-semibold ${r.ok ? 'text-steelLight' : 'text-charcoal'}`}>{r.title}</div>
-                {r.detail && <div className="text-xs text-steelLight mt-0.5">{r.detail}</div>}
-                {!r.ok && r.orders?.length > 0 && onOpenOrder && (
-                  <div className="flex flex-wrap gap-1.5 mt-1.5">
-                    {r.orders.slice(0, 4).map((o) => (
-                      <button key={o.id} onClick={() => onOpenOrder(o)} className="rounded-md border border-paperDim bg-white px-2 py-1 text-xs font-semibold text-andonBlue">
-                        #{o.buildNo} open
-                      </button>
-                    ))}
-                  </div>
+      ) : (
+        <section className="mt-3 rounded-2xl bg-white border border-paperDim p-4">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">Before the day starts</h2>
+            <span className="text-sm text-steelLight tabular-nums">{readiness.length - readyCount} to do</span>
+          </div>
+          <ul className="mt-2 grid gap-2">
+            {readiness.filter((r) => !r.ok).slice(0, showAllReady ? undefined : 2).map((r) => (
+              <li key={r.id} className="rounded-xl border border-safety bg-safety/10 px-3 py-2.5 flex gap-3 items-center">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-charcoal">{r.title}</div>
+                  {r.detail && <div className="text-xs text-steelLight mt-0.5">{r.detail}</div>}
+                  {r.orders?.length > 0 && onOpenOrder && (
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {r.orders.slice(0, 4).map((o) => (
+                        <button key={o.id} onClick={() => onOpenOrder(o)} className="rounded-md border border-paperDim bg-white px-2 py-1 text-xs font-semibold text-andonBlue">
+                          #{o.buildNo} open
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {r.action && (
+                  <button onClick={r.action[1]} className="shrink-0 rounded-lg bg-charcoal text-paper text-sm font-semibold px-3 min-h-[40px]">
+                    {r.action[0]}
+                  </button>
                 )}
-              </div>
-              {r.action && (
-                <button onClick={r.action[1]} className="shrink-0 rounded-lg bg-charcoal text-paper text-xs font-semibold px-3 min-h-[36px]">
-                  {r.action[0]}
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      </section>
+              </li>
+            ))}
+          </ul>
+          {readiness.filter((r) => !r.ok).length > 2 && (
+            <button onClick={() => setShowAllReady((v) => !v)} className="mt-2 text-sm text-andonBlue font-medium">
+              {showAllReady ? 'Show less' : `Show ${readiness.filter((r) => !r.ok).length - 2} more`}
+            </button>
+          )}
+        </section>
+      )}
 
       {/* Two stacks of about the same height: what's happening on the
           left, planning on the right. The left used to hold Needs
@@ -531,7 +529,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
             <p className="text-sm text-steelLight mt-2">Nothing blocked and nothing at risk. Good week.</p>
           ) : (
             <ul className="mt-2 divide-y divide-paperDim">
-              {blocked.map(({ o, colId, c }) => (
+              {blocked.slice(0, showAllAttention ? undefined : 3).map(({ o, colId, c }) => (
                 <li key={`b-${o.id}-${colId}`} className="py-2.5 grid grid-cols-[1fr_auto] gap-3 items-center">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -553,7 +551,7 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
                   </button>
                 </li>
               ))}
-              {atRisk.map(({ o, days, open }) => (
+              {atRisk.slice(0, showAllAttention ? undefined : Math.max(0, 3 - blocked.length)).map(({ o, days, open }) => (
                 <li key={`r-${o.id}`} className="py-2.5 grid grid-cols-[1fr_auto] gap-3 items-center">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -572,6 +570,11 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
                 </li>
               ))}
             </ul>
+          )}
+          {blocked.length + atRisk.length > 3 && (
+            <button onClick={() => setShowAllAttention((v) => !v)} className="mt-2 text-sm text-andonBlue font-medium">
+              {showAllAttention ? 'Show less' : `Show all ${blocked.length + atRisk.length}`}
+            </button>
           )}
         </section>
 
@@ -603,41 +606,22 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
               ))}
             </ul>
           </section>
-
-          {/* ── Activity ── */}
-          <section className="rounded-2xl bg-white border border-paperDim p-4">
-            <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">On the floor</h2>
-            {events.length === 0 ? (
-              <p className="text-sm text-steelLight mt-2">No activity yet.</p>
-            ) : (
-              <ul className="mt-2 space-y-1.5 max-h-80 overflow-y-auto pr-1">
-                {events.map((e) => (
-                  <li key={e.id} className="grid grid-cols-[2.5rem_1fr] gap-2 text-sm">
-                    <span className="text-steelLight tabular-nums text-right">{ago(e.created_at)}</span>
-                    <span className={e.message.includes('BLOCKED') ? 'text-andonRed' : 'text-steel'}>{e.message}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
         </div>
 
         <div className="grid gap-3">
           {/* ── Can we make it? ── */}
           {loads.get(weekId) && (
-            <section className="rounded-2xl bg-white border border-paperDim p-4">
-              <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">Can we make it?</h2>
+            <Fold title="Can we make it?" hint="mods work vs. crew">
               <p className="text-sm text-steelLight mb-2">
                 Mods work left for {week?.ship_date ? shortDate(week.ship_date) : 'this week'} and every pickup before it,
                 against the crew until it ships.
               </p>
               <WeekLoad load={loads.get(weekId)} settings={settings} />
-            </section>
+            </Fold>
           )}
 
           {/* ── Crew today ── */}
-          <section id="crew-today" className="rounded-2xl bg-white border border-paperDim p-4 scroll-mt-4">
-            <h2 className="font-display font-bold text-2xl uppercase tracking-wide text-charcoal">Crew today</h2>
+          <Fold id="crew-today" title="Crew today" hint="people on each department" open={crewOpen} onToggle={setCrewOpen}>
             <p className="text-sm text-steelLight">
               People on each department today. Leave blank to assume {settings.default_mods_crew} on Mods.
             </p>
@@ -679,9 +663,23 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
                 )
               )}
             </ul>
-          </section>
+          </Fold>
 
-
+          {/* ── Activity ── */}
+          <Fold title="On the floor" hint="latest activity">
+            {events.length === 0 ? (
+              <p className="text-sm text-steelLight mt-2">No activity yet.</p>
+            ) : (
+              <ul className="mt-2 space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                {events.map((e) => (
+                  <li key={e.id} className="grid grid-cols-[2.5rem_1fr] gap-2 text-sm">
+                    <span className="text-steelLight tabular-nums text-right">{ago(e.created_at)}</span>
+                    <span className={e.message.includes('BLOCKED') ? 'text-andonRed' : 'text-steel'}>{e.message}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Fold>
         </div>
       </div>
 
@@ -691,6 +689,29 @@ export default function AdminOverview({ buildWeeks, onWeeksChanged, onEditOrder,
         </div>
       )}
     </div>
+  )
+}
+
+// A panel that stays shut until it's wanted: one tap on the header.
+function Fold({ id, title, hint, open, onToggle, children }) {
+  const [own, setOwn] = useState(false)
+  const isOpen = open ?? own
+  const toggle = () => (onToggle ? onToggle(!isOpen) : setOwn(!isOpen))
+  return (
+    <section id={id} className="rounded-2xl bg-white border border-paperDim scroll-mt-4">
+      <button
+        onClick={toggle}
+        aria-expanded={isOpen}
+        className="w-full flex items-center justify-between gap-3 px-4 min-h-[52px] text-left"
+      >
+        <span className="font-display font-bold text-xl uppercase tracking-wide text-charcoal">
+          {title}
+          {hint && <span className="ml-2 font-sans normal-case tracking-normal text-sm font-normal text-steelLight">{hint}</span>}
+        </span>
+        <span className="text-steelLight text-lg" aria-hidden="true">{isOpen ? '−' : '+'}</span>
+      </button>
+      {isOpen && <div className="px-4 pb-4">{children}</div>}
+    </section>
   )
 }
 
@@ -754,7 +775,7 @@ function ProcessCrew({ dept, processes, people, settings, live, onSave }) {
             )}
           </>
         ) : (
-          'Enter people per process (and minutes for one in Targets & TVs) to see the line output.'
+          'Enter people per process (and minutes for one in Setup → Targets & TVs) to see the line output.'
         )}
       </p>
     </li>

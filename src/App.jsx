@@ -1,17 +1,52 @@
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { useAuth } from './lib/AuthContext.jsx'
 import Login from './pages/Login.jsx'
-import DepartmentView from './pages/DepartmentView.jsx'
-import AdminView from './pages/AdminView.jsx'
-import ShippingView from './pages/ShippingView.jsx'
-import LogisticsView from './pages/LogisticsView.jsx'
-import TVBoard from './pages/TVBoard.jsx'
 import NoRoleView from './pages/NoRoleView.jsx'
-import { useEffect, useState } from 'react'
-import OfficeView from './pages/OfficeView.jsx'
-import QualityView from './pages/QualityView.jsx'
-import CrossDeptFloatBoard from './pages/CrossDeptFloatBoard.jsx'
+
+// Each login only ever opens its own screen, so each screen is its own
+// download: a floor phone fetches the tablet view, not Admin, Reports and
+// the spreadsheet importer it will never open.
+//
+// After a deploy, a phone that kept the page open still points at the old
+// file names; loading one then fails. Reload once to pick up the new ones
+// instead of showing an error.
+function screen(load) {
+  return lazy(() =>
+    load().catch((err) => {
+      const KEY = 'app:reloaded-for-update'
+      try {
+        if (!sessionStorage.getItem(KEY)) {
+          sessionStorage.setItem(KEY, '1')
+          window.location.reload()
+          return new Promise(() => {})
+        }
+      } catch {
+        /* storage blocked: fall through to the error */
+      }
+      throw err
+    })
+  )
+}
+
+const DepartmentView = screen(() => import('./pages/DepartmentView.jsx'))
+const AdminView = screen(() => import('./pages/AdminView.jsx'))
+const ShippingView = screen(() => import('./pages/ShippingView.jsx'))
+const LogisticsView = screen(() => import('./pages/LogisticsView.jsx'))
+const TVBoard = screen(() => import('./pages/TVBoard.jsx'))
+const OfficeView = screen(() => import('./pages/OfficeView.jsx'))
+const QualityView = screen(() => import('./pages/QualityView.jsx'))
+const CrossDeptFloatBoard = screen(() => import('./pages/CrossDeptFloatBoard.jsx'))
 
 export default function App() {
+  const { signOut } = useAuth()
+  return (
+    <Suspense fallback={<LoadingScreen onSignOut={signOut} />}>
+      <Screen />
+    </Suspense>
+  )
+}
+
+function Screen() {
   const { session, profile, loading, signOut } = useAuth()
 
   if (loading) return <LoadingScreen onSignOut={signOut} />
@@ -35,6 +70,17 @@ export default function App() {
   if (profile.role === 'office') return <OfficeView />
   if (profile.role === 'quality') return <QualityView />
   return <DepartmentView />
+}
+
+// A screen that loaded fine clears the one-reload guard for next deploy.
+if (typeof window !== 'undefined') {
+  window.addEventListener('load', () => {
+    try {
+      sessionStorage.removeItem('app:reloaded-for-update')
+    } catch {
+      /* ignore */
+    }
+  })
 }
 
 // If loading ever hangs (no network, say), offer a way out after a few

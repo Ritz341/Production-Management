@@ -51,7 +51,11 @@ export async function readPdf(file) {
 
 // ── What department is a page for ────────────────────────────
 // Titles on the Sunspace sheets, then file-name hints for scans.
+// Order matters: the office sheets come first because a spec sheet's
+// opening lines can name the window type ("Window V4T"), and that must not
+// file the spec sheet under V4T.
 const TITLE_RULES = [
+  [/ORDER CONFIRMATION|SPECIFICATION SHEET/i, 'Office'],
   [/VERTICAL 4 TRACK|V4T/i, 'V4T'],
   [/TRACK (CUT|EXTRUSION)|WALL TRACK/i, 'Track'],
   [/WALL .*PUNCH|MOD(S)? .*(FRAME|CUT)|2["”]? WALL PANEL|WALL PANEL/i, 'Mods'],
@@ -60,7 +64,6 @@ const TITLE_RULES = [
   [/SC ?220/i, 'SC220'],
   [/TA ?144/i, 'TA144'],
   [/DELIVERY|BILL OF LADING|PACKING|LOADING/i, 'Shipping'],
-  [/ORDER CONFIRMATION|SPECIFICATION SHEET/i, 'Office'],
 ]
 
 export function labelFor(text) {

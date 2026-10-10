@@ -1,0 +1,70 @@
+name: Nightly backup
+
+# Dumps the Supabase project, encrypts it, and keeps it for 30 days as a
+# downloadable file on the run's page (Actions → Nightly backup → a run →
+# Artifacts). The repo is public, so the file is AES-256 encrypted with
+# BACKUP_PASSPHRASE; without that passphrase it is unreadable.
+#
+# One-time setup: Settings → Secrets and variables → Actions → New secret
+#   SUPABASE_DB_URL    Supabase → Connect → "Session pooler" address
+#   BACKUP_PASSPHRASE  a long passphrase; keep a copy in your password manager
+# See docs/disaster-recovery.md.
+
+on:
+  schedule:
+    - cron: '17 7 * * *' # every day, 07:17 UTC
+  workflow_dispatch: # the "Run workflow" button
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the two secrets are set
+        env:
+          DB: ${{ secrets.SUPABASE_DB_URL }}
+          PW: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          [ -n "$DB" ] || { echo "::error::Secret SUPABASE_DB_URL is not set"; exit 1; }
+          [ -n "$PW" ] || { echo "::error::Secret BACKUP_PASSPHRASE is not set"; exit 1; }
+
+      - name: Install the Postgres 17 client and 7-Zip
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17 p7zip-full
+
+      - name: Dump
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_DIR: ${{ runner.temp }}/dump
+        run: |
+          export PATH=/usr/lib/postgresql/17/bin:$PATH
+          ./scripts/backup.sh
+
+      - name: Encrypt
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          BACKUP_DIR: ${{ runner.temp }}/dump
+        run: |
+          stamp=$(date -u +%Y-%m-%d)
+          mkdir -p "$RUNNER_TEMP/out"
+          # -mhe=on also hides the file names inside
+          7z a -t7z -mhe=on -p"$BACKUP_PASSPHRASE" "$RUNNER_TEMP/out/sunspace-backup-$stamp.7z" "$BACKUP_DIR"/*/ > /dev/null
+          7z t -p"$BACKUP_PASSPHRASE" "$RUNNER_TEMP/out/sunspace-backup-$stamp.7z" | tail -3
+          ls -l "$RUNNER_TEMP/out"
+
+      - name: Keep it for 30 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: sunspace-backup
+          path: ${{ runner.temp }}/out/*.7z
+          retention-days: 30
+          if-no-files-found: error

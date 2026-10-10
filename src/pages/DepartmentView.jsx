@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { WORKFLOW_STAGES } from '../lib/statusColors'
-import { blockText, defectLabel, useSettings, weekPace } from '../lib/catalog'
+import { blockText, defectLabel, isoDate, useSettings, weekPace } from '../lib/catalog'
 import { nearestBuildWeekId, weekName, weekOptionLabel } from '../lib/dates'
 import { dbErrorText } from '../lib/dbError'
 import { DONE_RANK, HEADLINE_TONE_CLASS, buildNumbers, byBuildOrder, daysUntil, nextStageId as nextStage, relativeDay, shortDate, stageLabel, stageRank, wasMovedRecently, weekHeadline } from '../lib/schedule'
@@ -34,6 +34,10 @@ export default function DepartmentView() {
   const [allColumns, setAllColumns] = useState([])
   const [deptColumnMap, setDeptColumnMap] = useState({}) // deptId -> [columnId,…]
   const [ownColumnIds, setOwnColumnIds] = useState([])
+  // Orders still open for this department in a pickup whose date has gone by.
+  // A tablet shows one week at a time and starts on the next upcoming one, so
+  // without this an order left over from last week is on no screen at all.
+  const [earlier, setEarlier] = useState({ count: 0, weekId: null })
   const [orders, setOrders] = useState([])
   const [sheetOrder, setSheetOrder] = useState(null)
   // Counts this tablet's departments may type (tracks on Track …), from
@@ -114,6 +118,43 @@ export default function DepartmentView() {
     }
     setOwnColumnIds(Array.from(union))
   }, [selectedDeptIds, deptColumnMap])
+
+  // Counts what's still open from earlier pickups (not collected, not done here).
+  useEffect(() => {
+    const today = isoDate(new Date())
+    const pastIds = buildWeeks.filter((w) => w.ship_date && w.ship_date < today && w.id !== selectedWeekId).map((w) => w.id)
+    if (ownColumnIds.length === 0 || selectedWeekId === 'all' || pastIds.length === 0) {
+      setEarlier({ count: 0, weekId: null })
+      return
+    }
+    let active = true
+    ;(async () => {
+      const { data: os } = await supabase
+        .from('bt_orders')
+        .select('id, build_week_id')
+        .eq('status', 'active')
+        .is('actual_pickup_date', null)
+        .in('build_week_id', pastIds)
+      const weekOf = new Map((os ?? []).map((o) => [o.id, o.build_week_id]))
+      if (weekOf.size === 0) return active && setEarlier({ count: 0, weekId: null })
+      const { data: st } = await supabase
+        .from('bt_order_status')
+        .select('order_id, workflow_stage')
+        .in('order_id', [...weekOf.keys()])
+        .in('status_column_id', ownColumnIds)
+        .eq('is_visible', true)
+        .is('removed_at', null)
+      const open = new Set((st ?? []).filter((r) => stageRank(r.workflow_stage) < DONE_RANK).map((r) => r.order_id))
+      // Jump to the oldest of those pickups first: that's the one most overdue.
+      const oldest = buildWeeks
+        .filter((w) => [...open].some((id) => weekOf.get(id) === w.id))
+        .sort((a, b) => a.ship_date.localeCompare(b.ship_date))[0]
+      if (active) setEarlier({ count: open.size, weekId: oldest?.id ?? null })
+    })()
+    return () => {
+      active = false
+    }
+  }, [buildWeeks, ownColumnIds, selectedWeekId])
 
   // Load orders + statuses (including workflow_stage)
   useEffect(() => {
@@ -542,6 +583,17 @@ export default function DepartmentView() {
       <main className="px-4 sm:px-6 pb-24">
         {loadError && (
           <div className="mt-3 bg-andonRedBg text-andonRed text-sm px-4 py-3 rounded-lg">⚠ {loadError}</div>
+        )}
+        {earlier.count > 0 && earlier.weekId != null && (
+          <button
+            onClick={() => setSelectedWeekId(earlier.weekId)}
+            className="mt-3 w-full text-left rounded-lg bg-safety/15 border border-safety px-4 py-3 min-h-[48px] flex items-center justify-between gap-3"
+          >
+            <span className="text-sm font-semibold text-charcoal">
+              {earlier.count} {earlier.count === 1 ? 'order' : 'orders'} from an earlier pickup {earlier.count === 1 ? 'is' : 'are'} still open here
+            </span>
+            <span className="text-sm font-bold text-charcoal whitespace-nowrap">Show →</span>
+          </button>
         )}
 
         {/* ── Each bench on this tablet ── */}

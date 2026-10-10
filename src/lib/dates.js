@@ -48,7 +48,10 @@ export function weekName(w) {
  */
 export function nearestBuildWeekId(weeks) {
   if (!weeks || weeks.length === 0) return null
-  const today = new Date().toISOString().slice(0, 10)
+  // Local calendar day, not UTC: after about 7pm in Missouri the UTC date
+  // is already tomorrow, and the week shipping today would count as past.
+  const now = new Date()
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   const dated = weeks.filter((w) => w.ship_date)
   const upcoming = dated.filter((w) => w.ship_date >= today).sort((a, b) => a.ship_date.localeCompare(b.ship_date))
   if (upcoming[0]) return upcoming[0].id

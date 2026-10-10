@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { parseTruesdaleSheet, parseClipboardText, STATUS_COLUMNS } from '../lib/parseSheet'
 import { parseScreenshot } from '../lib/parseScreenshot'
+import { isoDate } from '../lib/catalog'
+import { shortDate } from '../lib/schedule'
+import { keepMovedWeekDates } from '../lib/weekMatch'
 
 export default function AdminImport({ buildWeeks, onCommitted }) {
   const [parsed, setParsed] = useState(null) // { orders, sections }
@@ -9,6 +12,7 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
   const [staleToDelete, setStaleToDelete] = useState({}) // staleOrder.id -> bool
   const [confirmedDelete, setConfirmedDelete] = useState(false)
   const [sectionOverrides, setSectionOverrides] = useState({}) // isoDate -> { label, isoDate }
+  const [movedWeeks, setMovedWeeks] = useState({}) // sheet isoDate -> the date its orders were moved to in the app
   const [includedOrders, setIncludedOrders] = useState({}) // tagName -> bool
   // Which pickup-date sections of the sheet to import: isoDate -> bool,
   // plus NO_SECTION for rows above the first PICK UP banner.
@@ -62,22 +66,25 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
       setSource(source)
 
       const currentTags = new Set(data.orders.map((o) => o.tagName))
-      const { data: existing } = await supabase.from('bt_orders').select('id, tag_name')
+      const { data: existing } = await supabase.from('bt_orders').select('id, tag_name, build_week_id')
       const stale = (existing ?? []).filter((o) => !currentTags.has(o.tag_name))
       setStaleOrders(stale)
       setStaleToDelete({})
       setConfirmedDelete(false)
 
-      const overrides = {}
-      data.sections.forEach((s) => {
-        overrides[s.isoDate] = { label: s.label, isoDate: s.isoDate }
-      })
+      // The sheet still says PICK UP 10/2 after admin moved that week to
+      // 10/3 in the app. Matching on the sheet's date alone finds no week,
+      // makes a second one, and pulls every order into it — silently
+      // undoing the move. So when no week has the sheet's date but the
+      // orders already live in one that does not, keep that week's date.
+      const { overrides, moved } = keepMovedWeekDates(data.sections, data.orders, existing, buildWeeks)
       setSectionOverrides(overrides)
+      setMovedWeeks(moved)
 
       // Start with just the next pickup that hasn't happened yet — the
       // usual case is importing one week. Rows above the first banner are
       // normally already shipped, so they start unticked.
-      const today = new Date().toISOString().slice(0, 10)
+      const today = isoDate(new Date())
       const next = data.sections.find((sec) => sec.isoDate >= today) ?? data.sections[data.sections.length - 1]
       setPickedSections(next ? { [next.isoDate]: true } : { [NO_SECTION]: true })
 
@@ -441,6 +448,12 @@ export default function AdminImport({ buildWeeks, onCommitted }) {
                           className="border border-paperDim rounded px-1 py-0.5 text-xs"
                         />
                       </label>
+                      {movedWeeks[s.isoDate] && sectionOverrides[s.isoDate]?.isoDate === movedWeeks[s.isoDate] && (
+                        <p className="mt-1 text-xs font-semibold text-safetyDark">
+                          Sheet still says {shortDate(s.isoDate)}, but these orders are already in the week you moved to{' '}
+                          {shortDate(movedWeeks[s.isoDate])}. Keeping that date — change it above if the sheet is right.
+                        </p>
+                      )}
                     </div>
                   </div>
                 )

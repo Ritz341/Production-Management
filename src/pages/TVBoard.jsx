@@ -489,11 +489,11 @@ export default function TVBoard({ department }) {
                 <div className="text-[1.2vw] text-floorMute mt-2">
                   {plan
                     ? processes.some((p) => !ratePerHourOf(p))
-                      ? 'No target yet — admin sets each process’s minutes in Admin → Targets & TVs.'
+                      ? 'No target yet — admin sets each process’s minutes in Admin → Setup → Targets & TVs.'
                       : 'No crew set for today — admin sets people per process on the Overview.'
                     : rate.perPerson
                       ? 'No crew set for today — admin can set it on the Overview.'
-                      : 'No target set — admin sets the rate per person in Admin → Targets & TVs.'}
+                      : 'No target set — admin sets the rate per person in Admin → Setup → Targets & TVs.'}
                 </div>
               )}
 

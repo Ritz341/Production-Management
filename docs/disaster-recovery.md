@@ -6,30 +6,50 @@ Nothing is lost *in the code*: the app is on GitHub and deploys from Netlify. Wh
 |---|---|---|
 | App code | GitHub (`Ritz341/Production-Management`) | GitHub |
 | Website | Netlify, built from `main` | rebuilt from GitHub any time |
-| **Orders, statuses, settings, history** | Supabase database, `public` schema | `scripts/backup.sh` → `public.dump` |
-| **Logins** (13 accounts) | Supabase `auth.users` | `scripts/backup.sh` → `auth.sql` |
-| **Order paperwork PDFs** | Supabase Storage bucket `bt-files` | rclone copy (below) |
+| **Orders, statuses, settings, history** | Supabase database, `public` schema | nightly GitHub backup → `public.dump` |
+| **Logins** (13 accounts) | Supabase `auth.users` | nightly GitHub backup → `auth.sql` |
+| **Order paperwork PDFs** | Supabase Storage bucket `bt-files` | optional rclone copy (1b); the originals also exist as the files your configuration team sends |
 | The two secrets the site needs | Netlify → Environment variables | write them in your password manager |
 
 Supabase's free plan gives you **no downloadable automatic backups**, and it **pauses a project after a week with no activity**. So the safety net is yours to run.
 
-## 1. Set up the backup (once, ~20 minutes, on the in-house server)
+## 1. Easiest: let GitHub make the backup (no server, no PC left on)
+
+`.github/workflows/backup.yml` runs every night on GitHub's own machines. It dumps the database and the logins, locks the result with a passphrase (AES-256 — the repo is public, so the file must be unreadable without it), and keeps it for **30 days**.
+
+**Set up once (10 minutes):**
+1. Supabase → **Connect** → **Session pooler** → copy the address (`postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres`, with your database password filled in).
+2. GitHub → this repo → **Settings → Secrets and variables → Actions → New repository secret**. Add two:
+   - `SUPABASE_DB_URL` — the address from step 1
+   - `BACKUP_PASSPHRASE` — a long passphrase you make up. **Save it in your password manager: without it the backups cannot be opened.**
+3. **Actions → Nightly backup → Run workflow** once to prove it works. A green tick and a file under **Artifacts** means it's done. A red cross emails you.
+
+**Get a copy onto your computer / OneDrive (once a month, 2 minutes):**
+1. Actions → Nightly backup → the newest green run → **Artifacts → sunspace-backup** (downloads a zip).
+2. Unzip it and move the `sunspace-backup-<date>.7z` file into a OneDrive folder.
+3. To open it later: install the free **7-Zip**, right-click the file → 7-Zip → Extract, enter the passphrase. You get a folder with `public.dump`, `auth.sql` and `storage.sql`.
+
+GitHub only keeps 30 days and can switch scheduled jobs off if the repo is untouched for 60 days, so the monthly copy to OneDrive is what makes this a real second copy.
+
+## 1b. Optional: also run it from your own computer or server
+
+Skip this if the GitHub backup is enough. To run `scripts/backup.sh` yourself (Linux/WSL, or an in-house server):
 
 1. Install the Postgres client (`sudo apt install postgresql-client`, version 15 or newer) and `rclone`.
-2. Get the database address: Supabase → **Connect** → **Session pooler**. (The "direct" address is IPv6-only and fails on most networks.) It looks like `postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres`.
-3. Copy `scripts/backup.sh` to the server and add a nightly job (`crontab -e`):
+2. Use the same Session pooler address as above (the "direct" address is IPv6-only and fails on most networks).
+3. Add a nightly job (`crontab -e`):
    ```
    15 2 * * *  SUPABASE_DB_URL='postgresql://…' BACKUP_DIR=/srv/backups/sunspace /srv/sunspace/backup.sh >> /srv/backups/backup.log 2>&1
    ```
    It writes one dated folder per night and keeps 30 days.
-4. Paperwork PDFs: Supabase → **Project settings → Storage → S3 connection** → create an access key, then
+4. Paperwork PDFs (not in the GitHub backup — they are copies of files your configuration team sends): Supabase → **Project settings → Storage → S3 connection** → create an access key, then
    ```
    rclone config            # new remote "supabase", type s3, provider Other, paste endpoint/region/keys
    rclone sync supabase:bt-files /srv/backups/sunspace/files   # add to the same nightly job
    ```
-5. Once a month copy `/srv/backups/sunspace` to a second place (USB drive, another PC). A backup on the same machine as the only server isn't a backup.
+5. Once a month copy `/srv/backups/sunspace` to a second place (USB drive, OneDrive). A backup on the same machine as the only server isn't a backup.
 
-**Check it works:** the script ends with `backup ok: <folder>`. Open the log after the first night.
+**Check it works:** the script ends with `backup ok: <folder>`.
 
 ## 2. If Supabase is gone: bring it back
 
@@ -45,7 +65,7 @@ Two options. Both use the same backup. **Option A is the quickest.**
 
 ### 3. Restore, in this order
 
-Use the newest folder in your backups (`$B` below). `$DB` is the new database's connection string.
+Use the newest backup (`$B` below is the folder you extracted from the `.7z`, or the newest dated folder on the server). `$DB` is the new database's connection string.
 
 ```
 psql  "$DB" -f $B/auth.sql                       # 1. logins first — profiles point at them

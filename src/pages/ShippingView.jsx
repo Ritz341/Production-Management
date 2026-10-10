@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../lib/AuthContext.jsx'
 import { useConnection } from '../lib/ConnectionContext.jsx'
 import { DONE_RANK, daysUntil, relativeDay, shortDate, stageRank } from '../lib/schedule'
+import { isoDate } from '../lib/catalog'
 import { dbErrorText } from '../lib/dbError'
 import NotificationBanner, { NotificationBell } from '../components/NotificationBanner.jsx'
 import OrderSheet from '../components/OrderSheet.jsx'
@@ -350,7 +351,7 @@ function LoadingSheet({ group, trucks }) {
             <b>Orders</b> <span className="inline-block w-14 border-b border-black">&nbsp;</span>
           </span>
           <span>
-            <b>Printed</b> {shortDate(new Date().toISOString().slice(0, 10))}
+            <b>Printed</b> {shortDate(isoDate(new Date()))}
           </span>
           <span>
             <b>Trucks</b> <span className="inline-block w-14 border-b border-black">&nbsp;</span>
